@@ -544,11 +544,13 @@ def main():
     (analysis_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
 
     candidates = []
+    candidates_from_cache = False
     if cache["candidates"].exists():
         try:
             cached_candidates = json.loads(cache["candidates"].read_text(encoding="utf-8"))
             if isinstance(cached_candidates, list) and cached_candidates:
                 candidates = cached_candidates
+                candidates_from_cache = True
                 debug_log(
                     f"[progress] ♻ Использую сохранённый пул из {len(candidates)} моментов — повторно весь VOD не анализирую. (overall: 84.0%)",
                     flush=True,
@@ -612,11 +614,23 @@ def main():
             flush=True,
         )
 
-    debug_log(
-        f"[progress] OpenAI выбирает TOP-{min(requested, len(candidates))} из {len(candidates)} кандидатов... (overall: 88.0%)",
-        flush=True,
-    )
-    best = global_rank(core, candidates, min(requested, len(candidates)), info)
+    target_count = min(requested, len(candidates))
+    if candidates_from_cache:
+        debug_log(
+            f"[progress] ♻ TOP-{target_count} выбираю из сохранённого пула по уже рассчитанным AI-оценкам — новый запрос OpenAI не нужен. (overall: 88.0%)",
+            flush=True,
+        )
+        best = sorted(
+            candidates,
+            key=lambda x: x.get("virality_score", 0),
+            reverse=True,
+        )[:target_count]
+    else:
+        debug_log(
+            f"[progress] OpenAI выбирает TOP-{target_count} из {len(candidates)} кандидатов... (overall: 88.0%)",
+            flush=True,
+        )
+        best = global_rank(core, candidates, target_count, info)
 
     def sig(h):
         return (
