@@ -158,18 +158,56 @@ class StreamerLayoutRenderer:
         if progress_callback:
             progress_callback(0.05)
 
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-        _, stderr = proc.communicate()
+        def run(command):
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            _, stderr_text = proc.communicate()
+            return proc.returncode, stderr_text or ""
 
-        if proc.returncode != 0:
+        code, stderr = run(cmd)
+
+        if code != 0 and any(
+            enc in " ".join(self.encoder_args)
+            for enc in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf")
+        ):
+            self.log("  ⚠ GPU encoder не принял фильтр — повторяю Streamer Layout на CPU.")
+            cpu_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+            gpu_start = 0
+            gpu_end = 0
+            # Encoder args are inserted immediately after '-map 0:a?'. Rebuild
+            # the command instead of trying to surgically parse codec options.
+            cmd = [
+                self.ffmpeg_path,
+                "-y",
+                "-i",
+                input_path,
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[v]",
+                "-map",
+                "0:a?",
+                *cpu_args,
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                output_path,
+            ]
+            code, stderr = run(cmd)
+
+        if code != 0:
             tail = "\n".join((stderr or "").splitlines()[-35:])
             raise StreamerLayoutError(f"FFmpeg не смог собрать Streamer Layout:\n{tail}")
 
