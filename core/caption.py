@@ -731,7 +731,8 @@ class CaptionMixin:
             # Create ASS subtitle file - kept in the clip folder (no deletion)
             ass_file = str(clip_folder / "captions.ass")
             # Whisper word timestamps are systematically late -> compensate
-            sync_offset = getattr(self, "subtitle_sync_offset", 0.0)
+            sync_offset = float(getattr(self, "subtitle_sync_offset", 0.0) or 0.0)
+            sync_offset = max(-0.15, min(0.15, sync_offset))
             ass_offset = time_offset + sync_offset
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
