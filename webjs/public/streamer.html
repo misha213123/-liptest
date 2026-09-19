@@ -64,7 +64,7 @@ html[data-theme="light"] .btn-purple{background:#52525b}
 .stepbar span{font-size:11px;color:var(--muted);white-space:nowrap}
 #previewStage{width:100%;background:#08090b;border:1px solid var(--line);border-radius:10px;padding:6px;overflow:hidden}
 html[data-theme="light"] #previewStage{background:#ececef}
-#previewCanvas{display:block;width:100%;max-width:960px;height:auto;margin:0 auto;border-radius:7px;background:#050505;touch-action:none;cursor:crosshair}
+#previewCanvas{display:block;width:min(960px,100%);height:auto;margin:0 auto;border:0;border-radius:7px;background:#050505;touch-action:none;cursor:crosshair;user-select:none;-webkit-user-select:none}
 progress{accent-color:#71717a}
 progress::-webkit-progress-bar{background:var(--panel-2);border-radius:999px}
 progress::-webkit-progress-value{background:#71717a;border-radius:999px}
@@ -564,11 +564,20 @@ function redraw(){
 }
 drawPlaceholder();
 function point(e){
+  // offsetX/offsetY are relative to the ACTUAL canvas content box and stay
+  // correct with browser zoom, page scroll and responsive CSS scaling.
   const b=canvas.getBoundingClientRect();
-  const sx=canvas.width/b.width, sy=canvas.height/b.height;
+  const cssW=canvas.clientWidth||b.width||1;
+  const cssH=canvas.clientHeight||b.height||1;
+  let cssX,cssY;
+  if(e.target===canvas&&Number.isFinite(e.offsetX)&&Number.isFinite(e.offsetY)){
+    cssX=e.offsetX;cssY=e.offsetY;
+  }else{
+    cssX=e.clientX-b.left;cssY=e.clientY-b.top;
+  }
   return{
-    x:Math.max(0,Math.min(canvas.width,(e.clientX-b.left)*sx)),
-    y:Math.max(0,Math.min(canvas.height,(e.clientY-b.top)*sy))
+    x:Math.max(0,Math.min(canvas.width,cssX*(canvas.width/cssW))),
+    y:Math.max(0,Math.min(canvas.height,cssY*(canvas.height/cssH)))
   };
 }
 canvas.addEventListener('pointerdown',e=>{
@@ -583,8 +592,7 @@ canvas.addEventListener('pointerdown',e=>{
 canvas.addEventListener('pointermove',e=>{
   if(!dragging)return;
   e.preventDefault();
-  const events=e.getCoalescedEvents?e.getCoalescedEvents():[e];
-  const p=point(events[events.length-1]||e);
+  const p=point(e);
   rect={
     x:Math.min(startPt.x,p.x),y:Math.min(startPt.y,p.y),
     w:Math.abs(p.x-startPt.x),h:Math.abs(p.y-startPt.y)
@@ -604,7 +612,7 @@ $('#clearBox').onclick=()=>{rect=null;redraw();rectInfo()};
 function nrect(){return rect?{x:+(rect.x/canvas.width).toFixed(6),y:+(rect.y/canvas.height).toFixed(6),w:+(rect.w/canvas.width).toFixed(6),h:+(rect.h/canvas.height).toFixed(6)}:null}
 function rectInfo(){const r=nrect();$('#rx').textContent=r?(r.x*100).toFixed(1)+'%':'—';$('#ry').textContent=r?(r.y*100).toFixed(1)+'%':'—';$('#rw').textContent=r?(r.w*100).toFixed(1)+'%':'—';$('#rh').textContent=r?(r.h*100).toFixed(1)+'%':'—'}
 
-const PROFILE_KEY='streamer_webcam_profiles_v2';
+const PROFILE_KEY='streamer_webcam_profiles_v3';
 function profiles(){try{return JSON.parse(localStorage.getItem(PROFILE_KEY)||'{}')}catch{return{}}}
 function refreshProfiles(){const all=profiles(),sel=$('#profileSelect'),cur=sel.value;sel.innerHTML='<option value="">Сохранённые профили...</option>';Object.keys(all).sort().forEach(name=>{const o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o)});if(all[cur])sel.value=cur}
 $('#saveProfile').onclick=()=>{const name=$('#profileName').value.trim(),r=nrect();if(!name)return alert('Введи имя профиля.');if(!r)return alert('Сначала выдели вебку.');const all=profiles();all[name]={rect:r,camPct:+$('#camPct').value,gameX:+$('#gameX').value};localStorage.setItem(PROFILE_KEY,JSON.stringify(all));refreshProfiles();$('#profileSelect').value=name};
@@ -631,7 +639,7 @@ async function analyzeWholeVod(){
  const dur=durationValues();$('#analyzeBtn').disabled=true;$('#analysisBox').classList.remove('hidden');$('#highlightsSection').classList.add('hidden');$('#analysisProgress').value=1;$('#analysisPct').textContent='1%';$('#analysisStatus').textContent='Запускаю анализ всего ролика...';
  const r=await fetch('/api/streamer/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,min_duration:dur.min,max_duration:dur.max,num_clips:+$('#numClips').value})});
  const d=await r.json();if(!r.ok){$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+(d.error||'Ошибка');return}
- const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?'OpenAI анализирует весь ролик...':(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){analysisHighlights=s.result.highlights||[];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';$('#analysisStatus').textContent='✅ OpenAI выбрал '+analysisHighlights.length+' лучших моментов'}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?'OpenAI анализирует весь ролик...':(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){analysisHighlights=s.result.highlights||[];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';$('#analysisStatus').textContent=s.result.cached?('♻ Сохранённый анализ: '+analysisHighlights.length+' моментов • API не использовался'):('✅ OpenAI выбрал '+analysisHighlights.length+' лучших моментов')}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
 }
 $('#analyzeBtn').onclick=()=>analyzeWholeVod().catch(e=>{$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+e.message});
 
