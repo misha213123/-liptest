@@ -613,6 +613,7 @@ const server = http.createServer((req, res) => {
           switch_threshold: mp.switch_threshold ?? 0.18,
           min_shot_duration: mp.min_shot_duration ?? 45,
           lip_activity: mp.lip_activity_threshold ?? 0.08,
+          speaker_dead_zone: mp.speaker_dead_zone ?? 0.16,
           gpu: !!(cfg.gpu_acceleration && cfg.gpu_acceleration.enabled),
           hf_model: (ap.highlight_finder || {}).model || 'AUTO',
           server_url: (ap.highlight_finder || {}).base_url || '',
@@ -684,6 +685,7 @@ const server = http.createServer((req, res) => {
         for (const k of ['pan_speed_limit', 'center_weight', 'switch_threshold']) if (isNum(o[k])) cfg.mediapipe_settings[k] = o[k];
         if (isNum(o.min_shot_duration)) cfg.mediapipe_settings.min_shot_duration = Math.max(1, Math.round(o.min_shot_duration));
         if (isNum(o.lip_activity)) cfg.mediapipe_settings.lip_activity_threshold = o.lip_activity;
+        if (isNum(o.speaker_dead_zone)) cfg.mediapipe_settings.speaker_dead_zone = Math.max(0.05, Math.min(0.30, o.speaker_dead_zone));
         // Pro video editing features
         cfg.pro_settings = cfg.pro_settings || {};
         if ('stabilize' in o) cfg.pro_settings.stabilize = !!o.stabilize;
