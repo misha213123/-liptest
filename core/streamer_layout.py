@@ -117,8 +117,9 @@ class StreamerLayoutRenderer:
 
         filter_complex = (
             f"[0:v]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},"
-            f"scale={inner_w}:{inner_h}:force_original_aspect_ratio=increase,"
+            f"scale={inner_w}:{inner_h}:force_original_aspect_ratio=increase:flags=lanczos,"
             f"crop={inner_w}:{inner_h},"
+            f"unsharp=5:5:0.45:5:5:0.0,"
             f"pad={output_width}:{top_h}:{pad}:{pad}:black[cam];"
             f"[0:v]crop={game_crop_w}:{source_h}:{game_x}:0,"
             f"scale={output_width}:{game_h}:flags=lanczos[game];"
