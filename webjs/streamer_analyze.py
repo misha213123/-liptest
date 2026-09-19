@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import re
@@ -300,6 +301,23 @@ def global_rank(core: AutoClipperCore, candidates: list[dict], target: int, vide
     return sorted(candidates, key=lambda x: x.get("virality_score", 0), reverse=True)[:target]
 
 
+def cache_paths(url: str, min_duration: int, max_duration: int, requested: int) -> dict:
+    url_key = hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:24]
+    cache_dir = APP_DIR / "output" / "streamer_cache" / url_key
+    analysis_key = f"{min_duration}_{max_duration}_{requested}"
+    return {
+        "dir": cache_dir,
+        "transcript": cache_dir / "transcript.txt",
+        "info": cache_dir / "video_info.json",
+        "analysis": cache_dir / f"analysis_{analysis_key}.json",
+    }
+
+
+def write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("Usage: streamer_analyze.py <job.json> <result.json>")
@@ -316,6 +334,26 @@ def main():
     max_duration = max(min_duration, min(240, int(job.get("max_duration") or 55)))
     requested = max(1, min(12, int(job.get("num_clips") or 5)))
 
+    cache = cache_paths(url, min_duration, max_duration, requested)
+    cache["dir"].mkdir(parents=True, exist_ok=True)
+
+    # Exact same URL + duration range + clip count: return saved AI result.
+    # This avoids BOTH Whisper and highlight-model API spend on repeat runs.
+    if cache["analysis"].exists():
+        try:
+            cached_payload = json.loads(cache["analysis"].read_text(encoding="utf-8"))
+            cached_payload["ok"] = True
+            cached_payload["id"] = str(job.get("id") or cached_payload.get("id") or uuid.uuid4().hex[:12])
+            cached_payload["cached"] = True
+            cached_payload["cache_kind"] = "analysis"
+            debug_log("[progress] ♻ Использую сохранённый AI-анализ — токены не тратятся. (overall: 100.0%)", flush=True)
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text(json.dumps(cached_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(json.dumps(cached_payload, ensure_ascii=False), flush=True)
+            return
+        except Exception as exc:
+            debug_log(f"[streamer-ai] Не удалось прочитать кэш анализа: {exc}", flush=True)
+
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
     core.system_prompt = streamer_prompt(min_duration, max_duration)
@@ -325,40 +363,59 @@ def main():
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
     debug_log("[progress] Читаю данные VOD... (overall: 2.0%)", flush=True)
-    info = fetch_info(url)
+    if cache["info"].exists():
+        try:
+            info = json.loads(cache["info"].read_text(encoding="utf-8"))
+        except Exception:
+            info = fetch_info(url)
+            write_json(cache["info"], info)
+    else:
+        info = fetch_info(url)
+        write_json(cache["info"], info)
+
     debug_log(
         f"[streamer-ai] {info.get('title')} | {info.get('channel')} | {info.get('duration',0):.0f}s",
         flush=True,
     )
 
-    debug_log("[progress] Загружаю аудио всего ролика... (overall: 5.0%)", flush=True)
-    audio_path = download_audio(url, analysis_dir)
+    if cache["transcript"].exists() and cache["transcript"].stat().st_size > 20:
+        transcript = cache["transcript"].read_text(encoding="utf-8")
+        debug_log(
+            "[progress] ♻ Использую сохранённую транскрипцию — Whisper API не вызывается. (overall: 45.0%)",
+            flush=True,
+        )
+    else:
+        debug_log("[progress] Загружаю аудио всего ролика... (overall: 5.0%)", flush=True)
+        audio_path = download_audio(url, analysis_dir)
 
-    debug_log("[progress] Проверяю быстрый Faster-Whisper на GPU... (overall: 28.0%)", flush=True)
-    try:
-        transcript = core._transcribe_full_faster_whisper(
-            str(audio_path),
-            allow_cpu_fallback=False,
-            progress_callback=lambda p: debug_log(
-                f"[progress] Faster-Whisper GPU {int(p * 100)}% "
-                f"(overall: {28 + p * 17:.1f}%)",
+        debug_log("[progress] Проверяю быстрый Faster-Whisper на GPU... (overall: 28.0%)", flush=True)
+        try:
+            transcript = core._transcribe_full_faster_whisper(
+                str(audio_path),
+                allow_cpu_fallback=False,
+                progress_callback=lambda p: debug_log(
+                    f"[progress] Faster-Whisper GPU {int(p * 100)}% "
+                    f"(overall: {28 + p * 17:.1f}%)",
+                    flush=True,
+                ),
+            )
+        except Exception as exc:
+            debug_log(
+                f"[streamer-ai] GPU Faster-Whisper недоступен: {exc}",
                 flush=True,
-            ),
-        )
-    except Exception as exc:
-        debug_log(
-            f"[streamer-ai] GPU Faster-Whisper недоступен: {exc}",
-            flush=True,
-        )
-        debug_log(
-            "[streamer-ai] CPU medium пропускаю: для длинного VOD это слишком медленно и сильно греет ноутбук.",
-            flush=True,
-        )
-        debug_log(
-            "[progress] Переключаюсь на OpenAI Whisper API... (overall: 30.0%)",
-            flush=True,
-        )
-        transcript = core.transcribe_full_video(str(audio_path))
+            )
+            debug_log(
+                "[streamer-ai] CPU medium пропускаю: для длинного VOD это слишком медленно и сильно греет ноутбук.",
+                flush=True,
+            )
+            debug_log(
+                "[progress] Переключаюсь на OpenAI Whisper API... (overall: 30.0%)",
+                flush=True,
+            )
+            transcript = core.transcribe_full_video(str(audio_path))
+
+        cache["transcript"].write_text(transcript, encoding="utf-8")
+        debug_log("[streamer-ai] ✓ Транскрипция сохранена в кэш для повторных запусков.", flush=True)
 
     (analysis_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
 
@@ -418,6 +475,11 @@ def main():
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    cache_payload = dict(payload)
+    cache_payload["cached"] = False
+    cache_payload["cache_kind"] = "fresh"
+    write_json(cache["analysis"], cache_payload)
+    debug_log("[streamer-ai] ✓ AI-анализ сохранён. Повтор с теми же настройками будет без API.", flush=True)
 
     debug_log(f"[progress] Найдено {len(best)} лучших моментов. (overall: 100.0%)", flush=True)
     print(json.dumps(payload, ensure_ascii=False), flush=True)
