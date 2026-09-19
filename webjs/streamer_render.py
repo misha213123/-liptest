@@ -348,6 +348,7 @@ def insert_ad_banner(
     chroma_blend: float = 0.08,
     keep_aspect: bool = True,
     mode: str = "pause",
+    source_crop: dict | None = None,
 ) -> float:
     """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
@@ -377,6 +378,28 @@ def insert_ad_banner(
     target_h = max(64, int(round(1920 * height_pct)))
     post_duration = max(0.0, clip_duration - pause_at)
 
+    # Optional normalized crop from the browser editor. This removes black
+    # pillar/letter-box borders from the ad source BEFORE chroma key + scaling.
+    crop_prefix = ""
+    if source_crop:
+        try:
+            sx = max(0.0, min(0.95, float(source_crop.get("x", 0.0))))
+            sy = max(0.0, min(0.95, float(source_crop.get("y", 0.0))))
+            sw = max(0.05, min(1.0 - sx, float(source_crop.get("w", 1.0))))
+            sh = max(0.05, min(1.0 - sy, float(source_crop.get("h", 1.0))))
+            if sx > 0.002 or sy > 0.002 or sw < 0.998 or sh < 0.998:
+                crop_prefix = (
+                    f"crop=w='iw*{sw:.6f}':h='ih*{sh:.6f}':"
+                    f"x='iw*{sx:.6f}':y='ih*{sy:.6f}',"
+                )
+                debug_log(
+                    f"[streamer] Ad source crop: x={sx:.3f}, y={sy:.3f}, "
+                    f"w={sw:.3f}, h={sh:.3f}",
+                    flush=True,
+                )
+        except Exception:
+            crop_prefix = ""
+
     raw_chroma = str(chroma_color or "#00FF00").strip().lstrip("#")
     if not re.fullmatch(r"[0-9A-Fa-f]{6}", raw_chroma):
         raw_chroma = "00FF00"
@@ -385,11 +408,12 @@ def insert_ad_banner(
 
     scale_expr = (
         (
-            f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
-            f"format=rgba,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+            crop_prefix
+            + f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+            + f"format=rgba,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
         )
         if keep_aspect
-        else f"scale={target_w}:{target_h}"
+        else crop_prefix + f"scale={target_w}:{target_h}"
     )
     ad_filters = [
         f"trim=duration={banner_duration:.3f}",
@@ -597,6 +621,7 @@ def main():
     banner_chroma_blend = float(job.get("banner_chroma_blend", 0.06) or 0.06)
     banner_keep_aspect = bool(job.get("banner_keep_aspect", False))
     banner_mode = str(job.get("banner_mode") or "pause").strip().lower()
+    banner_source_crop = dict(job.get("banner_source_crop") or {})
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -696,6 +721,7 @@ def main():
             chroma_blend=banner_chroma_blend,
             keep_aspect=banner_keep_aspect,
             mode=banner_mode,
+            source_crop=banner_source_crop,
         )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
@@ -744,6 +770,7 @@ def main():
         "banner_chroma_blend": banner_chroma_blend,
         "banner_keep_aspect": banner_keep_aspect,
         "banner_mode": banner_mode,
+        "banner_source_crop": banner_source_crop,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
