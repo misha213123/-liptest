@@ -625,6 +625,7 @@ const server = http.createServer((req, res) => {
           tts_model: (cfg.ai_providers&&cfg.ai_providers.hook_maker&&cfg.ai_providers.hook_maker.model) || cfg.tts_model || 'tts-1',
           temperature: cfg.temperature ?? 1.0,
           subtitle_language: cfg.subtitle_language || 'ru-orig',
+          subtitle_settings: cfg.subtitle_settings || {},
           hf_system_message: ((ap.highlight_finder || {}).system_message) || '',
           hf_api_key: (ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY || '',
           hf_api_key_set: !!((ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY),
@@ -661,6 +662,21 @@ const server = http.createServer((req, res) => {
           cfg.subtitle_style = o.subtitle_style === 'karaoke' ? 'karaoke' : 'pop';
         }
         if (isNum(o.sync_offset)) cfg.subtitle_sync_offset = o.sync_offset;
+        if (o.subtitle_settings && typeof o.subtitle_settings === 'object') {
+          cfg.subtitle_settings = Object.assign({}, cfg.subtitle_settings || {});
+          const ss = o.subtitle_settings;
+          if (isNum(ss.font_size)) cfg.subtitle_settings.font_size = Math.max(28, Math.min(90, Math.round(ss.font_size)));
+          if (isNum(ss.position_y_pct)) cfg.subtitle_settings.position_y_pct = Math.max(0.45, Math.min(0.90, ss.position_y_pct));
+          if (isNum(ss.safe_margin)) cfg.subtitle_settings.safe_margin = Math.max(30, Math.min(180, Math.round(ss.safe_margin)));
+          if (isNum(ss.max_words)) cfg.subtitle_settings.max_words = Math.max(1, Math.min(6, Math.round(ss.max_words)));
+          if (isNum(ss.max_chars)) cfg.subtitle_settings.max_chars = Math.max(10, Math.min(40, Math.round(ss.max_chars)));
+          if (isNum(ss.outline)) cfg.subtitle_settings.outline = Math.max(0, Math.min(8, Math.round(ss.outline)));
+          if (isNum(ss.shadow)) cfg.subtitle_settings.shadow = Math.max(0, Math.min(6, Math.round(ss.shadow)));
+          for (const k of ['text_color', 'highlight_color']) {
+            if (typeof ss[k] === 'string' && /^#[0-9a-fA-F]{6}$/.test(ss[k])) cfg.subtitle_settings[k] = ss[k];
+          }
+          if (typeof ss.font_name === 'string' && ss.font_name.trim()) cfg.subtitle_settings.font_name = ss.font_name.trim().slice(0, 80);
+        }
         if (typeof o.portrait_mode === 'string' && o.portrait_mode) cfg.portrait_mode = o.portrait_mode;
         if (typeof o.face_tracking_mode === 'string' && o.face_tracking_mode) cfg.face_tracking_mode = o.face_tracking_mode;
         cfg.mediapipe_settings = cfg.mediapipe_settings || {};
