@@ -445,7 +445,7 @@ def insert_ad_banner(
             f"[1:v]{','.join(overlay_ad_filters)}[advid]",
             (
                 f"[vbg][advid]overlay="
-                f"x='(W-w)*{x_pct:.4f}':y='(H-h)*{y_pct:.4f}':"
+                f"x='W*{x_pct:.4f}-w/2':y='H*{y_pct:.4f}-h/2':"
                 f"eof_action=pass[vout]"
             ),
         ])
@@ -488,7 +488,7 @@ def insert_ad_banner(
         f"[1:v]{','.join(ad_filters)}[advid]",
         (
             f"[vblur][advid]overlay="
-            f"x='(W-w)*{x_pct:.4f}':y='(H-h)*{y_pct:.4f}':"
+            f"x='W*{x_pct:.4f}-w/2':y='H*{y_pct:.4f}-h/2':"
             f"eof_action=pass:shortest=1[vad]"
         ),
         "[vpre][vad][vpost]concat=n=3:v=1:a=0[vout]",
