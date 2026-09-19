@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="id">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -49,51 +49,51 @@ tailwind.config = {
       <span class="w-7 h-7 rounded-lg logo-mark flex items-center justify-center font-black text-sm">⚡</span>
       <span class="font-bold text-sm tracking-wide text-white font-heading">AUTO<span class="text-[var(--accent)]">CLIPPER</span></span>
     </div>
-    <div class="flex items-center gap-2"><button class="darkmode-btn darkmode-compact" aria-label="Toggle dark mode">🌙</button><a href="/logout" class="min-h-[32px] min-w-[44px] flex items-center justify-center text-xs text-zinc-400 hover:text-white transition md:hidden">Logout</a></div>
+    <div class="flex items-center gap-2"><button class="darkmode-btn darkmode-compact" aria-label="Toggle dark mode">🌙</button><a href="/logout" class="min-h-[32px] min-w-[44px] flex items-center justify-center text-xs text-zinc-400 hover:text-white transition md:hidden">Выйти</a></div>
   </div>
 
-  <nav aria-label="Menu Utama" class="p-2 md:p-3 flex flex-row md:flex-col gap-1.5 flex-wrap" id="sidebarLinks">
-    <a href="/" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition bg-[var(--accent)] text-[var(--accent-text)] font-bold shadow-sm"><span>🏠</span><span>Library Sesi</span></a>
-    <a href="/create.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>➕</span><span>Create Clip</span></a>
-    <a href="/tasks.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>📋</span><span>Antrean Tasks</span></a>
-    <a href="/story.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>🎬</span><span>AI Story</span></a>
-    <a href="/facebook.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>📘</span><span>FB Auto Upload</span></a>
+  <nav aria-label="Главное меню" class="p-2 md:p-3 flex flex-row md:flex-col gap-1.5 flex-wrap" id="sidebarLinks">
+    <a href="/" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition bg-[var(--accent)] text-[var(--accent-text)] font-bold shadow-sm"><span>🏠</span><span>Сессии</span></a>
+    <a href="/create.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>➕</span><span>Создать клип</span></a>
+    <a href="/tasks.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>📋</span><span>Очередь задач</span></a>
+    <a href="/story.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>🎬</span><span>AI-сюжет</span></a>
+    <a href="/facebook.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>📘</span><span>Автозагрузка FB</span></a>
     <a href="/cookies.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>🍪</span><span>Cookies YouTube</span></a>
-                    <a href="/settings.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>⚙️</span><span>Settings & AI</span></a>
+                    <a href="/settings.html" class="flex items-center gap-1.5 md:gap-1.5 md:gap-2.5 min-h-[28px] md:min-h-[40px] px-2 md:px-3.5 py-1 md:py-2.5 text-[10px] md:text-xs rounded-lg transition text-zinc-300 hover:text-white hover:bg-zinc-900 font-medium"><span>⚙️</span><span>Настройки и AI</span></a>
   </nav>
 
-  <!-- Engine Status Indication -->
+  <!-- Состояние системы Indication -->
   <div class="mt-auto px-4 py-3 border-t border-zinc-800/80 hidden md:flex flex-col gap-2 text-xs text-zinc-400 bg-zinc-950/40">
-    <span class="font-semibold text-[10px] uppercase tracking-wider text-zinc-400">⚡ Engine Status</span>
+    <span class="font-semibold text-[10px] uppercase tracking-wider text-zinc-400">⚡ Состояние системы</span>
     <div class="flex items-center justify-between">
       <span>FFmpeg</span>
-      <span id="st_ffmpeg" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Checking..."></span>
+      <span id="st_ffmpeg" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Проверка..."></span>
     </div>
     <div class="flex items-center justify-between">
       <span>yt-dlp</span>
-      <span id="st_ytdlp" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Checking..."></span>
+      <span id="st_ytdlp" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Проверка..."></span>
     </div>
     <div class="flex items-center justify-between">
       <span>Deno</span>
-      <span id="st_deno" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Checking..."></span>
+      <span id="st_deno" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Проверка..."></span>
     </div>
     <div class="flex items-center justify-between">
       <span>AI Proxy</span>
-      <span id="st_ai" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Checking..."></span>
+      <span id="st_ai" class="w-2.5 h-2.5 rounded-full bg-zinc-600" title="Проверка..."></span>
     </div>
   </div>
 
   <div class="p-4 border-t border-zinc-800 hidden md:flex items-center justify-between text-xs">
     <span class="text-zinc-400 truncate max-w-[130px]" id="whoami"></span>
-    <div class="flex items-center gap-2"><button class="darkmode-btn darkmode-compact" aria-label="Toggle dark mode">🌙</button><a href="/logout" class="text-zinc-400 hover:text-white transition">Logout</a></div>
+    <div class="flex items-center gap-2"><button class="darkmode-btn darkmode-compact" aria-label="Toggle dark mode">🌙</button><a href="/logout" class="text-zinc-400 hover:text-white transition">Выйти</a></div>
   </div>
 
-  <!-- Engine Status Mobile -->
+  <!-- Состояние системы Mobile -->
   <div class="md:hidden flex items-center justify-around px-4 py-2.5 border-t border-b border-zinc-800/80 bg-zinc-950/60 text-[10px] text-zinc-300">
-    <div class="flex items-center gap-1.5"><span id="st_ffmpeg_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Checking..."></span><span>FFmpeg</span></div>
-    <div class="flex items-center gap-1.5"><span id="st_ytdlp_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Checking..."></span><span>yt-dlp</span></div>
-    <div class="flex items-center gap-1.5"><span id="st_deno_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Checking..."></span><span>Deno</span></div>
-    <div class="flex items-center gap-1.5"><span id="st_ai_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Checking..."></span><span>AI</span></div>
+    <div class="flex items-center gap-1.5"><span id="st_ffmpeg_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Проверка..."></span><span>FFmpeg</span></div>
+    <div class="flex items-center gap-1.5"><span id="st_ytdlp_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Проверка..."></span><span>yt-dlp</span></div>
+    <div class="flex items-center gap-1.5"><span id="st_deno_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Проверка..."></span><span>Deno</span></div>
+    <div class="flex items-center gap-1.5"><span id="st_ai_mob" class="w-2 h-2 rounded-full bg-zinc-600" title="Проверка..."></span><span>AI</span></div>
   </div>
 
   <!-- Disk Space Widget (desktop & mobile) -->
@@ -111,7 +111,7 @@ tailwind.config = {
   <!-- TOP SUB-NAV -->
   <header class="flex items-center justify-between px-6 py-3.5 border-b border-zinc-800 bg-zinc-950/40 backdrop-blur-md">
     <div class="flex items-center flex-1 max-w-sm">
-      <input id="search" class="w-full min-h-[36px] md:min-h-[44px] bg-zinc-900 border border-zinc-700 rounded-lg px-3.5 py-2 text-xs text-white placeholder-zinc-400 focus:border-[var(--accent)] transition" placeholder="Cari judul sesi atau klip...">
+      <input id="search" class="w-full min-h-[36px] md:min-h-[44px] bg-zinc-900 border border-zinc-700 rounded-lg px-3.5 py-2 text-xs text-white placeholder-zinc-400 focus:border-[var(--accent)] transition" placeholder="Поиск judul sesi atau klip...">
     </div>
     <div class="flex items-center gap-2">
       <a href="/create.html" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow-sm">
@@ -168,12 +168,12 @@ tailwind.config = {
           <span>📁</span>
           <span>Daftar Sesi Video</span>
         </h2>
-        <div class="flex flex-wrap items-center gap-2" id="taskStatus"></div>
+        <div class="flex flex-wrap items-center gap-2" id="taskСтатус"></div>
       </div>
 
       <!-- Filter & Sort Toolbar -->
       <div class="flex flex-wrap items-center gap-2 mb-3">
-        <select id="filterStatus" onchange="filterStatus=this.value; curPage=1; render()" class="min-h-[36px] md:min-h-[44px] bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-teal-500">
+        <select id="filterСтатус" onchange="filterСтатус=this.value; curPage=1; render()" class="min-h-[36px] md:min-h-[44px] bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-teal-500">
           <option value="all">Semua status</option>
           <option value="completed">Selesai</option>
           <option value="processing">Processing</option>
@@ -207,8 +207,8 @@ tailwind.config = {
     <!-- Bulk Delete Floating Bar -->
     <div id="bulkBar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 card-panel px-4 py-3 shadow-2xl">
       <span id="bulkCount" class="text-xs text-zinc-200 font-semibold"></span>
-      <button onclick="bulkDelete()" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg transition">🗑 Hapus Terpilih</button>
-      <button onclick="selectedSessions.clear(); render()" class="min-h-[36px] md:min-h-[44px] px-3 py-2 text-xs text-zinc-400 hover:text-white transition">Batal</button>
+      <button onclick="bulkDelete()" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg transition">🗑 Удалить Terpilih</button>
+      <button onclick="selectedSessions.clear(); render()" class="min-h-[36px] md:min-h-[44px] px-3 py-2 text-xs text-zinc-400 hover:text-white transition">Отмена</button>
     </div>
   </main>
 </div>
@@ -233,11 +233,11 @@ tailwind.config = {
     </div>
     <div class="p-5 overflow-y-auto flex-1 space-y-4">
       <div id="rBody" class="space-y-3"></div>
-      <div id="renderStatus"></div>
+      <div id="renderСтатус"></div>
     </div>
     <div class="flex justify-end gap-2 px-5 py-3.5 border-t border-zinc-800 ">
-      <button onclick="Modal.hide('renderModal')" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 text-xs text-zinc-300 hover:text-white rounded-lg border border-zinc-700 transition">Batal</button>
-      <button id="renderGoBtn" class="min-h-[36px] md:min-h-[44px] px-5 py-2 text-xs bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] font-bold rounded-lg transition">⚙ Mulai Render</button>
+      <button onclick="Modal.hide('renderModal')" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 text-xs text-zinc-300 hover:text-white rounded-lg border border-zinc-700 transition">Отмена</button>
+      <button id="renderGoBtn" class="min-h-[36px] md:min-h-[44px] px-5 py-2 text-xs bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] font-bold rounded-lg transition">⚙ Запустить Render</button>
     </div>
   </div>
 </div>
@@ -330,13 +330,13 @@ const STATUS_BADGE = {
 
 const PER_PAGE = 20;
 let curPage = 1;
-let filterStatus = 'all';
+let filterСтатус = 'all';
 let sortBy = 'newest';
 let selectedSessions = new Set();
 
 function applyFilters() {
   let list = [...DATA];
-  if (filterStatus !== 'all') list = list.filter(s => s.status === filterStatus);
+  if (filterСтатус !== 'all') list = list.filter(s => s.status === filterСтатус);
   switch (sortBy) {
     case 'oldest': list.sort((a, b) => new Date(a.created) - new Date(b.created)); break;
     case 'most_clips': list.sort((a, b) => (b.total || 0) - (a.total || 0)); break;
@@ -362,7 +362,7 @@ function render() {
       <div class="flex flex-col md:flex-row gap-4">
         <label class="flex items-center gap-2 cursor-pointer select-none self-start">
           <input type="checkbox" class="sel-check w-5 h-5 accent-[#facc15] rounded" data-id="${esc(s.id)}" ${checked} onchange="toggleSelect('${esc(s.id)}', this.checked)">
-          <span class="sr-only">Pilih sesi</span>
+          <span class="sr-only">Выбрать sesi</span>
         </label>
         <a class="relative w-full md:w-48 aspect-video bg-zinc-950 block overflow-hidden rounded-lg border border-zinc-800 hover:border-zinc-700 transition flex-shrink-0" href="${detailUrl}">
           <img class="w-full h-full object-cover" loading="lazy" alt="${esc(s.title)}"
@@ -374,7 +374,7 @@ function render() {
               <a class="text-sm font-bold text-white hover:text-yellow-400 transition line-clamp-2 md:line-clamp-none" href="${detailUrl}">
                 🎬 ${esc(s.title)} ${STATUS_BADGE[s.status] || ''}
               </a>
-              <button class="min-h-[36px] md:min-h-[44px] px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 bg-rose-950/20 border border-rose-900/30 rounded-lg hover:bg-rose-900/20 transition flex-shrink-0" onclick="deleteSession('${esc(s.id)}', this)">🗑 Hapus</button>
+              <button class="min-h-[36px] md:min-h-[44px] px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 bg-rose-950/20 border border-rose-900/30 rounded-lg hover:bg-rose-900/20 transition flex-shrink-0" onclick="deleteSession('${esc(s.id)}', this)">🗑 Удалить</button>
             </div>
             <div class="text-xs text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
               <span>${s.channel ? esc(s.channel) + ' · ' : ''}${new Date(s.created).toLocaleString('id-ID')}</span>
@@ -425,7 +425,7 @@ function updateBulkBar() {
 async function bulkDelete() {
   const n = selectedSessions.size;
   if (!n) return;
-  const ok = await showConfirm('Hapus Sesi Terpilih', `Hapus ${n} sesi beserta semua klip dan foldernya? Tindakan ini tidak bisa dibatalkan.`);
+  const ok = await showConfirm('Удалить Sesi Terpilih', `Удалить ${n} sesi beserta semua klip dan foldernya? Tindakan ini tidak bisa dibatalkan.`);
   if (!ok) return;
   let done = 0, fail = 0;
   for (const id of [...selectedSessions]) {
@@ -446,7 +446,7 @@ function goPage(d) {
 
 async function deleteSession(id, btn) {
   const el = btn || document.querySelector('[data-id="' + id + '"]');
-  const ok = await showConfirm('Hapus Sesi', 'Hapus sesi ini beserta semua klip dan foldernya? Tindakan ini tidak bisa dibatalkan.');
+  const ok = await showConfirm('Удалить Sesi', 'Удалить sesi ini beserta semua klip dan foldernya? Tindakan ini tidak bisa dibatalkan.');
   if (!ok) return;
   try {
     const r = await fetch(`/api/delete-session/${encodeURIComponent(id)}`, { method: 'POST' });
@@ -456,7 +456,7 @@ async function deleteSession(id, btn) {
       await load();
     } else {
       const j = await r.json().catch(() => ({}));
-      showToast('❌ Gagal: ' + (j.error || 'HTTP ' + r.status), 'error');
+      showToast('❌ Ошибка: ' + (j.error || 'HTTP ' + r.status), 'error');
     }
   } catch (e) {
     showToast('❌ Error: ' + String(e), 'error');
@@ -521,7 +521,7 @@ function showDetail(gi, ci) {
       <div class="px-4 pb-4 border-t border-zinc-800">
         <textarea id="srtBox" class="w-full bg-black p-3 rounded-lg text-zinc-200 font-mono text-xs h-48 mt-2 border border-zinc-800 focus:outline-none focus:border-[var(--accent)] leading-relaxed" placeholder="memuat..."></textarea>
         <div class="flex justify-end gap-2 mt-2">
-          <button onclick="saveSubtitle('${s.id}')" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] text-xs font-bold rounded-lg transition flex items-center gap-1.5">💾 Simpan Perubahan SRT</button>
+          <button onclick="saveSubtitle('${s.id}')" class="min-h-[36px] md:min-h-[44px] px-3 md:px-4 py-1.5 md:py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-text)] text-xs font-bold rounded-lg transition flex items-center gap-1.5">💾 Сохранить Perubahan SRT</button>
         </div>
       </div>
     </details>`;
@@ -547,7 +547,7 @@ async function saveSubtitle(sid) {
     });
     const j = await r.json();
     if (j.ok) showToast('✅ Subtitle SRT berhasil disimpan!', 'success');
-    else showToast('❌ Gagal: ' + (j.error || 'error'), 'error');
+    else showToast('❌ Ошибка: ' + (j.error || 'error'), 'error');
   } catch (e) { showToast('❌ Error: ' + String(e), 'error'); }
 }
 
@@ -618,7 +618,7 @@ function openRender(gi, ci) {
 }
 
 async function doRender(sid, dir) {
-  const st = $('#renderStatus');
+  const st = $('#renderСтатус');
   $('#renderGoBtn').disabled = true;
   st.innerHTML = '<div class="p-3.5 bg-zinc-950 border border-zinc-800 rounded-lg space-y-2"><div class="flex items-center justify-between text-xs text-zinc-200 font-semibold"><span>⏳ Rendering…</span><span id="rElapsed" class="font-mono"></span></div><pre class="log" id="rLog">memulai…</pre></div>';
   try {
@@ -629,7 +629,7 @@ async function doRender(sid, dir) {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.ok) {
-      st.innerHTML = `<div class="p-3 text-xs bg-rose-950/20 border border-rose-900/30 text-rose-400 rounded-lg">❌ Gagal mulai render: ${esc(j.error || 'HTTP ' + r.status)}</div>`;
+      st.innerHTML = `<div class="p-3 text-xs bg-rose-950/20 border border-rose-900/30 text-rose-400 rounded-lg">❌ Ошибка mulai render: ${esc(j.error || 'HTTP ' + r.status)}</div>`;
       $('#renderGoBtn').disabled = false;
       return;
     }
@@ -665,7 +665,7 @@ async function doRender(sid, dir) {
 }
 
 $('#search').addEventListener('input', render);
-$('#filterStatus').addEventListener('change', () => { filterStatus = $('#filterStatus').value; curPage = 1; render(); });
+$('#filterСтатус').addEventListener('change', () => { filterСтатус = $('#filterСтатус').value; curPage = 1; render(); });
 $('#sortBy').addEventListener('change', () => { sortBy = $('#sortBy').value; render(); });
 
 // Auto-refresh during processing (poll /api/tasks tiap 5s)
@@ -676,7 +676,7 @@ async function pollTasks() {
     const tasks = await r.json();
     const running = (tasks || []).filter(t => t.running);
     const ind = $('#processingIndicator');
-    const badge = $('#taskStatus');
+    const badge = $('#taskСтатус');
     if (ind) {
       if (running.length > 0) {
         ind.classList.remove('hidden'); ind.classList.add('flex');
@@ -699,7 +699,7 @@ setInterval(pollTasks, 5000);
 pollTasks();
 
 // Check engine binaries status
-async function checkEngineStatus() {
+async function checkEngineСтатус() {
   try {
     const r = await fetch('/api/binaries');
     if (!r.ok) return;
@@ -751,8 +751,8 @@ async function checkEngineStatus() {
     console.error('Failed to fetch engine status', e);
   }
 }
-checkEngineStatus();
-setInterval(checkEngineStatus, 15000);
+checkEngineСтатус();
+setInterval(checkEngineСтатус, 15000);
 
 load();
 </script>
