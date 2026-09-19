@@ -288,10 +288,11 @@ def create_streamer_ass(
 
         sync_offset = float(getattr(core, "subtitle_sync_offset", 0.0) or 0.0)
         sync_offset = max(-1.0, min(1.0, sync_offset))
-        subtitle_cfg = dict(getattr(core, "subtitle_settings", {}) or {})
-        lead_seconds = max(0.0, min(0.60, float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)))
-        effective_lead = 0.0 if abs(sync_offset) >= 0.15 else lead_seconds
-        ass_offset = sync_offset - effective_lead
+
+        # Streamer clips must follow the spoken audio, not lead it.
+        # The old code subtracted ~220 ms by default, which made captions
+        # disappear before the speaker finished the phrase.
+        ass_offset = sync_offset
 
         subtitle_style = getattr(core, "subtitle_style", "stable")
         if subtitle_style == "karaoke":
