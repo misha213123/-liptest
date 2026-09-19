@@ -159,6 +159,36 @@ class PortraitMixin:
             concat = f"{labels}concat=n={n}:v=1:a=0[v]"
             return ";\n".join(chains) + ";\n" + concat
 
+        def _ffmpeg_filter_file_args(self, script_path: str) -> list:
+            """Return file-backed filter_complex args compatible with this FFmpeg.
+
+            FFmpeg 9 removed the old -filter_complex_script option. New builds
+            use the generic "read option value from file" syntax:
+            -/filter_complex <path>. Older builds still understand
+            -filter_complex_script, so detect support once per process.
+            """
+            cached = getattr(self, "_ffmpeg_filter_file_mode", None)
+            if cached is None:
+                mode = "modern"
+                try:
+                    probe = subprocess.run(
+                        [self.ffmpeg_path, "-hide_banner", "-h", "full"],
+                        capture_output=True, text=True, timeout=15,
+                        creationflags=SUBPROCESS_FLAGS,
+                    )
+                    help_text = (probe.stdout or "") + (probe.stderr or "")
+                    if "filter_complex_script" in help_text:
+                        mode = "legacy"
+                except Exception:
+                    # FFmpeg 9+ path; if probing fails prefer the current syntax.
+                    mode = "modern"
+                self._ffmpeg_filter_file_mode = mode
+                cached = mode
+
+            if cached == "legacy":
+                return [*self._ffmpeg_filter_file_args(script_path)]
+            return ["-/filter_complex", script_path]
+
         def _encode_portrait_single_pass(self, input_path: str, output_path: str,
                                          crop_positions: list, crop_w: int, crop_h: int,
                                          out_w: int, out_h: int,
@@ -184,7 +214,7 @@ class PortraitMixin:
                 cmd = [
                     self.ffmpeg_path, "-y",
                     "-i", input_path,
-                    "-filter_complex_script", script_path,
+                    *self._ffmpeg_filter_file_args(script_path),
                     "-map", "[v]", "-map", "0:a?",
                     *encoder_args,
                     "-c:a", "aac", "-b:a", "192k",
@@ -237,10 +267,18 @@ class PortraitMixin:
             crop_w, crop_h = self._get_crop_window(orig_w, orig_h)
             out_w, out_h = self._get_ratio_dimensions()
         
-            # Face detector
-            face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
+            # Face detector. Some OpenCV 5 wheels on Windows don't bundle
+            # haarcascade_frontalface_default.xml; in that case keep rendering
+            # with a stable center crop instead of crashing.
+            cascade_path = ""
+            try:
+                cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+            except Exception:
+                pass
+            face_cascade = cv2.CascadeClassifier(cascade_path) if cascade_path and os.path.exists(cascade_path) else cv2.CascadeClassifier()
+            haar_available = not face_cascade.empty()
+            if not haar_available:
+                self.log("  ⚠ OpenCV Haar cascade недоступен — использую безопасный центральный crop.")
         
             # First pass: analyze frames
             self.log("  Pass 1: Analyzing frames (fast mode: every 5th frame)...")
@@ -265,7 +303,7 @@ class PortraitMixin:
                     else:
                         small = frame
                     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-                    faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+                    faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50)) if haar_available else [] if haar_available else []
                 
                     if len(faces) > 0:
                         # Find largest face (coordinates in downscaled space -> map back)
@@ -1003,7 +1041,7 @@ class PortraitMixin:
                 cmd = [
                     self.ffmpeg_path, "-y",
                     "-i", input_path,
-                    "-filter_complex_script", script_path,
+                    *self._ffmpeg_filter_file_args(script_path),
                     "-map", "[v]", "-map", "0:a?",
                     *encoder_args,
                     "-c:a", "aac", "-b:a", "192k",
@@ -1074,10 +1112,18 @@ class PortraitMixin:
             crop_w, crop_h = self._get_crop_window(orig_w, orig_h)
             out_w, out_h = self._get_ratio_dimensions()
         
-            # Face detector
-            face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
+            # Face detector. Some OpenCV 5 wheels on Windows don't bundle
+            # haarcascade_frontalface_default.xml; in that case keep rendering
+            # with a stable center crop instead of crashing.
+            cascade_path = ""
+            try:
+                cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+            except Exception:
+                pass
+            face_cascade = cv2.CascadeClassifier(cascade_path) if cascade_path and os.path.exists(cascade_path) else cv2.CascadeClassifier()
+            haar_available = not face_cascade.empty()
+            if not haar_available:
+                self.log("  ⚠ OpenCV Haar cascade недоступен — использую безопасный центральный crop.")
         
             # First pass: analyze frames (0-40%)
             debug_log("[DEBUG] Pass 1: Analyzing frames... (fast mode: every 5th frame)")
@@ -1119,7 +1165,7 @@ class PortraitMixin:
                 else:
                     small = frame
                 gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-                faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+                faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50)) if haar_available else []
             
                 if len(faces) > 0:
                     # Find largest face
