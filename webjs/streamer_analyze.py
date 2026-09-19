@@ -473,8 +473,34 @@ def main():
         flush=True,
     )
 
+    recovered = False
     if not cache["transcript"].exists():
-        recover_cache_for_info(cache, info)
+        recovered = recover_cache_for_info(cache, info)
+
+    # A migrated legacy cache may already contain the exact finished AI result.
+    # Return it immediately instead of spending even one ranking-model request.
+    if recovered and cache["analysis"].exists():
+        try:
+            cached_payload = json.loads(cache["analysis"].read_text(encoding="utf-8"))
+            if int(cached_payload.get("schema_version") or 0) >= 2:
+                cached_payload["ok"] = True
+                cached_payload["id"] = str(job.get("id") or cached_payload.get("id") or uuid.uuid4().hex[:12])
+                cached_payload["cached"] = True
+                cached_payload["cache_kind"] = "migrated_analysis"
+                debug_log(
+                    "[progress] ♻ Старый анализ этого VOD найден и восстановлен — "
+                    "Whisper/OpenAI повторно не вызываются. (overall: 100.0%)",
+                    flush=True,
+                )
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                result_path.write_text(
+                    json.dumps(cached_payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                print(json.dumps(cached_payload, ensure_ascii=False), flush=True)
+                return
+        except Exception as exc:
+            debug_log(f"[streamer-ai] Восстановленный анализ не прочитан: {exc}", flush=True)
 
     if cache["transcript"].exists() and cache["transcript"].stat().st_size > 20:
         transcript = cache["transcript"].read_text(encoding="utf-8")
