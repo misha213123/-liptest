@@ -437,7 +437,14 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               <label class="flex items-center gap-2"><input id="bannerChroma" type="checkbox" checked> Убрать хромакей</label>
             </div>
 
-            <label class="flex items-center gap-2 mt-2 text-[11px]"><input id="bannerAutoCrop" type="checkbox" checked> Авто убрать чёрные поля рекламного видео</label>
+            <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+              <label class="flex items-center gap-2"><input id="bannerAutoCrop" type="checkbox" checked> Авто убрать внешние чёрные поля</label>
+              <label class="flex items-center gap-2"><input id="bannerBlackKey" type="checkbox" checked> Убрать чёрные полосы внутри</label>
+            </div>
+            <div id="bannerBlackKeyControls" class="mt-2">
+              <label class="text-[10px] text-zinc-500">Сила удаления чёрного <span id="bannerBlackKeyLabel">0.05</span></label>
+              <input id="bannerBlackKeyStrength" type="range" min="1" max="15" value="5" class="w-full mt-1">
+            </div>
             <div id="bannerChromaControls" class="hidden grid grid-cols-3 gap-2 mt-2">
               <div>
                 <label class="text-[10px] text-zinc-500">Цвет</label>
@@ -971,6 +978,19 @@ function drawChromaVideo(ctx,video,r){
        }else if(dist<threshold+soft){
          d[i+3]=Math.round(255*((dist-threshold)/soft));
        }
+
+       if($('#bannerBlackKey').checked && d[i+3]>0){
+         const blackStrength=(+$('#bannerBlackKeyStrength').value||5)/100;
+         const blackThreshold=blackStrength*255;
+         const maxc=Math.max(d[i],d[i+1],d[i+2]);
+         const minc=Math.min(d[i],d[i+1],d[i+2]);
+         if(maxc<=blackThreshold && (maxc-minc)<18){
+           d[i+3]=0;
+         }else if(maxc<blackThreshold+10 && (maxc-minc)<20){
+           d[i+3]=Math.min(d[i+3],Math.round(255*((maxc-blackThreshold)/10)));
+         }
+       }
+
        // Simple green-spill cleanup for edge pixels left by H.264 compression.
        if(kg>kr&&kg>kb&&d[i+3]>0&&d[i+1]>d[i]&&d[i+1]>d[i+2]){
          const neutral=Math.max(d[i],d[i+2]);
@@ -1159,8 +1179,8 @@ function updateBannerUi(){
  }
 }
 $('#bannerEnabled').onchange=updateBannerUi;
-['bannerAt','bannerSpeed','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
-['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor','bannerAutoCrop'].forEach(id=>$('#'+id).addEventListener('change',()=>{bannerPreviewError=false;detectBannerBlackBorderCrop();updateBannerUi()}));
+['bannerAt','bannerSpeed','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend','bannerBlackKeyStrength'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
+['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor','bannerAutoCrop','bannerBlackKey'].forEach(id=>$('#'+id).addEventListener('change',()=>{bannerPreviewError=false;detectBannerBlackBorderCrop();updateBannerUi()}));
 bannerVideo.addEventListener('loadeddata',()=>{detectBannerBlackBorderCrop();updateBannerUi()});
 bannerVideo.addEventListener('play',()=>{$('#bannerPlayBtn').textContent='⏸ Пауза'});
 bannerVideo.addEventListener('pause',()=>{$('#bannerPlayBtn').textContent='▶ Видео'});
@@ -1282,7 +1302,7 @@ function renderPayload(h){
  const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value}
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
