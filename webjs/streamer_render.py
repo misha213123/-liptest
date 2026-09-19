@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import traceback
 import uuid
@@ -20,6 +22,8 @@ from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
+
+SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 def parse_time(value) -> float:
@@ -54,7 +58,7 @@ def build_core(cfg: dict) -> AutoClipperCore:
         ffmpeg_path=get_ffmpeg_path(),
         ytdlp_path=get_ytdlp_path(),
         output_dir=str(APP_DIR / "output"),
-        model=cfg.get("model", "gpt-4.1"),
+        model=hf.get("model") or cfg.get("model", "gpt-4.1"),
         temperature=cfg.get("temperature", 1.0),
         subtitle_style=cfg.get("subtitle_style", "pop"),
         subtitle_settings=cfg.get("subtitle_settings"),
@@ -62,6 +66,165 @@ def build_core(cfg: dict) -> AutoClipperCore:
         subtitle_sync_offset=cfg.get("subtitle_sync_offset", 0),
         ai_providers=providers or None,
     )
+
+
+def tune_encoder_args(args: list[str]) -> list[str]:
+    """Use visibly higher quality for the webcam crop and final text burn."""
+    out = list(args or [])
+    joined = " ".join(out)
+
+    def replace_value(flag: str, value: str):
+        if flag in out:
+            idx = out.index(flag)
+            if idx + 1 < len(out):
+                out[idx + 1] = value
+
+    if "h264_nvenc" in joined or "hevc_nvenc" in joined:
+        replace_value("-cq", "18")
+        replace_value("-b:v", "8M")
+        replace_value("-maxrate", "12M")
+        replace_value("-bufsize", "20M")
+        replace_value("-preset", "p5")
+    elif "libx264" in joined:
+        replace_value("-crf", "18")
+        replace_value("-preset", "medium")
+    return out
+
+
+def split_title(text: str) -> tuple[str, str]:
+    clean = re.sub(r"\s+", " ", str(text or "").strip()).upper()
+    clean = clean.replace("{", "").replace("}", "").replace("\\", "")
+    words = clean.split()[:6]
+    if not words:
+        return "", ""
+    if len(words) == 1:
+        return words[0], ""
+    pivot = max(1, (len(words) + 1) // 2)
+    return " ".join(words[:pivot]), " ".join(words[pivot:])
+
+
+def ass_time(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+
+def create_streamer_ass(
+    core: AutoClipperCore,
+    source_path: Path,
+    out_dir: Path,
+    *,
+    captions: bool,
+    title_text: str,
+    title_enabled: bool,
+    title_duration: float,
+    webcam_height_pct: float,
+) -> Path | None:
+    if not captions and not title_enabled:
+        return None
+
+    ass_file = out_dir / "streamer_text.ass"
+
+    if captions:
+        audio_file = out_dir / "captions_audio.wav"
+        cmd = [
+            get_ffmpeg_path(), "-y",
+            "-i", str(source_path),
+            "-vn", "-acodec", "pcm_s16le",
+            "-ar", "16000", "-ac", "1",
+            str(audio_file),
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=SUBPROCESS_FLAGS,
+        )
+        if result.returncode != 0 or not audio_file.exists():
+            raise RuntimeError("Не удалось извлечь аудио для субтитров.")
+
+        debug_log("[streamer] Faster-Whisper: точные word timestamps...", flush=True)
+        transcript = core.transcribe_words(str(audio_file))
+
+        sync_offset = float(getattr(core, "subtitle_sync_offset", 0.0) or 0.0)
+        sync_offset = max(-1.0, min(1.0, sync_offset))
+        subtitle_cfg = dict(getattr(core, "subtitle_settings", {}) or {})
+        lead_seconds = max(0.0, min(0.60, float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)))
+        effective_lead = 0.0 if abs(sync_offset) >= 0.15 else lead_seconds
+        ass_offset = sync_offset - effective_lead
+
+        if getattr(core, "subtitle_style", "pop") == "karaoke":
+            core.create_ass_subtitle_karaoke(transcript, str(ass_file), ass_offset)
+        else:
+            core.create_ass_subtitle_capcut(transcript, str(ass_file), ass_offset)
+    else:
+        ass_file.write_text(
+            """[Script Info]
+Title: Streamer title
+ScriptType: v4.00+
+WrapStyle: 2
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial Black,70,&H00FFFFFF,&H00FFFFFF,&H00000000,&H60000000,-1,0,0,0,100,100,0,0,1,5,1,2,60,60,180,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+""",
+            encoding="utf-8",
+        )
+
+    if title_enabled and title_text.strip():
+        top, bottom = split_title(title_text)
+        if top:
+            # Keep the title just below the webcam/game boundary, like short-form
+            # gaming edits. Red top line + white second line with thick black outline.
+            y = int(round(1920 * max(0.25, min(0.48, webcam_height_pct)))) + 38
+            y = max(500, min(1020, y))
+            duration = max(1.2, min(3.5, float(title_duration or 2.3)))
+            if bottom:
+                title_ass = (
+                    r"{\an8\pos(540," + str(y) + r")\fs76\fnArial Black\b1\bord6\shad1"
+                    r"\c&H0000FF&}" + top
+                    + r"\N{\c&HFFFFFF&}" + bottom
+                )
+            else:
+                title_ass = (
+                    r"{\an8\pos(540," + str(y) + r")\fs76\fnArial Black\b1\bord6\shad1"
+                    r"\c&H0000FF&}" + top
+                )
+            with ass_file.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    f"Dialogue: 10,{ass_time(0)},{ass_time(duration)},Default,,0,0,0,,{title_ass}\n"
+                )
+
+    return ass_file
+
+
+def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_file: Path, encoder_args: list[str]) -> None:
+    escaped = str(ass_file).replace("\\", "/").replace(":", "\\:")
+    cmd = [
+        get_ffmpeg_path(), "-y",
+        "-i", str(input_path),
+        "-vf", f"ass='{escaped}'",
+        *encoder_args,
+        "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    debug_log("[streamer] Burn subtitles + 2s title in one pass.", flush=True)
+    result = core._run_ffmpeg_subprocess(cmd, timeout=900)
+    if result.returncode != 0:
+        tail = "\n".join((result.stderr or "").splitlines()[-30:])
+        raise RuntimeError("Не удалось прожечь текст:\n" + tail)
 
 
 def main():
@@ -87,6 +250,9 @@ def main():
     top_pct = float(job.get("webcam_height_pct", 0.365) or 0.365)
     game_center_x = float(job.get("gameplay_center_x", 0.50) or 0.50)
     captions = bool(job.get("captions", True))
+    title_enabled = bool(job.get("title_enabled", True))
+    title_text = str(job.get("title_text") or "").strip()
+    title_duration = float(job.get("title_duration", 2.3) or 2.3)
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -106,15 +272,12 @@ def main():
         fmt_time(start_sec),
         fmt_time(end_sec),
         str(source_path),
-        resolution=str(job.get("resolution") or "1080p"),
+        resolution=str(job.get("resolution") or "auto"),
     )
 
     debug_log("[progress] Собираю webcam + gameplay... (overall: 35.0%)", flush=True)
-
-    # Prefer GPU when it is healthy, but StreamerLayoutRenderer has its own CPU
-    # retry so this mode remains reliable on Windows FFmpeg builds.
     core.enable_gpu_acceleration(bool(job.get("gpu", True)))
-    encoder_args = core.get_video_encoder_args()
+    encoder_args = tune_encoder_args(core.get_video_encoder_args())
 
     renderer = StreamerLayoutRenderer(
         ffmpeg_path=get_ffmpeg_path(),
@@ -130,20 +293,23 @@ def main():
         webcam_padding=int(job.get("webcam_padding", 0) or 0),
     )
 
-    if captions:
-        debug_log("[progress] Добавляю субтитры... (overall: 70.0%)", flush=True)
-        core.add_captions_api_with_progress(
-            str(layout_path),
-            str(final_path),
-            audio_source=str(source_path),
-            time_offset=0,
-            progress_callback=lambda p: debug_log(
-                f"[progress] Субтитры {int(p * 100)}% (overall: {70 + p * 28:.1f}%)",
-                flush=True,
-            ),
-            source_start_sec=0.0,
-            source_end_sec=end_sec - start_sec,
+    ass_file = None
+    if captions or (title_enabled and title_text):
+        debug_log("[progress] Готовлю субтитры и заголовок... (overall: 70.0%)", flush=True)
+        ass_file = create_streamer_ass(
+            core,
+            source_path,
+            out_dir,
+            captions=captions,
+            title_text=title_text,
+            title_enabled=title_enabled,
+            title_duration=title_duration,
+            webcam_height_pct=top_pct,
         )
+
+    if ass_file:
+        debug_log("[progress] Прожигаю текст... (overall: 88.0%)", flush=True)
+        burn_ass(core, layout_path, final_path, ass_file, encoder_args)
     else:
         shutil.copy2(layout_path, final_path)
 
@@ -159,6 +325,9 @@ def main():
         "webcam_height_pct": top_pct,
         "gameplay_center_x": game_center_x,
         "captions": captions,
+        "title_enabled": title_enabled,
+        "title_text": title_text,
+        "title_duration": title_duration,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
@@ -174,6 +343,7 @@ def main():
         "output_dir": str(out_dir),
         "source_file": source_path.name,
         "final_file": final_path.name,
+        "title_text": title_text,
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
