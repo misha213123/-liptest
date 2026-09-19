@@ -1490,7 +1490,11 @@ class PortraitMixin:
                             # dead-zone. Reframe only when the face actually walks
                             # toward the edge of the 9:16 crop.
                             same_speaker_offset = nearest_locked["x"] - locked_face_x
-                            dead_zone = crop_w * 0.16
+                            dead_zone_ratio = max(
+                                0.05,
+                                min(0.30, float(self.mediapipe_settings.get("speaker_dead_zone", 0.16) or 0.16)),
+                            )
+                            dead_zone = crop_w * dead_zone_ratio
                             if abs(same_speaker_offset) > dead_zone:
                                 max_step = max(12.0, crop_w * 0.045)
                                 locked_face_x += max(
