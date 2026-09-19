@@ -210,7 +210,8 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
             "min_shot_duration": 45,
             "center_weight": 0.15,
             "smooth_follow": False,
-            "pan_speed_limit": 1.8
+            "pan_speed_limit": 1.8,
+            "speaker_dead_zone": 0.16
         }
         
         # Professional video editing features (loaded from config)
