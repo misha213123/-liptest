@@ -23,6 +23,11 @@ from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
 from core.streamer_gpu_turbo import cuda_filters_available, render_streamer_gpu_turbo
+from core.streamer_precise_captions import (
+    PreciseCaptionError,
+    transcribe_words_whisperx,
+    whisperx_available,
+)
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
 
@@ -221,18 +226,13 @@ def create_streamer_ass(
 
     if captions:
         transcript = None
+        precise_mode = str(
+            os.environ.get("STREAMER_CAPTION_TIMING", "whisperx")
+        ).strip().lower()
+        precise_requested = precise_mode in ("whisperx", "forced", "exact", "1", "true", "on")
 
-        # First choice: reuse the full-VOD transcript created by AI analysis.
-        # This makes repeated renders instant for captions and costs no extra API.
-        if source_url and clip_end_sec > clip_start_sec:
-            try:
-                transcript = load_cached_clip_transcript(
-                    source_url, clip_start_sec, clip_end_sec
-                )
-            except Exception as exc:
-                debug_log(f"[streamer] Кэш транскрипции не прочитан: {exc}", flush=True)
-
-        if transcript is None:
+        audio_file = None
+        if precise_requested or transcript is None:
             audio_file = out_dir / "captions_audio.wav"
             cmd = [
                 get_ffmpeg_path(), "-y",
@@ -252,7 +252,45 @@ def create_streamer_ass(
             if result.returncode != 0 or not audio_file.exists():
                 raise RuntimeError("Не удалось извлечь аудио для субтитров.")
 
-            debug_log("[streamer] Субтитры: пробую Faster-Whisper на GPU...", flush=True)
+        # Maximum timing accuracy: WhisperX does phoneme-based forced alignment
+        # after ASR. Unlike the cached VOD transcript, words are NOT distributed
+        # evenly across a segment; each word gets an alignment against the clip audio.
+        if precise_requested and whisperx_available():
+            try:
+                lang = str(getattr(core, "subtitle_language", "ru") or "ru")
+                lang = lang.split("-", 1)[0].strip().lower() or "ru"
+                transcript = transcribe_words_whisperx(
+                    audio_file,
+                    app_dir=APP_DIR,
+                    language=lang,
+                    model=str(os.environ.get("STREAMER_WHISPERX_MODEL", "large-v3") or "large-v3"),
+                    batch_size=int(os.environ.get("STREAMER_WHISPERX_BATCH", "8") or 8),
+                    cache_root=str(os.environ.get("STREAMER_WHISPERX_CACHE", "/workspace/whisperx-cache")),
+                    log=lambda m: debug_log(m, flush=True),
+                )
+            except Exception as exc:
+                debug_log(
+                    f"[streamer] ⚠ WhisperX forced alignment недоступен: {exc}",
+                    flush=True,
+                )
+                debug_log(
+                    "[streamer] ↩ Перехожу на локальный Faster-Whisper word timestamps.",
+                    flush=True,
+                )
+
+        # Accurate local fallback: transcribe the actual clip audio. We
+        # intentionally do NOT use the cached whole-VOD pseudo word timings here.
+        if transcript is None:
+            cm_config = core.ai_providers.setdefault("caption_maker", {})
+            fw_settings = cm_config.setdefault("faster_whisper", {})
+            fw_settings["model_size"] = str(
+                os.environ.get("STREAMER_FASTER_WHISPER_MODEL", "large-v3") or "large-v3"
+            )
+            debug_log(
+                f"[streamer] 🎯 Точные субтитры по аудио клипа: Faster-Whisper "
+                f"{fw_settings['model_size']} + word timestamps.",
+                flush=True,
+            )
             try:
                 transcript = core.transcribe_words(
                     str(audio_file),
@@ -264,21 +302,14 @@ def create_streamer_ass(
                     flush=True,
                 )
                 debug_log(
-                    "[streamer] Кэша нет — пробую OpenAI Whisper API для word timestamps.",
+                    "[streamer] Пробую OpenAI Whisper API с word timestamps.",
                     flush=True,
                 )
                 try:
                     transcript = core._whisper_transcribe_words_api(str(audio_file))
                 except Exception as api_exc:
-                    # Never throw away a finished layout because the network API
-                    # timed out. For a short clip CPU/int8 is the last-resort path.
                     debug_log(
                         f"[streamer] Whisper API недоступен/timeout: {api_exc}",
-                        flush=True,
-                    )
-                    debug_log(
-                        "[streamer] Переключаю только этот короткий клип на "
-                        "Faster-Whisper CPU int8, чтобы рендер не пропал.",
                         flush=True,
                     )
                     transcript = core.transcribe_words(
@@ -286,13 +317,11 @@ def create_streamer_ass(
                         allow_cpu_fallback=True,
                     )
 
-        sync_offset = float(getattr(core, "subtitle_sync_offset", 0.0) or 0.0)
-        sync_offset = max(-1.0, min(1.0, sync_offset))
-
-        # Streamer clips must follow the spoken audio, not lead it.
-        # The old code subtracted ~220 ms by default, which made captions
-        # disappear before the speaker finished the phrase.
-        ass_offset = sync_offset
+        # Forced-aligned timestamps already reference the exact clip audio.
+        # Keep offset at zero by default; an explicit ms override is available
+        # only for unusual sources with a real A/V delay.
+        manual_ms = float(os.environ.get("STREAMER_CAPTION_OFFSET_MS", "0") or 0.0)
+        ass_offset = max(-1.0, min(1.0, manual_ms / 1000.0))
 
         subtitle_style = getattr(core, "subtitle_style", "stable")
         if subtitle_style == "karaoke":
