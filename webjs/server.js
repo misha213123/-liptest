@@ -405,8 +405,12 @@ const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
   try {
-    // --- public routes (no auth) ---
-    // login page & root are served as static files (handled below)
+    // --- public routes (auth is disabled) ---
+    // Old login URL now redirects straight to the app.
+    if (p === '/login.html') {
+      res.writeHead(302, { Location: '/' });
+      return res.end();
+    }
     // auth endpoint
     if (p === '/api/auth/login' && req.method === 'POST') {
       const ip = req.connection.remoteAddress || 'unknown';
@@ -455,25 +459,10 @@ const server = http.createServer((req, res) => {
       return sendFile(req, res, fp, false);
     }
 
-    // --- Auth middleware ---
-    const isLocal = isLocalRequest(req);
-    const cookie = getCookie(req.headers.cookie);
-    const authUser = !isLocal && cookie[COOKIE_NAME] ? checkToken(cookie[COOKIE_NAME]) : null;
-    const isAuthenticated = isLocal || !!authUser;
-    if (!isAuthenticated && p !== '/login.html') {
-      const ext = path.extname(p);
-      const isApi = p.startsWith('/api/');
-      const isHtml = !ext || ext === '.html';
-      if (isApi) return json(res, 401, { error: 'unauthorized' });
-      if (isHtml) { res.writeHead(302, { Location: '/login.html' }); return res.end(); }
-    }
-
+    // --- Auth disabled: this RunPod web UI is intentionally open ---
+    // Keep /api/me for frontend compatibility, but always expose the local admin identity.
     if (p === '/api/me') {
-      if (isLocalRequest(req)) return json(res, 200, { id: 'local', name: 'admin' });
-      const cookie = getCookie(req.headers.cookie);
-      const user = checkToken(cookie[COOKIE_NAME]);
-      if (user) return json(res, 200, { id: user.id, name: user.name });
-      return json(res, 401, { error: 'unauthorized' });
+      return json(res, 200, { id: 'local', name: 'admin' });
     }
     // Streamer preview JPEG (authenticated)
     const mStreamerPreview = p.match(/^\/streamer-preview\/([^/]+\.jpg)$/i);
@@ -2269,4 +2258,4 @@ except Exception as e:
   }
 });
 
-server.listen(PORT, () => console.log(`http://localhost:${PORT}  (auth: password)`));
+server.listen(PORT, () => console.log(`http://localhost:${PORT}  (auth: disabled)`));
