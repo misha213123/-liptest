@@ -49,6 +49,31 @@ pre{white-space:pre-wrap;word-break:break-word}
     </div>
   </header>
 
+  <section class="panel p-3 md:p-4 mb-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div class="soft rounded-xl p-3">
+        <div class="text-[10px] text-cyan-300 font-black">1. ССЫЛКА</div>
+        <div class="text-sm font-bold mt-1">Вставь VOD/ролик</div>
+        <div class="text-[11px] text-zinc-500 mt-1">YouTube, Twitch или Kick.</div>
+      </div>
+      <div class="soft rounded-xl p-3">
+        <div class="text-[10px] text-cyan-300 font-black">2. ВЕБКА</div>
+        <div class="text-sm font-bold mt-1">Один раз выдели рамкой</div>
+        <div class="text-[11px] text-zinc-500 mt-1">Можно сохранить профиль стримера и больше не выделять заново.</div>
+      </div>
+      <div class="soft rounded-xl p-3">
+        <div class="text-[10px] text-purple-300 font-black">3. OPENAI</div>
+        <div class="text-sm font-bold mt-1">Найдёт и сам назовёт</div>
+        <div class="text-[11px] text-zinc-500 mt-1">Каждому лучшему моменту AI создаст короткий заголовок.</div>
+      </div>
+      <div class="soft rounded-xl p-3">
+        <div class="text-[10px] text-emerald-300 font-black">4. РЕНДЕР</div>
+        <div class="text-sm font-bold mt-1">Выбери моменты → готово</div>
+        <div class="text-[11px] text-zinc-500 mt-1">Вебка сверху, gameplay снизу, заголовок ~2.3 сек, субтитры.</div>
+      </div>
+    </div>
+  </section>
+
   <div class="grid grid-cols-1 xl:grid-cols-[1.45fr_.75fr] gap-4">
 
     <main class="space-y-4 min-w-0">
@@ -56,8 +81,8 @@ pre{white-space:pre-wrap;word-break:break-word}
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 1</div>
-            <h2 class="text-lg font-black">Источник и AI-анализ</h2>
-            <p class="text-xs text-zinc-500 mt-1">Вставь VOD/ролик Twitch, Kick или YouTube. Для прямого эфира лучше сначала дождаться VOD.</p>
+            <h2 class="text-lg font-black">Вставь ссылку на полный ролик</h2>
+            <p class="text-xs text-zinc-500 mt-1">Сначала только источник. После этого ниже один раз укажешь, где находится веб-камера стримера.</p>
           </div>
           <span id="sourceState" class="badge text-[11px] text-zinc-500">Не загружен</span>
         </div>
@@ -67,7 +92,53 @@ pre{white-space:pre-wrap;word-break:break-word}
           <button id="pasteBtn" class="btn btn-soft" type="button">📋 Вставить</button>
         </div>
 
-        <div class="grid md:grid-cols-[1fr_auto] gap-3 mt-4 p-3 soft rounded-xl">
+        </div>
+      </section>
+
+      <section class="panel p-4 md:p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <div>
+            <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 2</div>
+            <h2 class="text-lg font-black">Выдели веб-камеру</h2>
+            <p class="text-xs text-zinc-500 mt-1">Рамка статична — никаких трекеров и дрожания. Профиль можно сохранить для конкретного стримера.</p>
+          </div>
+          <button id="clearBox" class="btn btn-soft text-xs" type="button">Сбросить рамку</button>
+        </div>
+
+        <div class="grid md:grid-cols-[1fr_auto] gap-2 mb-3">
+          <div>
+            <label class="text-[11px] text-zinc-500">Кадр для настройки вебки</label>
+            <input id="previewTime" class="input mt-1" value="00:00:10">
+          </div>
+          <button id="previewBtn" class="btn btn-primary self-end" type="button">🖼 Получить кадр</button>
+        </div>
+        <div id="previewStatus" class="text-xs text-zinc-500 mb-2"></div>
+
+        <canvas id="previewCanvas" width="1280" height="720"></canvas>
+
+        <div class="grid grid-cols-4 gap-2 mt-3 text-[11px]">
+          <div class="soft rounded-lg p-2"><span class="text-zinc-600">X</span><div id="rx">—</div></div>
+          <div class="soft rounded-lg p-2"><span class="text-zinc-600">Y</span><div id="ry">—</div></div>
+          <div class="soft rounded-lg p-2"><span class="text-zinc-600">W</span><div id="rw">—</div></div>
+          <div class="soft rounded-lg p-2"><span class="text-zinc-600">H</span><div id="rh">—</div></div>
+        </div>
+
+        <div class="grid md:grid-cols-[1fr_auto_1fr] gap-2 mt-3">
+          <input id="profileName" class="input" placeholder="Профиль стримера, например: Sasavot">
+          <button id="saveProfile" class="btn btn-soft" type="button">💾 Сохранить рамку</button>
+          <select id="profileSelect" class="input"><option value="">Сохранённые профили...</option></select>
+        </div>
+      </section>
+      <section class="panel p-4 md:p-5">
+        <div class="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <div class="text-xs text-purple-300 font-bold mb-1">ШАГ 3</div>
+            <h2 class="text-lg font-black">OpenAI найдёт лучшие моменты и сам их назовёт</h2>
+            <p class="text-xs text-zinc-500 mt-1">Выбираешь желаемую длину и количество. AI анализирует весь ролик, отдаёт таймкоды и короткий заголовок для каждого момента.</p>
+          </div>
+          <span class="badge text-[11px] text-purple-300">AI-заголовок → первые ~2.3 сек</span>
+        </div>
+        <div class="grid md:grid-cols-[1fr_auto] gap-3 p-3 soft rounded-xl">
           <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
             <div>
               <label class="text-[11px] text-zinc-500">Длительность клипа</label>
@@ -111,61 +182,27 @@ pre{white-space:pre-wrap;word-break:break-word}
         <div id="highlightsSection" class="hidden mt-5">
           <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div>
-              <h3 class="font-black">🔥 Лучшие моменты</h3>
-              <p class="text-xs text-zinc-500">OpenAI сравнил кандидатов со всего ролика. Отмеченные моменты можно отрендерить пачкой.</p>
+              <h3 class="font-black">🔥 Лучшие моменты от OpenAI</h3>
+              <p class="text-xs text-zinc-500">Название каждой карточки — это уже AI-заголовок для ролика. Он автоматически появится в видео примерно на 2.3 секунды. При желании его можно исправить справа.</p>
             </div>
             <button id="renderAllBtn" class="btn btn-primary text-sm" type="button">⚡ Сделать все отмеченные</button>
           </div>
           <div id="highlightsList" class="grid md:grid-cols-2 gap-2"></div>
-        </div>
-      </section>
 
-      <section class="panel p-4 md:p-5">
-        <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
-          <div>
-            <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 2</div>
-            <h2 class="text-lg font-black">Выдели веб-камеру</h2>
-            <p class="text-xs text-zinc-500 mt-1">Рамка статична — никаких трекеров и дрожания. Профиль можно сохранить для конкретного стримера.</p>
-          </div>
-          <button id="clearBox" class="btn btn-soft text-xs" type="button">Сбросить рамку</button>
-        </div>
-
-        <div class="grid md:grid-cols-[1fr_auto] gap-2 mb-3">
-          <div>
-            <label class="text-[11px] text-zinc-500">Кадр для настройки вебки</label>
-            <input id="previewTime" class="input mt-1" value="00:00:10">
-          </div>
-          <button id="previewBtn" class="btn btn-primary self-end" type="button">🖼 Получить кадр</button>
-        </div>
-        <div id="previewStatus" class="text-xs text-zinc-500 mb-2"></div>
-
-        <canvas id="previewCanvas" width="1280" height="720"></canvas>
-
-        <div class="grid grid-cols-4 gap-2 mt-3 text-[11px]">
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">X</span><div id="rx">—</div></div>
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">Y</span><div id="ry">—</div></div>
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">W</span><div id="rw">—</div></div>
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">H</span><div id="rh">—</div></div>
-        </div>
-
-        <div class="grid md:grid-cols-[1fr_auto_1fr] gap-2 mt-3">
-          <input id="profileName" class="input" placeholder="Профиль стримера, например: Sasavot">
-          <button id="saveProfile" class="btn btn-soft" type="button">💾 Сохранить рамку</button>
-          <select id="profileSelect" class="input"><option value="">Сохранённые профили...</option></select>
-        </div>
       </section>
     </main>
 
     <aside class="space-y-4 xl:sticky xl:top-4 xl:self-start">
       <section class="panel p-4">
-        <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 3</div>
-        <h2 class="text-lg font-black">Монтаж</h2>
+        <div class="text-xs text-emerald-300 font-bold mb-1">ШАГ 4</div>
+        <h2 class="text-lg font-black">Финальный вид и рендер</h2>
+        <p class="text-[11px] text-zinc-500 mt-1">Если выбрал AI-момент, таймкоды и заголовок справа подставятся автоматически.</p>
 
         <div class="mt-4 p-3 rounded-xl bg-black/30 border border-zinc-800">
           <div class="mx-auto w-[150px] aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 relative">
             <div id="layoutCam" class="absolute inset-x-0 top-0 bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300" style="height:36%">WEBCAM • HQ</div>
             <div id="layoutGame" class="absolute inset-x-0 bottom-0 bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300" style="height:64%">GAMEPLAY</div>
-            <div class="absolute inset-x-1 text-center font-black text-[8px] leading-tight drop-shadow" id="layoutTitle" style="top:37%"><span class="text-red-500">СИЛЬНЫЙ</span><br><span class="text-white">МОМЕНТ</span></div>
+            <div class="absolute inset-x-1 text-center font-black text-[8px] leading-tight drop-shadow" id="layoutTitle" style="top:37%"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></div>
           </div>
         </div>
 
@@ -193,12 +230,12 @@ pre{white-space:pre-wrap;word-break:break-word}
         <div class="border-t border-zinc-800 mt-4 pt-4">
           <label class="flex items-center justify-between gap-3">
             <span>
-              <b class="text-sm">Заголовок первые секунды</b>
-              <span class="block text-[10px] text-zinc-600">Как на примере: красная строка + белая, затем исчезает.</span>
+              <b class="text-sm">AI-заголовок первые секунды</b>
+              <span class="block text-[10px] text-zinc-600">OpenAI создаёт его для каждого найденного момента. Можно отредактировать вручную. Потом он исчезает.</span>
             </span>
             <input id="titleEnabled" type="checkbox" checked>
           </label>
-          <input id="titleText" class="input mt-2" maxlength="80" placeholder="OpenAI подставит заголовок момента">
+          <input id="titleText" class="input mt-2" maxlength="80" placeholder="Здесь автоматически появится AI-заголовок выбранного момента">
           <div class="flex items-center gap-2 mt-2">
             <label class="text-[11px] text-zinc-500">Показывать</label>
             <select id="titleDuration" class="input !w-auto">
@@ -299,7 +336,8 @@ $('#previewBtn').onclick=()=>loadPreview().catch(e=>{$('#previewBtn').disabled=f
 
 function durationValues(){const p=$('#durationPreset').value.split(',').map(Number);return{min:p[0],max:p[1]}}
 async function analyzeWholeVod(){
- const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Вставь ссылку на VOD/ролик.');
+ const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Шаг 1: вставь ссылку на VOD/ролик.');
+ if(!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
  const dur=durationValues();$('#analyzeBtn').disabled=true;$('#analysisBox').classList.remove('hidden');$('#highlightsSection').classList.add('hidden');$('#analysisProgress').value=1;$('#analysisPct').textContent='1%';$('#analysisStatus').textContent='Запускаю анализ всего ролика...';
  const r=await fetch('/api/streamer/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,min_duration:dur.min,max_duration:dur.max,num_clips:+$('#numClips').value})});
  const d=await r.json();if(!r.ok){$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+(d.error||'Ошибка');return}
@@ -313,7 +351,7 @@ function renderHighlights(){
  analysisHighlights.forEach((h,i)=>{
    const div=document.createElement('div');div.className='hl-card';div.dataset.i=i;
    const score=Number(h.virality_score||0),dur=Math.round(Number(h.duration_seconds||0));
-   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" checked data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="font-black mt-2 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex gap-2 mt-3"><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
+   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" checked data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="text-[10px] uppercase tracking-wide text-purple-300 mt-2">AI-заголовок</div><div class="font-black mt-1 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex gap-2 mt-3"><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
    box.appendChild(div);
  });
  box.querySelectorAll('.use-hl').forEach(b=>b.onclick=()=>useHighlight(+b.dataset.i));
