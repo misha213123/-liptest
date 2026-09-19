@@ -493,6 +493,18 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    // Flat folder with finished Streamer Clips only.
+    const mStreamerReady = p.match(/^\/download\/streamer-ready\/([^/]+)$/);
+    if (mStreamerReady) {
+      const file = path.basename(mStreamerReady[1]);
+      const base = path.join(ROOT, 'output', 'FINAL_STREAMER_CLIPS');
+      const fp = path.join(base, file);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'finished streamer clip not found' });
+      }
+      return sendFile(req, res, fp, true);
+    }
+
     // Streamer output video / download
     const mStreamerVideo = p.match(/^\/(video|download)\/streamer\/([^/]+)\/([^/]+)$/);
     if (mStreamerVideo) {
@@ -1304,8 +1316,11 @@ except Exception as e:
           if (result && result.ok) {
             const id = encodeURIComponent(result.id);
             result.video_url = '/video/streamer/' + id + '/' + encodeURIComponent(result.final_file);
-            result.download_url = '/download/streamer/' + id + '/' + encodeURIComponent(result.final_file);
+            result.download_url = result.export_file
+              ? '/download/streamer-ready/' + encodeURIComponent(result.export_file)
+              : '/download/streamer/' + id + '/' + encodeURIComponent(result.final_file);
             result.source_download_url = '/download/streamer/' + id + '/' + encodeURIComponent(result.source_file);
+            result.ready_folder = 'output\\FINAL_STREAMER_CLIPS';
           }
         }
       } catch {}
