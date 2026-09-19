@@ -1133,6 +1133,189 @@ class DownloadMixin:
         
             return str(srt_path) if srt_path else None, video_info
 
+        def download_video_sections_batch(self, url: str, sections: list, output_dir, resolution: str = "1080p") -> list:
+            """Download many time ranges from one YouTube URL in a single yt-dlp run.
+
+            This avoids re-extracting the same YouTube video once per clip, which can
+            trigger YouTube's anti-bot challenge on datacenter IPs after a few clips.
+
+            Args:
+                url: YouTube video URL.
+                sections: List of dicts with start_time/end_time.
+                output_dir: Temporary directory for downloaded section files.
+                resolution: Maximum target resolution.
+
+            Returns:
+                Ordered list of downloaded section file paths.
+            """
+            if not sections:
+                return []
+
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Clean only files created by this batch downloader.
+            for stale in output_dir.glob("batch_*"):
+                try:
+                    if stale.is_file():
+                        stale.unlink()
+                except OSError:
+                    pass
+
+            res = str(resolution or "1080p").strip().lower()
+            res_map = {
+                "2160p": 2160, "1440p": 1440, "1080p": 1080,
+                "720p": 720, "480p": 480, "360p": 360,
+                "240p": 240, "144p": 144,
+            }
+            target_h = 2160 if res in ("auto", "auto (best)", "best", "otomatis") else res_map.get(res, 1080)
+            min_h = 720 if target_h >= 720 else target_h
+            format_selector = (
+                f"bestvideo[height>={min_h}][height<={target_h}]+bestaudio/"
+                f"best[height>={min_h}][height<={target_h}]/"
+                f"bestvideo[height<={target_h}]+bestaudio/"
+                f"best[height<={target_h}]/best"
+            )
+
+            # section_number is provided by yt-dlp specifically for --download-sections.
+            output_template = str(output_dir / "batch_%(section_number)03d.%(ext)s")
+            cmd = self._ytdlp_command_prefix() + [
+                "-f", format_selector,
+                "--format-sort", "res,br",
+                "--newline",
+                "--no-playlist",
+                "--merge-output-format", "mp4",
+                "-o", output_template,
+            ]
+
+            for section in sections:
+                start = str(section.get("start_time", "")).replace(",", ".")
+                end = str(section.get("end_time", "")).replace(",", ".")
+                if not start or not end:
+                    raise Exception("Batch section is missing start_time/end_time")
+                cmd.extend(["--download-sections", f"*{start}-{end}"])
+
+            ffmpeg_path = get_ffmpeg_path()
+            if ffmpeg_path and Path(ffmpeg_path).exists():
+                cmd.extend(["--ffmpeg-location", str(Path(ffmpeg_path).parent)])
+
+            # Reuse the same cookies file for the whole batch.
+            from utils.helpers import get_app_dir
+            app_dir = get_app_dir()
+            cookies_path = None
+            for loc in [Path("cookies.txt"), app_dir / "cookies.txt"]:
+                if loc.exists() and loc.stat().st_size > 0:
+                    cookies_path = str(loc)
+                    break
+            if cookies_path:
+                cmd.extend(["--cookies", cookies_path])
+
+            # Prefer YouTube clients that do not require the web_creator PO token.
+            cmd.extend([
+                "--extractor-args",
+                "youtube:player_client=web,web_embedded,web_safari,mweb",
+            ])
+
+            # If Deno is installed, explicitly expose it to yt-dlp so EJS can run.
+            deno_path = get_deno_path()
+            if deno_path and Path(deno_path).exists():
+                cmd.extend([
+                    "--js-runtimes", f"deno:{deno_path}",
+                    "--remote-components", "ejs:github",
+                ])
+
+            cmd.append(url)
+
+            self.log(f"  Batch downloading {len(sections)} YouTube sections in ONE yt-dlp run...")
+            self.log("  Running: " + " ".join(cmd))
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=SUBPROCESS_FLAGS,
+            )
+
+            stdout_buf = []
+            stderr_buf = []
+
+            def _drain_batch_stream(stream, store):
+                try:
+                    for raw in stream:
+                        line = raw.strip()
+                        store.append(line)
+                        if "[download]" in line and "%" in line:
+                            percent, total, speed, eta = self._parse_ytdlp_progress_line(line)
+                            if percent is not None:
+                                self.set_progress(
+                                    self._format_ytdlp_download_status(
+                                        f"Downloading {len(sections)} clips...",
+                                        percent, total, speed, eta
+                                    ),
+                                    0.03 + (percent / 100.0) * 0.12
+                                )
+                except Exception:
+                    pass
+
+            threads = [
+                threading.Thread(target=_drain_batch_stream, args=(process.stdout, stdout_buf), daemon=True),
+                threading.Thread(target=_drain_batch_stream, args=(process.stderr, stderr_buf), daemon=True),
+            ]
+            for t in threads:
+                t.start()
+
+            started = time.time()
+            timeout = max(900, len(sections) * 180)
+            while process.poll() is None:
+                if self.is_cancelled():
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except Exception:
+                        process.kill()
+                    raise Exception("Cancelled by user")
+                if time.time() - started > timeout:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=5)
+                    except Exception:
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
+                    raise Exception(f"Batch section download timed out after {timeout}s")
+                time.sleep(0.5)
+
+            for t in threads:
+                t.join(timeout=5)
+
+            if process.returncode != 0:
+                err = "\n".join(stderr_buf[-40:]).strip() or "\n".join(stdout_buf[-40:]).strip()
+                low = err.lower()
+                if "confirm you're not a bot" in low or "sign in to confirm" in low:
+                    raise Exception(
+                        "YouTube anti-bot challenge. Refresh cookies.txt once, then retry. "
+                        "Batch mode prevents one yt-dlp extraction per clip."
+                    )
+                raise Exception(f"Batch section download failed!\n\n{err[:1200]}")
+
+            allowed = {".mp4", ".mkv", ".webm", ".mov"}
+            files = sorted(
+                p for p in output_dir.glob("batch_*")
+                if p.is_file() and p.suffix.lower() in allowed and ".part" not in p.name
+            )
+
+            if len(files) != len(sections):
+                raise Exception(
+                    f"Batch downloader expected {len(sections)} section files, "
+                    f"but found {len(files)} in {output_dir}"
+                )
+
+            self.log(f"  ✓ Batch download complete: {len(files)} sections from one yt-dlp run")
+            return [str(p) for p in files]
+
+
         def download_video_section(self, url: str, start_time: str, end_time: str, output_path: str, resolution: str = "1080p") -> str:
             """Download a specific section of a video using yt-dlp --download-sections.
         
