@@ -350,13 +350,13 @@ def insert_ad_banner(
         raise RuntimeError(f"Файл рекламного видео не найден: {banner_path}")
 
     ad_info = probe_media_info(banner_path)
-    banner_duration = max(0.10, min(120.0, float(ad_info["duration"])))
+    banner_duration = max(0.10, float(ad_info["duration"]))
     ad_has_audio = bool(ad_info["has_audio"])
 
     main_info = probe_media_info(input_path)
     main_has_audio = bool(main_info["has_audio"])
 
-    clip_duration = max(0.5, float(clip_duration or main_info["duration"] or 0.5))
+    clip_duration = max(0.5, float(main_info["duration"] or clip_duration or 0.5))
     at_pct = max(0.05, min(0.95, float(at_pct or 0.50)))
     pause_at = max(0.20, min(clip_duration - 0.20, clip_duration * at_pct))
 
