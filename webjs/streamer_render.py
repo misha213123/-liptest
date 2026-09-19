@@ -80,13 +80,13 @@ def tune_encoder_args(args: list[str]) -> list[str]:
                 out[idx + 1] = value
 
     if "h264_nvenc" in joined or "hevc_nvenc" in joined:
-        replace_value("-cq", "18")
-        replace_value("-b:v", "8M")
-        replace_value("-maxrate", "12M")
-        replace_value("-bufsize", "20M")
-        replace_value("-preset", "p5")
+        replace_value("-cq", "16")
+        replace_value("-b:v", "10M")
+        replace_value("-maxrate", "16M")
+        replace_value("-bufsize", "24M")
+        replace_value("-preset", "p6")
     elif "libx264" in joined:
-        replace_value("-crf", "18")
+        replace_value("-crf", "16")
         replace_value("-preset", "medium")
     return out
 
