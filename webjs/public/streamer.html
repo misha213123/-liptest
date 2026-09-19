@@ -355,7 +355,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                 <button id="bannerSoundBtn" type="button" class="btn btn-soft !px-2 !py-1.5">🔇 Звук</button>
                 <button id="bannerCenterBtn" type="button" class="btn btn-soft !px-2 !py-1.5">◎ Центр</button>
               </div>
-              <div class="text-[10px] text-zinc-500 mt-1 text-center">Таскай баннер мышкой. Теперь можно тянуть отдельно за верх, низ, левый/правый край и за углы.</div>
+              <div class="text-[10px] text-zinc-500 mt-1 text-center">Таскай весь баннер мышкой даже при размере 100%. Его можно увести ниже/выше кадра; лишняя часть просто обрежется. Края и углы меняют размер.</div>
             </div>
             <div id="bannerDurationInfo" class="text-[10px] text-zinc-500 mt-1"></div>
 
@@ -383,11 +383,11 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                 <input id="bannerHeight" type="range" min="8" max="100" value="38" class="w-full mt-2">
               </div>
               <div>
-                <label class="text-[10px] text-zinc-500">По горизонтали <span id="bannerXLabel">50%</span></label>
+                <label class="text-[10px] text-zinc-500">Центр X <span id="bannerXLabel">50%</span></label>
                 <input id="bannerX" type="range" min="0" max="100" value="50" class="w-full mt-2">
               </div>
               <div>
-                <label class="text-[10px] text-zinc-500">По вертикали <span id="bannerYLabel">50%</span></label>
+                <label class="text-[10px] text-zinc-500">Центр Y <span id="bannerYLabel">50%</span></label>
                 <input id="bannerY" type="range" min="0" max="100" value="50" class="w-full mt-2">
               </div>
             </div>
@@ -734,19 +734,22 @@ function bannerRect(){
  const wp=+$('#bannerWidth').value/100,hp=+$('#bannerHeight').value/100;
  const xp=+$('#bannerX').value/100,yp=+$('#bannerY').value/100;
  const w=W*wp,h=H*hp;
- return{x:(W-w)*xp,y:(H-h)*yp,w,h};
+ // X/Y are the banner CENTER, not "free-space alignment".
+ // This means even a 100% x 100% creative can be dragged down/up/sideways
+ // and intentionally clipped by the final 9:16 frame.
+ return{x:W*xp-w/2,y:H*yp-h/2,w,h};
 }
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
 function syncBannerSlidersFromRect(r){
  const W=bannerCanvas.width,H=bannerCanvas.height;
  r.w=clamp(r.w,W*.12,W);
  r.h=clamp(r.h,H*.08,H);
- r.x=clamp(r.x,0,W-r.w);
- r.y=clamp(r.y,0,H-r.h);
+ const cx=clamp((r.x+r.w/2)/W,0,1);
+ const cy=clamp((r.y+r.h/2)/H,0,1);
  $('#bannerWidth').value=Math.round(r.w/W*100);
  $('#bannerHeight').value=Math.round(r.h/H*100);
- $('#bannerX').value=(W-r.w)>1?Math.round(r.x/(W-r.w)*100):50;
- $('#bannerY').value=(H-r.h)>1?Math.round(r.y/(H-r.h)*100):50;
+ $('#bannerX').value=Math.round(cx*100);
+ $('#bannerY').value=Math.round(cy*100);
  updateBannerLabels();
 }
 function bannerPoint(e){
