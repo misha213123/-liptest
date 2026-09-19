@@ -550,7 +550,94 @@ class CaptionMixin:
                 progress_callback(1.0)
             return os.path.exists(output_path) and os.path.getsize(output_path) > 10_000
 
-        def add_captions_api_with_progress(self, input_path: str, output_path: str, audio_source: str = None, time_offset: float = 0, progress_callback=None):
+        def _transcript_from_session_srt(self, clip_folder: Path, clip_start_sec: float, clip_end_sec: float):
+            """Build a clip-local transcript from the session's downloaded YouTube SRT.
+
+            This is faster and more reliable than re-transcribing audio when the
+            source subtitles already exist. Returns an SDK-like object with
+            .segments/.words, or None when no suitable SRT is available.
+            """
+            from types import SimpleNamespace
+
+            try:
+                session_dir = clip_folder.parent.parent
+                if not session_dir.exists():
+                    return None
+
+                lang = str(getattr(self, "subtitle_language", "") or "").strip()
+                candidates = []
+                if lang:
+                    candidates.extend([
+                        session_dir / f"source.{lang}.srt",
+                        session_dir / f"source_{lang}.srt",
+                    ])
+                candidates.extend(sorted(session_dir.glob("source*.srt")))
+
+                seen = set()
+                srt_path = None
+                for p in candidates:
+                    key = str(p).lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if p.exists() and p.stat().st_size > 0:
+                        srt_path = p
+                        break
+                if srt_path is None:
+                    return None
+
+                content = srt_path.read_text(encoding="utf-8", errors="replace")
+                pattern = re.compile(
+                    r"(?:^|\r?\n)(\d+)\r?\n"
+                    r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s+-->\s+"
+                    r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\r?\n"
+                    r"(.*?)(?=\r?\n\r?\n|\Z)",
+                    re.DOTALL,
+                )
+
+                segments = []
+                last_text = None
+                clip_duration = max(0.1, clip_end_sec - clip_start_sec)
+                for _, start_s, end_s, raw_text in pattern.findall(content):
+                    s = self.parse_timestamp(start_s)
+                    e = self.parse_timestamp(end_s)
+                    if e <= clip_start_sec or s >= clip_end_sec:
+                        continue
+
+                    text = re.sub(r"<[^>]+>", "", raw_text)
+                    text = re.sub(r"\s+", " ", text).strip()
+                    if not text:
+                        continue
+                    # YouTube auto-captions often repeat the same cue verbatim.
+                    if text == last_text:
+                        continue
+                    last_text = text
+
+                    local_start = max(0.0, s - clip_start_sec)
+                    local_end = min(clip_duration, e - clip_start_sec)
+                    if local_end <= local_start:
+                        continue
+                    segments.append({
+                        "start": local_start,
+                        "end": local_end,
+                        "text": text,
+                    })
+
+                if not segments:
+                    return None
+
+                words = self._build_pseudo_words(segments)
+                self.log(f"  [Caption] Использую YouTube SRT: {srt_path.name} ({len(segments)} фрагм., {len(words)} слов)")
+                return SimpleNamespace(
+                    words=words,
+                    segments=segments,
+                    text=" ".join(seg["text"] for seg in segments),
+                )
+            except Exception as e:
+                self.log(f"  [Caption] Не удалось использовать SRT: {e}")
+                return None
+
+        def add_captions_api_with_progress(self, input_path: str, output_path: str, audio_source: str = None, time_offset: float = 0, progress_callback=None, source_start_sec: float = 0.0, source_end_sec: float = None):
             """Add CapCut-style captions using OpenAI Whisper API with progress"""
         
             if progress_callback:
@@ -604,20 +691,34 @@ class CaptionMixin:
             if progress_callback:
                 progress_callback(0.3)
         
-            # Transcribe using Whisper API (raw HTTP for proxy compatibility)
-            try:
-                transcript = self.transcribe_words(
-                    audio_file,
-                    progress_callback=lambda p: progress_callback(0.3 + p * 0.2) if progress_callback else None,
-                )
-            except Exception as e:
-                self.log(f"  ❌ Caption transcription FAILED: {e}")
-                self.log("  Captions will be SKIPPED for this clip (video still saved without captions)")
+            # Prefer the already-downloaded YouTube SRT. It is both faster and
+            # avoids language/model issues. Fall back to local Faster-Whisper.
+            if source_end_sec is None:
+                source_end_sec = source_start_sec + max(0.1, audio_duration)
+            transcript = self._transcript_from_session_srt(
+                clip_folder, float(source_start_sec or 0.0), float(source_end_sec)
+            )
+
+            if transcript is None:
+                try:
+                    transcript = self.transcribe_words(
+                        audio_file,
+                        progress_callback=lambda p: progress_callback(0.3 + p * 0.2) if progress_callback else None,
+                    )
+                except Exception as e:
+                    self.log(f"  ❌ Не удалось создать субтитры: {e}")
+                    self._caption_failed = True
+                    raise Exception(
+                        "Субтитры были включены, но не удалось получить текст ни из YouTube SRT, "
+                        "ни через Faster-Whisper."
+                    ) from e
+
+            words_count = len(getattr(transcript, "words", None) or [])
+            segments_count = len(getattr(transcript, "segments", None) or [])
+            if words_count == 0 and segments_count == 0:
                 self._caption_failed = True
-                import shutil
-                shutil.copy(input_path, output_path)
-                return
-        
+                raise Exception("Субтитры включены, но распознавание вернуло пустой текст.")
+
             if progress_callback:
                 progress_callback(0.5)
         
@@ -1179,11 +1280,15 @@ class CaptionMixin:
                 # Use portrait_file (without hook) as audio source for transcription
                 audio_source = str(portrait_file) if add_hook else None
             
-                self.add_captions_api_with_progress(str(current_output), str(captioned_file), audio_source, 0,
-                    lambda p: clip_progress("Adding captions...", current_step, p))
+                self.add_captions_api_with_progress(
+                    str(current_output), str(captioned_file), audio_source, 0,
+                    lambda p: clip_progress("Adding captions...", current_step, p),
+                    source_start_sec=self.parse_timestamp(start),
+                    source_end_sec=self.parse_timestamp(end),
+                )
             
-                if not captioned_file.exists():
-                    raise Exception(f"Failed to create captioned video: {captioned_file}")
+                if not captioned_file.exists() or captioned_file.stat().st_size < 10_000:
+                    raise Exception(f"Не удалось создать видео с субтитрами: {captioned_file}")
             
                 current_output = captioned_file
                 self.log(self.colorize("  ✓ Added captions", "caption"))
