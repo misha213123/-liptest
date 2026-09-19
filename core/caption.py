@@ -146,7 +146,8 @@ class CaptionMixin:
             # Create ASS subtitle file with time offset for hook
             ass_file = tempfile.NamedTemporaryFile(mode='w', suffix='.ass', delete=False, encoding='utf-8').name
             # Whisper word timestamps are systematically late -> compensate
-            sync_offset = getattr(self, "subtitle_sync_offset", 0.0)
+            sync_offset = float(getattr(self, "subtitle_sync_offset", 0.0) or 0.0)
+            sync_offset = max(-0.15, min(0.15, sync_offset))
             ass_offset = time_offset + sync_offset
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
@@ -691,27 +692,32 @@ class CaptionMixin:
             if progress_callback:
                 progress_callback(0.3)
         
-            # Prefer the already-downloaded YouTube SRT. It is both faster and
-            # avoids language/model issues. Fall back to local Faster-Whisper.
+            # For burned captions prefer local Faster-Whisper word timestamps.
+            # YouTube auto-SRT often uses rolling/overlapping cues, which produces
+            # duplicated and visibly "broken" captions after clipping.
             if source_end_sec is None:
                 source_end_sec = source_start_sec + max(0.1, audio_duration)
-            transcript = self._transcript_from_session_srt(
-                clip_folder, float(source_start_sec or 0.0), float(source_end_sec)
-            )
+
+            transcript = None
+            try:
+                self.log("  [Caption] Распознаю речь через Faster-Whisper для точных таймкодов...")
+                transcript = self.transcribe_words(
+                    audio_file,
+                    progress_callback=lambda p: progress_callback(0.3 + p * 0.2) if progress_callback else None,
+                )
+            except Exception as fw_err:
+                self.log(f"  ⚠ Faster-Whisper не сработал: {fw_err}")
+                self.log("  [Caption] Пробую YouTube SRT как резервный источник...")
+                transcript = self._transcript_from_session_srt(
+                    clip_folder, float(source_start_sec or 0.0), float(source_end_sec)
+                )
 
             if transcript is None:
-                try:
-                    transcript = self.transcribe_words(
-                        audio_file,
-                        progress_callback=lambda p: progress_callback(0.3 + p * 0.2) if progress_callback else None,
-                    )
-                except Exception as e:
-                    self.log(f"  ❌ Не удалось создать субтитры: {e}")
-                    self._caption_failed = True
-                    raise Exception(
-                        "Субтитры были включены, но не удалось получить текст ни из YouTube SRT, "
-                        "ни через Faster-Whisper."
-                    ) from e
+                self._caption_failed = True
+                raise Exception(
+                    "Субтитры были включены, но не удалось получить текст ни через Faster-Whisper, "
+                    "ни из YouTube SRT."
+                )
 
             words_count = len(getattr(transcript, "words", None) or [])
             segments_count = len(getattr(transcript, "segments", None) or [])
@@ -1524,11 +1530,14 @@ class CaptionMixin:
     - Gunakan bahasa Indonesia
     - Return HANYA JSON, tanpa markdown code blocks atau text lain."""
 
-                    response = self.client.chat.completions.create(
-                        model=self.model if hasattr(self, 'model') else "gpt-4.1",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=self.temperature
-                    )
+                    social_model = self.model if hasattr(self, 'model') else "gpt-4.1"
+                    social_kwargs = {
+                        "model": social_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }
+                    if not str(social_model or "").lower().startswith(("gpt-5", "o1", "o3", "o4")):
+                        social_kwargs["temperature"] = self.temperature
+                    response = self.client.chat.completions.create(**social_kwargs)
                 
                     result = response.choices[0].message.content.strip()
                     if result.startswith("```"):
