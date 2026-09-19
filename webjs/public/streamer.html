@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streamer Clips — Auto Clipper</title>
+<link rel="stylesheet" href="/app.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{background:var(--bg-page,#09090b);color:#fff}
+  .panel{background:var(--bg-surface,#111114);border:1px solid #27272a;border-radius:14px}
+  .input{width:100%;background:#18181b;border:1px solid #3f3f46;border-radius:9px;padding:.65rem .8rem;color:#fff}
+  .input:focus{outline:none;border-color:#22d3ee}
+  .btn{border-radius:9px;padding:.65rem .9rem;font-weight:700;transition:.15s}
+  .btn-primary{background:#22d3ee;color:#071014}.btn-primary:hover{background:#67e8f9}
+  .btn-soft{background:#18181b;border:1px solid #3f3f46;color:#e4e4e7}
+  #previewWrap{position:relative;max-width:100%;user-select:none}
+  #previewCanvas{display:block;width:100%;height:auto;border-radius:10px;background:#050505;touch-action:none;cursor:crosshair}
+  pre{white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-[1450px] mx-auto p-4 md:p-6">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+    <div>
+      <div class="text-xs text-zinc-500 mb-1">AUTO CLIPPER / НОВЫЙ РЕЖИМ</div>
+      <h1 class="text-2xl md:text-3xl font-black">🎮 Streamer Clips</h1>
+      <p class="text-sm text-zinc-400 mt-1">Twitch / Kick / YouTube → вебка сверху + gameplay снизу → 9:16</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/create.html" class="btn btn-soft">Обычные клипы</a>
+      <a href="/" class="btn btn-soft">Сессии</a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1.45fr_.75fr] gap-4">
+    <div class="space-y-4">
+      <section class="panel p-4">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h2 class="font-bold">1. Источник</h2>
+            <p class="text-xs text-zinc-500">Для Twitch/Kick лучше использовать VOD/запись. YouTube работает как обычно.</p>
+          </div>
+          <span class="text-xs px-2 py-1 rounded bg-cyan-950 text-cyan-300 border border-cyan-900">Manual Webcam Box</span>
+        </div>
+        <label class="text-xs text-zinc-400">URL стрима / VOD / YouTube</label>
+        <div class="flex flex-col md:flex-row gap-2 mt-1">
+          <input id="sourceUrl" class="input flex-1" placeholder="https://www.youtube.com/watch?v=...">
+          <button id="pasteBtn" class="btn btn-soft" type="button">📋 Вставить</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 mt-3">
+          <div>
+            <label class="text-xs text-zinc-400">Таймкод для кадра-превью</label>
+            <input id="previewTime" class="input mt-1" value="00:00:10">
+          </div>
+          <button id="previewBtn" class="btn btn-primary self-end" type="button">Получить кадр</button>
+        </div>
+        <div id="previewStatus" class="text-xs text-zinc-400 mt-2"></div>
+      </section>
+
+      <section class="panel p-4">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="font-bold">2. Обведи веб-камеру рамкой</h2>
+            <p class="text-xs text-zinc-500">Зажми мышь в одном углу вебки и протяни до противоположного. Красная рамка — то, что попадёт наверх ролика.</p>
+          </div>
+          <button id="clearBox" class="btn btn-soft text-xs" type="button">Сбросить рамку</button>
+        </div>
+        <div id="previewWrap">
+          <canvas id="previewCanvas" width="1280" height="720"></canvas>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
+          <div class="bg-zinc-950 rounded p-2"><span class="text-zinc-500">X</span><div id="rx">—</div></div>
+          <div class="bg-zinc-950 rounded p-2"><span class="text-zinc-500">Y</span><div id="ry">—</div></div>
+          <div class="bg-zinc-950 rounded p-2"><span class="text-zinc-500">Ширина</span><div id="rw">—</div></div>
+          <div class="bg-zinc-950 rounded p-2"><span class="text-zinc-500">Высота</span><div id="rh">—</div></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="space-y-4">
+      <section class="panel p-4">
+        <h2 class="font-bold mb-3">3. Монтаж</h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-zinc-400">Начало</label>
+            <input id="startTime" class="input mt-1" value="00:00:10">
+          </div>
+          <div>
+            <label class="text-xs text-zinc-400">Конец</label>
+            <input id="endTime" class="input mt-1" value="00:01:10">
+          </div>
+
+          <div class="col-span-2">
+            <div class="flex justify-between text-xs text-zinc-400">
+              <label>Высота вебки сверху</label><span id="camPctLabel">36%</span>
+            </div>
+            <input id="camPct" type="range" min="25" max="48" value="36" class="w-full mt-2">
+          </div>
+
+          <div class="col-span-2">
+            <div class="flex justify-between text-xs text-zinc-400">
+              <label>Центр gameplay</label><span id="gameXLabel">50%</span>
+            </div>
+            <input id="gameX" type="range" min="0" max="100" value="50" class="w-full mt-2">
+            <div class="flex justify-between text-[10px] text-zinc-600"><span>левее</span><span>центр</span><span>правее</span></div>
+          </div>
+
+          <div>
+            <label class="text-xs text-zinc-400">Качество источника</label>
+            <select id="resolution" class="input mt-1">
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="auto">Auto</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-3 pt-5">
+            <label class="flex items-center gap-2 text-sm"><input id="captions" type="checkbox" checked> Субтитры</label>
+            <label class="flex items-center gap-2 text-sm"><input id="gpu" type="checkbox" checked> GPU</label>
+          </div>
+        </div>
+
+        <button id="renderBtn" type="button" class="btn btn-primary w-full mt-4">🚀 Сделать Streamer Clip</button>
+        <div id="renderStatus" class="text-sm mt-3"></div>
+        <div class="mt-2 h-2 bg-zinc-900 rounded overflow-hidden"><div id="progressBar" class="h-full bg-cyan-400 transition-all" style="width:0%"></div></div>
+
+        <details class="mt-3">
+          <summary class="text-xs text-zinc-500 cursor-pointer">Лог</summary>
+          <pre id="renderLog" class="mt-2 max-h-64 overflow-auto text-[11px] bg-black/50 rounded p-3 text-zinc-400"></pre>
+        </details>
+      </section>
+
+      <section id="resultPanel" class="panel p-4 hidden">
+        <h2 class="font-bold mb-3">✅ Готово</h2>
+        <video id="resultVideo" controls playsinline class="w-full rounded-lg bg-black aspect-[9/16] max-h-[650px]"></video>
+        <div class="grid grid-cols-2 gap-2 mt-3">
+          <a id="downloadVertical" class="btn btn-primary text-center" href="#">Скачать 9:16</a>
+          <a id="downloadOriginal" class="btn btn-soft text-center" href="#">Исходный момент 16:9</a>
+        </div>
+      </section>
+
+      <section class="panel p-4">
+        <h3 class="font-bold text-sm">Как работает</h3>
+        <div class="text-xs text-zinc-400 mt-2 space-y-1">
+          <p>• Вебка берётся строго из выбранной рамки — без трекера и дрожания.</p>
+          <p>• Gameplay автоматически превращается в нижнюю вертикальную часть.</p>
+          <p>• Можно двигать центр gameplay влево/вправо.</p>
+          <p>• Субтитры используют текущие настройки Auto Clipper.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const canvas = $('#previewCanvas');
+const ctx = canvas.getContext('2d');
+let image = null;
+let rect = null;
+let dragging = false;
+let startPt = null;
+
+function drawPlaceholder(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#050505'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#71717a'; ctx.font='32px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Сначала нажми «Получить кадр»', canvas.width/2, canvas.height/2);
+}
+drawPlaceholder();
+
+function redraw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(image){
+    ctx.drawImage(image,0,0,canvas.width,canvas.height);
+    ctx.fillStyle='rgba(0,0,0,.22)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  } else {
+    drawPlaceholder(); return;
+  }
+  if(rect){
+    ctx.save();
+    ctx.drawImage(
+      image,
+      rect.x/imageScaleX(), rect.y/imageScaleY(), rect.w/imageScaleX(), rect.h/imageScaleY(),
+      rect.x,rect.y,rect.w,rect.h
+    );
+    ctx.strokeStyle='#ff2d2d'; ctx.lineWidth=5;
+    ctx.strokeRect(rect.x+2.5,rect.y+2.5,rect.w-5,rect.h-5);
+    ctx.fillStyle='#ff2d2d'; ctx.font='bold 22px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('WEBCAM', rect.x+12, Math.max(28,rect.y+30));
+    ctx.restore();
+  }
+}
+function imageScaleX(){ return canvas.width/(image?.naturalWidth||canvas.width); }
+function imageScaleY(){ return canvas.height/(image?.naturalHeight||canvas.height); }
+
+function pointFromEvent(e){
+  const b=canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0,Math.min(canvas.width,(e.clientX-b.left)*(canvas.width/b.width))),
+    y: Math.max(0,Math.min(canvas.height,(e.clientY-b.top)*(canvas.height/b.height)))
+  };
+}
+canvas.addEventListener('pointerdown',e=>{
+  if(!image) return;
+  dragging=true; startPt=pointFromEvent(e); rect={x:startPt.x,y:startPt.y,w:1,h:1};
+  canvas.setPointerCapture(e.pointerId); redraw();
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!dragging||!startPt) return;
+  const p=pointFromEvent(e);
+  rect={x:Math.min(startPt.x,p.x), y:Math.min(startPt.y,p.y), w:Math.abs(p.x-startPt.x), h:Math.abs(p.y-startPt.y)};
+  redraw(); updateRectInfo();
+});
+canvas.addEventListener('pointerup',()=>{
+  dragging=false;
+  if(rect && (rect.w<25 || rect.h<25)) rect=null;
+  redraw(); updateRectInfo();
+});
+$('#clearBox').onclick=()=>{rect=null; redraw(); updateRectInfo();};
+
+function normalizedRect(){
+  if(!rect) return null;
+  return {
+    x:+(rect.x/canvas.width).toFixed(6),
+    y:+(rect.y/canvas.height).toFixed(6),
+    w:+(rect.w/canvas.width).toFixed(6),
+    h:+(rect.h/canvas.height).toFixed(6)
+  };
+}
+function updateRectInfo(){
+  const r=normalizedRect();
+  $('#rx').textContent=r?(r.x*100).toFixed(1)+'%':'—';
+  $('#ry').textContent=r?(r.y*100).toFixed(1)+'%':'—';
+  $('#rw').textContent=r?(r.w*100).toFixed(1)+'%':'—';
+  $('#rh').textContent=r?(r.h*100).toFixed(1)+'%':'—';
+}
+
+$('#pasteBtn').onclick=async()=>{ try{$('#sourceUrl').value=await navigator.clipboard.readText();}catch{} };
+$('#camPct').oninput=()=>$('#camPctLabel').textContent=$('#camPct').value+'%';
+$('#gameX').oninput=()=>$('#gameXLabel').textContent=$('#gameX').value+'%';
+
+async function loadPreview(){
+  const url=$('#sourceUrl').value.trim();
+  if(!/^https?:\/\//.test(url)){ alert('Вставь ссылку Twitch, Kick или YouTube'); return; }
+  $('#previewBtn').disabled=true;
+  $('#previewStatus').textContent='⏳ Получаю кадр...';
+  const r=await fetch('/api/streamer/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,timestamp:$('#previewTime').value.trim()})});
+  const d=await r.json();
+  if(!r.ok){ $('#previewStatus').textContent='❌ '+(d.error||'Ошибка'); $('#previewBtn').disabled=false; return; }
+  const timer=setInterval(async()=>{
+    const s=await (await fetch('/api/streamer/preview/status')).json();
+    $('#previewStatus').textContent=s.running?'⏳ Загружаю фрагмент и кадр...':(s.code===0?'✅ Кадр готов':'❌ Ошибка получения кадра');
+    if(!s.running){
+      clearInterval(timer); $('#previewBtn').disabled=false;
+      if(s.result&&s.result.ok){
+        image=new Image();
+        image.onload=()=>{
+          const ar=image.naturalWidth/image.naturalHeight;
+          canvas.width=1280; canvas.height=Math.round(1280/ar);
+          rect=null; redraw(); updateRectInfo();
+        };
+        image.src=s.result.image_url+'?t='+Date.now();
+        if(s.result.title) $('#previewStatus').textContent='✅ '+s.result.title+(s.result.channel?' — '+s.result.channel:'');
+      } else if(s.result&&s.result.error){
+        $('#previewStatus').textContent='❌ '+s.result.error;
+      }
+    }
+  },1000);
+}
+$('#previewBtn').onclick=()=>loadPreview().catch(e=>{ $('#previewBtn').disabled=false; $('#previewStatus').textContent='❌ '+e.message; });
+
+async function startRender(){
+  const webcam=normalizedRect();
+  if(!webcam){alert('Сначала обведи веб-камеру красной рамкой.');return;}
+  const url=$('#sourceUrl').value.trim();
+  if(!/^https?:\/\//.test(url)){alert('Нужна ссылка на видео.');return;}
+
+  const payload={
+    url:url,
+    start_time:$('#startTime').value.trim(),
+    end_time:$('#endTime').value.trim(),
+    webcam_rect:webcam,
+    webcam_height_pct:+$('#camPct').value/100,
+    gameplay_center_x:+$('#gameX').value/100,
+    captions:$('#captions').checked,
+    gpu:$('#gpu').checked,
+    resolution:$('#resolution').value
+  };
+
+  $('#renderBtn').disabled=true;
+  $('#resultPanel').classList.add('hidden');
+  $('#renderStatus').textContent='⏳ Запускаю...';
+  $('#renderLog').textContent='';
+  $('#progressBar').style.width='2%';
+
+  const r=await fetch('/api/streamer/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const d=await r.json();
+  if(!r.ok){$('#renderStatus').textContent='❌ '+(d.error||'Ошибка');$('#renderBtn').disabled=false;return;}
+
+  const timer=setInterval(async()=>{
+    const s=await (await fetch('/api/streamer/render/status')).json();
+    $('#renderLog').textContent=s.log||'';
+    $('#renderLog').scrollTop=$('#renderLog').scrollHeight;
+    const p=s.progress==null?5:s.progress;
+    $('#progressBar').style.width=Math.max(2,p)+'%';
+    $('#renderStatus').textContent=s.running?('⏳ Рендер '+Math.round(p)+'%'):(s.code===0?'✅ Готово':'❌ Рендер завершился с ошибкой');
+
+    if(!s.running){
+      clearInterval(timer); $('#renderBtn').disabled=false;
+      if(s.result&&s.result.ok){
+        $('#progressBar').style.width='100%';
+        $('#resultPanel').classList.remove('hidden');
+        $('#resultVideo').src=s.result.video_url+'?t='+Date.now();
+        $('#downloadVertical').href=s.result.download_url;
+        $('#downloadOriginal').href=s.result.source_download_url;
+      } else if(s.result&&s.result.error){
+        $('#renderStatus').textContent='❌ '+s.result.error;
+      }
+    }
+  },1000);
+}
+$('#renderBtn').onclick=()=>startRender().catch(e=>{ $('#renderBtn').disabled=false; $('#renderStatus').textContent='❌ '+e.message; });
+</script>
+</body>
+</html>
