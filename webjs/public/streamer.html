@@ -337,7 +337,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <label class="flex items-center justify-between gap-3">
             <span>
               <b class="text-sm">📢 Рекламное видео</b>
-              <span class="block text-[10px] text-zinc-600">Основной ролик ставится на паузу, фон размывается, рекламный ролик проигрывается целиком и затем основной ролик продолжается.</span>
+              <span class="block text-[10px] text-zinc-600">Можно выбрать: пауза основного ролика или наложение поверх продолжающегося видео.</span>
             </span>
             <input id="bannerEnabled" type="checkbox">
           </label>
@@ -345,10 +345,20 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <div id="bannerControls" class="soft rounded-lg p-2 mt-2" style="opacity:.45">
             <input id="bannerFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v,.mov" class="input">
             <div id="bannerUploadStatus" class="text-[10px] text-zinc-500 mt-1">MP4 / MOV / WEBM / M4V до 250 МБ. Длительность берётся автоматически из самого рекламного видео.</div>
-            <video id="bannerPreview" class="hidden w-full max-h-44 object-contain bg-black rounded-lg mt-2" controls playsinline></video>
+            <div id="bannerStage" class="hidden relative mx-auto mt-2 aspect-[9/16] w-[150px] max-w-full overflow-hidden rounded-lg border border-zinc-800 bg-[#1b1b1d]">
+              <div class="absolute inset-0 flex items-center justify-center text-[9px] text-zinc-600">ВИДЕО / BLUR</div>
+              <video id="bannerPreview" class="absolute bg-black object-fill" muted loop playsinline></video>
+            </div>
             <div id="bannerDurationInfo" class="text-[10px] text-zinc-500 mt-1"></div>
 
             <div class="grid grid-cols-2 gap-2 mt-2">
+              <div>
+                <label class="text-[10px] text-zinc-500">Режим рекламы</label>
+                <select id="bannerMode" class="input mt-1">
+                  <option value="overlay" selected>Поверх видео — без паузы</option>
+                  <option value="pause">Пауза основного ролика</option>
+                </select>
+              </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Когда в ролике <span id="bannerAtLabel">50%</span></label>
                 <input id="bannerAt" type="range" min="10" max="90" value="50" class="w-full mt-2">
@@ -376,7 +386,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
             </div>
 
             <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
-              <label class="flex items-center gap-2"><input id="bannerKeepAspect" type="checkbox" checked> Сохранять пропорции</label>
+              <label class="flex items-center gap-2"><input id="bannerKeepAspect" type="checkbox"> Сохранять пропорции</label>
               <label class="flex items-center gap-2"><input id="bannerChroma" type="checkbox"> Хромакей</label>
             </div>
 
@@ -395,7 +405,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               </div>
             </div>
 
-            <div class="text-[10px] text-zinc-500 mt-2">Звук рекламного видео тоже будет проигрываться. Если в рекламе нет звука — будет тишина до её окончания.</div>
+            <div id="bannerModeHelp" class="text-[10px] text-zinc-500 mt-2">В режиме без паузы основной ролик и его звук продолжаются, реклама идёт поверх размытого видео.</div>
           </div>
         </div>
 
@@ -416,7 +426,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           </div>
 
           <details id="subtitleStudio" class="soft rounded-lg p-2 mt-2" open>
-            <summary class="cursor-pointer font-bold text-xs">🎨 Стиль субтитров</summary>
+            <summary class="cursor-pointer font-bold text-xs">🎨 Стабильные субтитры</summary>
             <div class="grid grid-cols-2 gap-2 mt-2">
               <div>
                 <label class="text-[10px] text-zinc-500">Пресет</label>
@@ -450,8 +460,8 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                 <label class="text-[10px] text-zinc-500">Слов одновременно</label>
                 <select id="subWords" class="input mt-1">
                   <option value="2">2</option>
-                  <option value="3" selected>3</option>
-                  <option value="4">4</option>
+                  <option value="3">3</option>
+                  <option value="4" selected>4</option>
                   <option value="5">5</option>
                 </select>
               </div>
@@ -479,7 +489,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
             <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
               <label class="flex items-center gap-2"><input id="subUppercase" type="checkbox" checked> CAPS</label>
-              <label class="flex items-center gap-2"><input id="subBoost" type="checkbox" checked> Увеличивать активное слово</label>
+              <label class="flex items-center gap-2 text-zinc-500"><input id="subBoost" type="checkbox" disabled> Без скачков размера</label>
               <label class="flex items-center gap-2"><input id="subBox" type="checkbox"> Подложка под текст</label>
               <label class="flex items-center gap-2">Тень <input id="subShadow" type="range" min="0" max="5" value="1" class="w-20"></label>
             </div>
@@ -707,26 +717,35 @@ function fmtAdDuration(sec){
 function updateBannerUi(){
  const on=$('#bannerEnabled').checked;
  $('#bannerControls').style.opacity=on?'1':'.45';
+ const w=+$('#bannerWidth').value,h=+$('#bannerHeight').value,x=+$('#bannerX').value,y=+$('#bannerY').value;
  $('#bannerAtLabel').textContent=$('#bannerAt').value+'%';
- $('#bannerWidthLabel').textContent=$('#bannerWidth').value+'%';
- $('#bannerHeightLabel').textContent=$('#bannerHeight').value+'%';
- $('#bannerXLabel').textContent=$('#bannerX').value+'%';
- $('#bannerYLabel').textContent=$('#bannerY').value+'%';
+ $('#bannerWidthLabel').textContent=w+'%';
+ $('#bannerHeightLabel').textContent=h+'%';
+ $('#bannerXLabel').textContent=x+'%';
+ $('#bannerYLabel').textContent=y+'%';
  $('#bannerBlurLabel').textContent=$('#bannerBlur').value;
  $('#bannerSimilarityLabel').textContent=(+$('#bannerSimilarity').value/100).toFixed(2);
  $('#bannerBlendLabel').textContent=(+$('#bannerBlend').value/100).toFixed(2);
  $('#bannerChromaControls').classList.toggle('hidden',!$('#bannerChroma').checked);
+ const mode=$('#bannerMode').value;
+ $('#bannerModeHelp').textContent=mode==='overlay'
+   ?'Без паузы: основной ролик и его звук продолжаются, реклама идёт поверх размытого видео.'
+   :'С паузой: основной ролик замрёт, будет играть рекламное видео со своим звуком, затем ролик продолжится.';
+ const pv=$('#bannerPreview'),stage=$('#bannerStage');
+ pv.style.width=w+'%';pv.style.height=h+'%';
+ pv.style.left=((100-w)*(x/100))+'%';
+ pv.style.top=((100-h)*(y/100))+'%';
+ pv.style.objectFit=$('#bannerKeepAspect').checked?'contain':'fill';
  if(bannerAsset&&bannerAsset.url){
-   const pv=$('#bannerPreview');
-   pv.src=bannerAsset.url+'?t='+Date.now();
-   pv.classList.remove('hidden');
+   if(!pv.src||!pv.src.includes(bannerAsset.file))pv.src=bannerAsset.url+'?t='+Date.now();
+   stage.classList.remove('hidden');
    $('#bannerUploadStatus').textContent='✅ Рекламное видео загружено: '+(bannerAsset.original_name||bannerAsset.file);
    $('#bannerDurationInfo').textContent=bannerAsset.duration?('Длительность рекламы: '+fmtAdDuration(bannerAsset.duration)):'Длительность будет определена автоматически при рендере.';
  }
 }
 $('#bannerEnabled').onchange=updateBannerUi;
 ['bannerAt','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
-['bannerChroma','bannerKeepAspect','bannerChromaColor'].forEach(id=>$('#'+id).addEventListener('change',updateBannerUi));
+['bannerMode','bannerChroma','bannerKeepAspect','bannerChromaColor'].forEach(id=>$('#'+id).addEventListener('change',updateBannerUi));
 
 $('#bannerFileInput').onchange=async()=>{
  const file=$('#bannerFileInput').files&&$('#bannerFileInput').files[0];
@@ -767,20 +786,20 @@ updateBannerUi();
 function useHighlight(i){activeHighlight=i;const h=analysisHighlights[i];if(!h)return;$('#startTime').value=h.start_time;$('#endTime').value=h.end_time;$('#titleText').value=(h.timed_title&&h.timed_title.text)||h.title||'';document.querySelectorAll('.hl-card').forEach((el,j)=>el.classList.toggle('active',j===i));updateTitlePreview()}
 
 const SUB_PRESETS={
- gaming:{style:'pop',font:'Arial Black',size:52,pos:77,words:3,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:true},
- tiktok:{style:'pop',font:'Arial Black',size:52,pos:76,words:3,text:'#FFFFFF',hi:'#25F4EE',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:true},
- neon:{style:'pop',font:'Impact',size:54,pos:75,words:3,text:'#FFFFFF',hi:'#FF3CAC',outline:'#000000',outlineSize:4,shadow:2,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:true},
- minimal:{style:'pop',font:'Segoe UI',size:44,pos:80,words:4,text:'#FFFFFF',hi:'#FFFFFF',outline:'#000000',outlineSize:2,shadow:0,box:false,bg:'#000000',bgOpacity:45,uppercase:false,boost:false},
+ gaming:{style:'stable',font:'Arial Black',size:52,pos:77,words:4,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false},
+ tiktok:{style:'stable',font:'Arial Black',size:52,pos:76,words:4,text:'#FFFFFF',hi:'#25F4EE',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false},
+ neon:{style:'stable',font:'Impact',size:54,pos:75,words:4,text:'#FFFFFF',hi:'#FF3CAC',outline:'#000000',outlineSize:4,shadow:2,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false},
+ minimal:{style:'stable',font:'Segoe UI',size:44,pos:80,words:5,text:'#FFFFFF',hi:'#FFFFFF',outline:'#000000',outlineSize:2,shadow:0,box:false,bg:'#000000',bgOpacity:45,uppercase:false,boost:false},
  karaoke:{style:'karaoke',font:'Arial Black',size:50,pos:78,words:4,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:3,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false}
 };
-let subtitleStyle='pop';
+let subtitleStyle='stable';
 function applySubtitlePreset(name){
  const p=SUB_PRESETS[name]||SUB_PRESETS.gaming;
  subtitleStyle=p.style;
  $('#subFont').value=p.font;$('#subSize').value=p.size;$('#subPos').value=p.pos;$('#subWords').value=p.words;
  $('#subTextColor').value=p.text;$('#subHighlightColor').value=p.hi;$('#subOutlineColor').value=p.outline;$('#subOutline').value=p.outlineSize;
  $('#subShadow').value=p.shadow;$('#subBox').checked=p.box;$('#subBackgroundColor').value=p.bg;$('#subBgOpacity').value=p.bgOpacity;
- $('#subUppercase').checked=p.uppercase;$('#subBoost').checked=p.boost;
+ $('#subUppercase').checked=p.uppercase;$('#subBoost').checked=false;
  updateSubtitlePreview();
 }
 function updateSubtitlePreview(){
@@ -824,7 +843,7 @@ function subtitleSettings(){
    background_box:$('#subBox').checked,
    uppercase:$('#subUppercase').checked,
    active_boost:$('#subBoost').checked,
-   lead_seconds:0.22
+   lead_seconds:0.04
  };
 }
 
@@ -832,7 +851,7 @@ function renderPayload(h){
  const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100}
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerMode').value,banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100}
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
