@@ -356,6 +356,17 @@ def main():
     if not final_path.exists() or final_path.stat().st_size < 10_000:
         raise RuntimeError("Итоговый 9:16 файл не создан")
 
+    # Keep a flat folder with ONLY finished clips so they are easy to drag to
+    # Telegram/TikTok/Drive without digging through technical render folders.
+    export_dir = APP_DIR / "output" / "FINAL_STREAMER_CLIPS"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    base_name = re.sub(r'[<>:"/\\|?*]+', "_", title_text or "streamer_clip")
+    base_name = re.sub(r"\s+", "_", base_name).strip(" ._")[:80] or "streamer_clip"
+    export_name = f"{base_name}_{clip_id}.mp4"
+    export_path = export_dir / export_name
+    shutil.copy2(final_path, export_path)
+    debug_log(f"[export] {export_path}", flush=True)
+
     meta = {
         "id": clip_id,
         "url": url,
@@ -371,6 +382,8 @@ def main():
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
+        "export_file": export_name,
+        "export_path": str(export_path),
     }
     (out_dir / "streamer_job.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2),
@@ -383,6 +396,8 @@ def main():
         "output_dir": str(out_dir),
         "source_file": source_path.name,
         "final_file": final_path.name,
+        "export_file": export_name,
+        "export_path": str(export_path),
         "title_text": title_text,
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
