@@ -4,21 +4,21 @@
   "telegram_api_hash": "<redacted>",
   "telegram_phone": "+6285847406352",
   "telegram_session": "ytclipper_client",
-  "api_key": "<redacted>",
-  "base_url": "http://localhost:20128/v1",
-  "model": "AUTO",
+  "api_key": "",
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-5.6-luna",
   "tts_model": "edge-tts/id-ID-GadisNeural",
-  "temperature": 0.7,
-  "output_dir": "<redacted>",
-  "system_prompt": "<redacted>",
+  "temperature": 1,
+  "output_dir": "output",
+  "system_prompt": "",
   "installation_id": "<redacted>",
   "ai_providers": {
     "_provider_type": "custom",
     "highlight_finder": {
-      "base_url": "http://localhost:20128/v1",
-      "api_key": "<redacted>",
-      "model": "Loading…",
-      "system_message": "<redacted>"
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "model": "gpt-5.6-luna",
+      "system_message": ""
     },
     "caption_maker": {
       "base_url": "https://api.openai.com/v1",
@@ -57,7 +57,8 @@
     "min_shot_duration": 45,
     "center_weight": 0.12,
     "smooth_follow": true,
-    "pan_speed_limit": 1.5
+    "pan_speed_limit": 1.5,
+    "speaker_dead_zone": 0.16
   },
   "repliz": {
     "access_key": "",
@@ -122,7 +123,7 @@
     "speed_factor": 0.5,
     "ducking_level_db": -15
   },
-  "subtitle_language": "id",
+  "subtitle_language": "ru-orig",
   "font_preset": "DEFAULT",
   "face_detector_model": "mediapipe",
   "auto_bgm": {
@@ -175,5 +176,17 @@
     "tz_name": "Asia/Makassar",
     "interval_hours": 5,
     "test_mode": false
+  },
+  "subtitle_settings": {
+    "font_size": 48,
+    "position_y_pct": 0.76,
+    "safe_margin": 72,
+    "max_words": 3,
+    "max_chars": 24,
+    "outline": 3,
+    "shadow": 1,
+    "text_color": "#FFFFFF",
+    "highlight_color": "#00E5FF",
+    "font_name": "Arial"
   }
 }

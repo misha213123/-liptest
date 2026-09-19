@@ -145,9 +145,15 @@ class CaptionMixin:
         
             # Create ASS subtitle file with time offset for hook
             ass_file = tempfile.NamedTemporaryFile(mode='w', suffix='.ass', delete=False, encoding='utf-8').name
-            # Whisper word timestamps are systematically late -> compensate
-            sync_offset = getattr(self, "subtitle_sync_offset", 0.0)
-            ass_offset = time_offset + sync_offset
+            # Faster-Whisper word timestamps tend to appear slightly after
+            # the perceived spoken word. Apply a configurable global lead, then
+            # let Sync Offset do fine manual correction.
+            sync_offset = float(getattr(self, "subtitle_sync_offset", 0.0) or 0.0)
+            sync_offset = max(-1.0, min(1.0, sync_offset))
+            subtitle_cfg = dict(getattr(self, "subtitle_settings", {}) or {})
+            lead_seconds = float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)
+            lead_seconds = max(0.0, min(0.60, lead_seconds))
+            ass_offset = time_offset + sync_offset - lead_seconds
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
             else:
@@ -550,7 +556,94 @@ class CaptionMixin:
                 progress_callback(1.0)
             return os.path.exists(output_path) and os.path.getsize(output_path) > 10_000
 
-        def add_captions_api_with_progress(self, input_path: str, output_path: str, audio_source: str = None, time_offset: float = 0, progress_callback=None):
+        def _transcript_from_session_srt(self, clip_folder: Path, clip_start_sec: float, clip_end_sec: float):
+            """Build a clip-local transcript from the session's downloaded YouTube SRT.
+
+            This is faster and more reliable than re-transcribing audio when the
+            source subtitles already exist. Returns an SDK-like object with
+            .segments/.words, or None when no suitable SRT is available.
+            """
+            from types import SimpleNamespace
+
+            try:
+                session_dir = clip_folder.parent.parent
+                if not session_dir.exists():
+                    return None
+
+                lang = str(getattr(self, "subtitle_language", "") or "").strip()
+                candidates = []
+                if lang:
+                    candidates.extend([
+                        session_dir / f"source.{lang}.srt",
+                        session_dir / f"source_{lang}.srt",
+                    ])
+                candidates.extend(sorted(session_dir.glob("source*.srt")))
+
+                seen = set()
+                srt_path = None
+                for p in candidates:
+                    key = str(p).lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if p.exists() and p.stat().st_size > 0:
+                        srt_path = p
+                        break
+                if srt_path is None:
+                    return None
+
+                content = srt_path.read_text(encoding="utf-8", errors="replace")
+                pattern = re.compile(
+                    r"(?:^|\r?\n)(\d+)\r?\n"
+                    r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s+-->\s+"
+                    r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\r?\n"
+                    r"(.*?)(?=\r?\n\r?\n|\Z)",
+                    re.DOTALL,
+                )
+
+                segments = []
+                last_text = None
+                clip_duration = max(0.1, clip_end_sec - clip_start_sec)
+                for _, start_s, end_s, raw_text in pattern.findall(content):
+                    s = self.parse_timestamp(start_s)
+                    e = self.parse_timestamp(end_s)
+                    if e <= clip_start_sec or s >= clip_end_sec:
+                        continue
+
+                    text = re.sub(r"<[^>]+>", "", raw_text)
+                    text = re.sub(r"\s+", " ", text).strip()
+                    if not text:
+                        continue
+                    # YouTube auto-captions often repeat the same cue verbatim.
+                    if text == last_text:
+                        continue
+                    last_text = text
+
+                    local_start = max(0.0, s - clip_start_sec)
+                    local_end = min(clip_duration, e - clip_start_sec)
+                    if local_end <= local_start:
+                        continue
+                    segments.append({
+                        "start": local_start,
+                        "end": local_end,
+                        "text": text,
+                    })
+
+                if not segments:
+                    return None
+
+                words = self._build_pseudo_words(segments)
+                self.log(f"  [Caption] Использую YouTube SRT: {srt_path.name} ({len(segments)} фрагм., {len(words)} слов)")
+                return SimpleNamespace(
+                    words=words,
+                    segments=segments,
+                    text=" ".join(seg["text"] for seg in segments),
+                )
+            except Exception as e:
+                self.log(f"  [Caption] Не удалось использовать SRT: {e}")
+                return None
+
+        def add_captions_api_with_progress(self, input_path: str, output_path: str, audio_source: str = None, time_offset: float = 0, progress_callback=None, source_start_sec: float = 0.0, source_end_sec: float = None):
             """Add CapCut-style captions using OpenAI Whisper API with progress"""
         
             if progress_callback:
@@ -604,28 +697,53 @@ class CaptionMixin:
             if progress_callback:
                 progress_callback(0.3)
         
-            # Transcribe using Whisper API (raw HTTP for proxy compatibility)
+            # For burned captions prefer local Faster-Whisper word timestamps.
+            # YouTube auto-SRT often uses rolling/overlapping cues, which produces
+            # duplicated and visibly "broken" captions after clipping.
+            if source_end_sec is None:
+                source_end_sec = source_start_sec + max(0.1, audio_duration)
+
+            transcript = None
             try:
+                self.log("  [Caption] Распознаю речь через Faster-Whisper для точных таймкодов...")
                 transcript = self.transcribe_words(
                     audio_file,
                     progress_callback=lambda p: progress_callback(0.3 + p * 0.2) if progress_callback else None,
                 )
-            except Exception as e:
-                self.log(f"  ❌ Caption transcription FAILED: {e}")
-                self.log("  Captions will be SKIPPED for this clip (video still saved without captions)")
+            except Exception as fw_err:
+                self.log(f"  ⚠ Faster-Whisper не сработал: {fw_err}")
+                self.log("  [Caption] Пробую YouTube SRT как резервный источник...")
+                transcript = self._transcript_from_session_srt(
+                    clip_folder, float(source_start_sec or 0.0), float(source_end_sec)
+                )
+
+            if transcript is None:
                 self._caption_failed = True
-                import shutil
-                shutil.copy(input_path, output_path)
-                return
-        
+                raise Exception(
+                    "Субтитры были включены, но не удалось получить текст ни через Faster-Whisper, "
+                    "ни из YouTube SRT."
+                )
+
+            words_count = len(getattr(transcript, "words", None) or [])
+            segments_count = len(getattr(transcript, "segments", None) or [])
+            if words_count == 0 and segments_count == 0:
+                self._caption_failed = True
+                raise Exception("Субтитры включены, но распознавание вернуло пустой текст.")
+
             if progress_callback:
                 progress_callback(0.5)
         
             # Create ASS subtitle file - kept in the clip folder (no deletion)
             ass_file = str(clip_folder / "captions.ass")
-            # Whisper word timestamps are systematically late -> compensate
-            sync_offset = getattr(self, "subtitle_sync_offset", 0.0)
-            ass_offset = time_offset + sync_offset
+            # Faster-Whisper word timestamps tend to appear slightly after
+            # the perceived spoken word. Apply a configurable global lead, then
+            # let Sync Offset do fine manual correction.
+            sync_offset = float(getattr(self, "subtitle_sync_offset", 0.0) or 0.0)
+            sync_offset = max(-1.0, min(1.0, sync_offset))
+            subtitle_cfg = dict(getattr(self, "subtitle_settings", {}) or {})
+            lead_seconds = float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)
+            lead_seconds = max(0.0, min(0.60, lead_seconds))
+            ass_offset = time_offset + sync_offset - lead_seconds
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
             else:
@@ -1179,11 +1297,15 @@ class CaptionMixin:
                 # Use portrait_file (without hook) as audio source for transcription
                 audio_source = str(portrait_file) if add_hook else None
             
-                self.add_captions_api_with_progress(str(current_output), str(captioned_file), audio_source, 0,
-                    lambda p: clip_progress("Adding captions...", current_step, p))
+                self.add_captions_api_with_progress(
+                    str(current_output), str(captioned_file), audio_source, 0,
+                    lambda p: clip_progress("Adding captions...", current_step, p),
+                    source_start_sec=self.parse_timestamp(start),
+                    source_end_sec=self.parse_timestamp(end),
+                )
             
-                if not captioned_file.exists():
-                    raise Exception(f"Failed to create captioned video: {captioned_file}")
+                if not captioned_file.exists() or captioned_file.stat().st_size < 10_000:
+                    raise Exception(f"Не удалось создать видео с субтитрами: {captioned_file}")
             
                 current_output = captioned_file
                 self.log(self.colorize("  ✓ Added captions", "caption"))
@@ -1419,11 +1541,14 @@ class CaptionMixin:
     - Gunakan bahasa Indonesia
     - Return HANYA JSON, tanpa markdown code blocks atau text lain."""
 
-                    response = self.client.chat.completions.create(
-                        model=self.model if hasattr(self, 'model') else "gpt-4.1",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=self.temperature
-                    )
+                    social_model = self.model if hasattr(self, 'model') else "gpt-4.1"
+                    social_kwargs = {
+                        "model": social_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }
+                    if not str(social_model or "").lower().startswith(("gpt-5", "o1", "o3", "o4")):
+                        social_kwargs["temperature"] = self.temperature
+                    response = self.client.chat.completions.create(**social_kwargs)
                 
                     result = response.choices[0].message.content.strip()
                     if result.startswith("```"):
@@ -1459,12 +1584,13 @@ class CaptionMixin:
             if (self.metadata_settings or {}).get("save_preview", True):
                 try:
                     from core.metadata import normalize_and_validate, klasifikasikan_akun
-                    normalized = normalize_and_validate(highlight)
+                    normalized_items = normalize_and_validate([dict(highlight)])
+                    normalized = normalized_items[0] if normalized_items else {}
                     metadata["metadata_final"] = {
                         k: v for k, v in normalized.items()
                         if k not in ("title", "hook_text", "start_time", "end_time", "duration_seconds")
                     }
-                    klas = klasifikasikan_akun(normalized)
+                    klas = klasifikasikan_akun(normalized_items)
                     metadata["akun_tujuan"] = klas.get("akun_tujuan")
                     metadata["tipe_akun"] = klas.get("tipe_akun")
                 except Exception as e:

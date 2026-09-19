@@ -71,7 +71,7 @@ def main():
         thumbnail_settings=cfg.get("thumbnail"),
         metadata_settings=cfg.get("metadata_settings"),
         auto_broll_settings=cfg.get("auto_broll"),
-        subtitle_language=cfg.get("subtitle_language", "id"),
+        subtitle_language=cfg.get("subtitle_language", "ru-orig"),
         subtitle_sync_offset=cfg.get("subtitle_sync_offset", -0.3),
     )
     # GPU selalu aktif, gagal -> fallback CPU (clipper_core)

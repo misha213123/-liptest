@@ -46,6 +46,8 @@ const FFMPEG = (() => {
 // only flushes when the ~8KB buffer fills -- so long steps (e.g. local Whisper
 // transcription) appear "stuck" at a stale percentage until the process exits.
 process.env.PYTHONUNBUFFERED = '1';
+process.env.PYTHONUTF8 = '1';
+process.env.PYTHONIOENCODING = 'utf-8';
 
 // --- Auth: password login (cookie HMAC) ---
 const COOKIE_NAME = 'clipper_auth';
@@ -611,6 +613,7 @@ const server = http.createServer((req, res) => {
           switch_threshold: mp.switch_threshold ?? 0.18,
           min_shot_duration: mp.min_shot_duration ?? 45,
           lip_activity: mp.lip_activity_threshold ?? 0.08,
+          speaker_dead_zone: mp.speaker_dead_zone ?? 0.16,
           gpu: !!(cfg.gpu_acceleration && cfg.gpu_acceleration.enabled),
           hf_model: (ap.highlight_finder || {}).model || 'AUTO',
           server_url: (ap.highlight_finder || {}).base_url || '',
@@ -622,7 +625,8 @@ const server = http.createServer((req, res) => {
           core_model: cfg.model || 'gpt-4.1',
           tts_model: (cfg.ai_providers&&cfg.ai_providers.hook_maker&&cfg.ai_providers.hook_maker.model) || cfg.tts_model || 'tts-1',
           temperature: cfg.temperature ?? 1.0,
-          subtitle_language: cfg.subtitle_language || 'id',
+          subtitle_language: cfg.subtitle_language || 'ru-orig',
+          subtitle_settings: cfg.subtitle_settings || {},
           hf_system_message: ((ap.highlight_finder || {}).system_message) || '',
           hf_api_key: (ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY || '',
           hf_api_key_set: !!((ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY),
@@ -634,7 +638,7 @@ const server = http.createServer((req, res) => {
           pexels_api_key: (cfg.pexels_api_key || ''),
           thumbnail: cfg.thumbnail || {},
         });
-      } catch { return json(res, 500, { error: 'config.json tidak terbaca' }); }
+      } catch { return json(res, 500, { error: 'Не удалось прочитать config.json' }); }
     }
     // POST /api/config — simpan perubahan parameter (merge; key lain tidak disentuh)
     if (p === '/api/config' && req.method === 'POST') {
@@ -645,7 +649,7 @@ const server = http.createServer((req, res) => {
         try { o = JSON.parse(body || '{}'); } catch {}
         const fp = path.join(ROOT, 'config.json');
         let cfg;
-        try { cfg = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return json(res, 500, { error: 'config.json tidak terbaca' }); }
+        try { cfg = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return json(res, 500, { error: 'Не удалось прочитать config.json' }); }
         const isNum = v => typeof v === 'number' && isFinite(v);
         if ('hook' in o) cfg.hook_enabled = !!o.hook;
         if ('captions' in o) cfg.subtitle_enabled = !!o.captions;
@@ -659,6 +663,21 @@ const server = http.createServer((req, res) => {
           cfg.subtitle_style = o.subtitle_style === 'karaoke' ? 'karaoke' : 'pop';
         }
         if (isNum(o.sync_offset)) cfg.subtitle_sync_offset = o.sync_offset;
+        if (o.subtitle_settings && typeof o.subtitle_settings === 'object') {
+          cfg.subtitle_settings = Object.assign({}, cfg.subtitle_settings || {});
+          const ss = o.subtitle_settings;
+          if (isNum(ss.font_size)) cfg.subtitle_settings.font_size = Math.max(28, Math.min(90, Math.round(ss.font_size)));
+          if (isNum(ss.position_y_pct)) cfg.subtitle_settings.position_y_pct = Math.max(0.45, Math.min(0.90, ss.position_y_pct));
+          if (isNum(ss.safe_margin)) cfg.subtitle_settings.safe_margin = Math.max(30, Math.min(180, Math.round(ss.safe_margin)));
+          if (isNum(ss.max_words)) cfg.subtitle_settings.max_words = Math.max(1, Math.min(6, Math.round(ss.max_words)));
+          if (isNum(ss.max_chars)) cfg.subtitle_settings.max_chars = Math.max(10, Math.min(40, Math.round(ss.max_chars)));
+          if (isNum(ss.outline)) cfg.subtitle_settings.outline = Math.max(0, Math.min(8, Math.round(ss.outline)));
+          if (isNum(ss.shadow)) cfg.subtitle_settings.shadow = Math.max(0, Math.min(6, Math.round(ss.shadow)));
+          for (const k of ['text_color', 'highlight_color']) {
+            if (typeof ss[k] === 'string' && /^#[0-9a-fA-F]{6}$/.test(ss[k])) cfg.subtitle_settings[k] = ss[k];
+          }
+          if (typeof ss.font_name === 'string' && ss.font_name.trim()) cfg.subtitle_settings.font_name = ss.font_name.trim().slice(0, 80);
+        }
         if (typeof o.portrait_mode === 'string' && o.portrait_mode) cfg.portrait_mode = o.portrait_mode;
         if (typeof o.face_tracking_mode === 'string' && o.face_tracking_mode) cfg.face_tracking_mode = o.face_tracking_mode;
         cfg.mediapipe_settings = cfg.mediapipe_settings || {};
@@ -666,6 +685,7 @@ const server = http.createServer((req, res) => {
         for (const k of ['pan_speed_limit', 'center_weight', 'switch_threshold']) if (isNum(o[k])) cfg.mediapipe_settings[k] = o[k];
         if (isNum(o.min_shot_duration)) cfg.mediapipe_settings.min_shot_duration = Math.max(1, Math.round(o.min_shot_duration));
         if (isNum(o.lip_activity)) cfg.mediapipe_settings.lip_activity_threshold = o.lip_activity;
+        if (isNum(o.speaker_dead_zone)) cfg.mediapipe_settings.speaker_dead_zone = Math.max(0.05, Math.min(0.30, o.speaker_dead_zone));
         // Pro video editing features
         cfg.pro_settings = cfg.pro_settings || {};
         if ('stabilize' in o) cfg.pro_settings.stabilize = !!o.stabilize;
@@ -983,7 +1003,12 @@ except Exception as e:
         child.stderr.pipe(out);
         const job = { proc: child, code: undefined, startedAt: Date.now() };
         RENDER_JOBS.set(key, job);
-        child.on('close', code => { job.code = code; job.finishedAt = Date.now(); out.end(); });
+        child.on('close', code => {
+          job.code = code;
+          job.finishedAt = Date.now();
+          invalidateSessions();
+          out.end();
+        });
         json(res, 200, { ok: true, started: true });
       });
       return;
@@ -1141,10 +1166,10 @@ except Exception as e:
       let body = '';
       req.on('data', c => body += c); req.on('end', () => {
         let o = {}; try { o = JSON.parse(body || '{}'); } catch {}
-        if (!fs.existsSync(COOKIES_FILE)) return json(res, 400, { error: 'Belum ada cookies' });
+        if (!fs.existsSync(COOKIES_FILE)) return json(res, 400, { error: 'Файл cookies.txt ещё не загружен' });
         const url = String(o.url || 'https://www.youtube.com/watch?v=jNQXAC9IVRw').trim() || 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
-        const args = ['--cookies', COOKIES_FILE, '--dump-single-json', '--no-warnings', '--skip-download', '--socket-timeout', '15', url];
-        const child = execFile('/usr/local/bin/yt-dlp', args, { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+        const args = ['-m', 'yt_dlp', '--cookies', COOKIES_FILE, '--dump-single-json', '--no-warnings', '--skip-download', '--socket-timeout', '15', url];
+        const child = execFile(PY, args, { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
           if (err) {
             const msg = String(stderr || err.message || '');
             const needsAuth = /Sign in to confirm|confirm your identity|Sign in to YouTube|LOGIN_REQUIRED|"status": *"fail"/i.test(msg);
@@ -1152,8 +1177,8 @@ except Exception as e:
               ok: false,
               auth: needsAuth ? 'gagal' : 'tidak-yakin',
               message: needsAuth
-                ? 'Cookies TIDAK valid — yt-dlp butuh login (YouTube minta verifikasi). Export cookies baru dari browser yang sudah login.'
-                : 'yt-dlp gagal menjalankan test: ' + msg.split('\n').slice(-3).join(' '),
+                ? 'Cookies недействительны — YouTube требует повторную авторизацию. Экспортируйте свежие cookies из браузера, где выполнен вход в YouTube.'
+                : 'Не удалось проверить cookies через yt-dlp: ' + msg.split('\n').slice(-3).join(' '),
               detail: msg.split('\n').slice(-8),
             });
           }

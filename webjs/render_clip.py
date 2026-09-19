@@ -79,6 +79,7 @@ def main():
         face_tracking_mode=str(opts.get("face_tracking_mode", cfg.get("face_tracking_mode", "opencv"))),
         portrait_mode=str(opts.get("portrait_mode", cfg.get("portrait_mode", "crop"))),
         subtitle_style=str(opts.get("subtitle_style", cfg.get("subtitle_style", "pop"))),
+        subtitle_settings=dict(cfg.get("subtitle_settings") or {}),
         aspect_ratio=str(opts.get("aspect_ratio", cfg.get("aspect_ratio", "9:16"))),
         mediapipe_settings=mp,
         ai_providers=prov or None,
@@ -87,7 +88,7 @@ def main():
         thumbnail_settings=cfg.get("thumbnail"),
         metadata_settings=cfg.get("metadata_settings"),
         auto_broll_settings=dict(cfg.get("auto_broll") or {}),
-                subtitle_language=cfg.get("subtitle_language", "id"),
+                subtitle_language=cfg.get("subtitle_language", "ru-orig"),
         subtitle_sync_offset=float(opts.get("sync_offset", cfg.get("subtitle_sync_offset", -0.3))),
     )
     # Per-clip override: BGM mood + B-roll query (dari UI re-render)

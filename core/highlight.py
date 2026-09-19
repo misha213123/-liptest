@@ -61,38 +61,35 @@ if sys.platform == "win32":
 class HighlightMixin:
         @staticmethod
         def get_default_prompt():
-            """Get default system prompt for highlight detection"""
-            return """Kamu adalah asisten AI untuk menemukan highlight video. Tugasmu adalah memilih SEMUA momen terbaik dari transcript yang layak dijadikan klip viral — jumlahnya OTOMATIS, tentukan sendiri berdasarkan kualitas dan panjang video. Banyak momen bagus = tampilkan lebih banyak; sedikit momen bagus = tampilkan lebih sedikit. Jangan memaksa jumlah tertentu.
+            """Промпт по умолчанию для поиска лучших моментов видео."""
+            return """Ты — AI-редактор коротких видео. Проанализируй расшифровку и выбери только действительно сильные, самостоятельные фрагменты, которые подходят для TikTok, YouTube Shorts и Reels.
 
-    SYARAT:
-    1. Durasi tiap klip antara 60 hingga 120 detik (hitung dari timestamp).
-    2. Pilih momen yang menarik, lucu, atau memiliki statement penting.
-    3. Tiap klip harus punya momen inti yang berbeda (hindari klip yang hampir sama/berulang).
-    4. Format waktu: HH:MM:SS,mmm.
-    5. WAJIB BERIKAN 'timed_title' UNTUK SETIAP KLIP. Ini untuk overlay judul 3 detik pertama di klip.
-       - format: "timed_title": {"text": "Judul Singkat Max 20 Karakter", "start": 0.0, "end": 3.0}
-       - Pastikan durasi selalu start=0.0 dan end=3.0.
-       - Judul harus sangat menarik (hook).
+ТРЕБОВАНИЯ:
+1. Длительность каждого клипа — примерно 60–120 секунд, если содержание позволяет.
+2. Выбирай интересные, смешные, неожиданные, спорные или важные моменты.
+3. Не создавай несколько клипов про один и тот же момент.
+4. Используй только реальные таймкоды из расшифровки. Формат: HH:MM:SS,mmm.
+5. Для каждого клипа обязательно добавь timed_title для первых 3 секунд.
+6. Верни ТОЛЬКО валидный JSON-массив. Никакого Markdown, пояснений или текста до/после JSON.
 
-    OUTPUT HARUS BERUPA JSON ARRAY TANPA TEKS LAIN (format JSON harus valid):
-    [
-      {
-        "start_time": "00:01:10,000",
-        "end_time": "00:02:15,000",
-        "title": "Judul Klip Menarik",
-        "description": "Deskripsi singkat klip ini.",
-        "virality_score": 95,
-        "virality_reason": "Topik ini sangat relevan dan kontroversial saat ini.",
-        "hook_text": "Kalimat pendek yang menarik",
-        "timed_title": {"text": "JUDUL VIRAL", "start": 0.0, "end": 3.0}
-      }
-    ]
+ФОРМАТ ОТВЕТА:
+[
+  {
+    "start_time": "00:01:10,000",
+    "end_time": "00:02:15,000",
+    "title": "Короткий заголовок",
+    "description": "Краткое описание момента",
+    "virality_score": 95,
+    "virality_reason": "Почему этот фрагмент может удерживать внимание",
+    "hook_text": "Короткий хук",
+    "timed_title": {"text": "СИЛЬНЫЙ ЗАГОЛОВОК", "start": 0.0, "end": 3.0}
+  }
+]
 
-    ====================
-    {video_context}
+{video_context}
 
-    Transcript:
-    {transcript}"""
+РАСШИФРОВКА:
+{transcript}"""
 
         def parse_srt(self, srt_path: str) -> str:
             """Parse SRT to text with timestamps"""
@@ -393,7 +390,7 @@ class HighlightMixin:
                 else:
                     request_clips = 10
                 num_clips = request_clips
-                self.log(f"  🤖 Auto mode: AI bebas menentukan jumlah highlight (durasi video {duration}s, request budget {request_clips})")
+                self.log(f"  🤖 Авто-режим: AI сам определяет количество сильных моментов (durasi video {duration}s, request budget {request_clips})")
             else:
                 num_clips = val
                 request_clips = num_clips
@@ -405,8 +402,15 @@ class HighlightMixin:
     - Channel: {video_info.get('channel', 'Unknown')}
     - Deskripsi: {video_info.get('description', '')[:500]}"""
 
-            # Replace placeholders safely (avoid .format() which breaks on user's curly braces)
-            prompt = self.system_prompt.replace("{num_clips}", str(request_clips))
+            # Пользовательский промпт допустим только если он действительно содержит
+            # расшифровку. Иначе используем проверенный промпт по умолчанию.
+            prompt_template = (self.system_prompt or "").strip()
+            if "{transcript}" not in prompt_template:
+                self.log("  ⚠ Промпт поиска моментов пустой или некорректный — использую промпт по умолчанию.")
+                prompt_template = self.get_default_prompt()
+
+            # Безопасно подставляем плейсхолдеры (без .format(), чтобы не ломать JSON-скобки).
+            prompt = prompt_template.replace("{num_clips}", str(request_clips))
             prompt = prompt.replace("{video_context}", video_context)
             prompt = prompt.replace("{transcript}", transcript)
         
@@ -417,29 +421,37 @@ class HighlightMixin:
                 self.log("  ⚠ Warning: {num_clips} placeholder not replaced - check your system prompt")
 
             # Use OpenAI-compatible API for all providers
-            self.log(f"  Using API: {self.highlight_client.base_url} (Model: {self.model})")
+            self.log(f"  Использую API: {self.highlight_client.base_url} (Model: {self.model})")
             try:
                 # ponytail: retry utk router lambat/kosong (AUTO -> model reasoning sering timeout); naikkan AI_HIGHLIGHT_ATTEMPTS kalau stabil
                 max_attempts = int(os.environ.get('AI_HIGHLIGHT_ATTEMPTS', '2'))
                 response = None
                 for attempt in range(1, max_attempts + 1):
                     try:
-                        self.log(f"  ⏳ Mengirim request ke AI... (percobaan {attempt}/{max_attempts})")
-                        response = self.highlight_client.chat.completions.create(
-    model=self.model,
-    messages=[{"role": "user", "content": prompt}],
-    max_completion_tokens=request_clips * 300 + 2500,
-    timeout=float(os.environ.get('AI_HIGHLIGHT_TIMEOUT', '600.0'))
-)
+                        self.log(f"  ⏳ Отправляю запрос в AI... (попытка {attempt}/{max_attempts})")
+                        request_kwargs = {
+                            "model": self.model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_completion_tokens": request_clips * 300 + 2500,
+                            "timeout": float(os.environ.get("AI_HIGHLIGHT_TIMEOUT", "600.0")),
+                        }
+
+                        # GPT-5.x и reasoning-модели принимают только temperature=1.
+                        # Проще и надёжнее не передавать temperature вообще.
+                        model_name = str(self.model or "").lower()
+                        if not model_name.startswith(("gpt-5", "o1", "o3", "o4")):
+                            request_kwargs["temperature"] = self.temperature
+
+                        response = self.highlight_client.chat.completions.create(**request_kwargs)
                         if getattr(response, 'choices', None):
                             break
-                        self.log("  ⚠ Respons AI tanpa 'choices' — mengulang...")
+                        self.log("  ⚠ Ответ AI без 'choices' — повторяю...")
                     except Exception as attempt_err:
                         if attempt >= max_attempts:
                             raise
-                        self.log(f"  ⚠ Percobaan {attempt} gagal: {str(attempt_err)[:150]}")
-                        self.log("  ↻ Mengulang request...")
-                self.log("  ✓ Respons diterima dari AI!")
+                        self.log(f"  ⚠ Попытка {attempt} не удалась: {str(attempt_err)[:150]}")
+                        self.log("  ↻ Повторяю запрос...")
+                self.log("  ✓ Ответ от AI получен!")
             
                 # Validate response structure
                 if not response:
@@ -492,7 +504,7 @@ class HighlightMixin:
                 )
         
             # Log raw response for debugging
-            self.log(f"  Raw AI response (first 500 chars):\n{result[:500]}")
+            self.log(f"  Сырой ответ AI (first 500 chars):\n{result[:500]}")
         
             # Save raw response to file if session_dir is available
             if hasattr(self, 'last_session_dir') and self.last_session_dir:
@@ -500,7 +512,7 @@ class HighlightMixin:
                     raw_file = Path(self.last_session_dir) / "ai_raw_response.txt"
                     with open(raw_file, "w", encoding="utf-8") as f:
                         f.write(result)
-                    self.log(f"  ✅ Raw AI response saved to: {raw_file.name}")
+                    self.log(f"  ✅ Сырой ответ AI saved to: {raw_file.name}")
                 except Exception as e:
                     self.log(f"  ⚠️ Could not save raw response: {e}")
         
@@ -525,7 +537,7 @@ class HighlightMixin:
             
                 if highlights is None:
                     # If direct parse fails, try to extract JSON array or object from the response
-                    self.log(f"  ⚠ Direct JSON parse failed, attempting to extract JSON from response...")
+                    self.log(f"  ⚠ Прямой разбор JSON не удался, пытаюсь извлечь JSON из ответа...")
                 
                     # Try to find a JSON array [...] or object {...} in the text
                     extracted = None

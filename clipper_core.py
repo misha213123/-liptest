@@ -110,6 +110,7 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
         face_tracking_mode: str = "opencv",
         portrait_mode: str = "crop",
         subtitle_style: str = "pop",
+        subtitle_settings: dict = None,
         aspect_ratio: str = "9:16",
         mediapipe_settings: dict = None,
         ai_providers: dict = None,
@@ -190,6 +191,18 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
         self.face_tracking_mode = face_tracking_mode
         self.portrait_mode = portrait_mode
         self.subtitle_style = subtitle_style
+        self.subtitle_settings = subtitle_settings or {
+            "font_size": 50,
+            "position_y_pct": 0.78,
+            "safe_margin": 72,
+            "max_words": 3,
+            "max_chars": 24,
+            "outline": 3,
+            "shadow": 1,
+            "text_color": "#FFFFFF",
+            "highlight_color": "#00E5FF",
+            "font_name": "Arial",
+        }
         self.aspect_ratio = aspect_ratio
         self.mediapipe_settings = mediapipe_settings or {
             "lip_activity_threshold": 0.08,
@@ -197,7 +210,8 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
             "min_shot_duration": 45,
             "center_weight": 0.15,
             "smooth_follow": False,
-            "pan_speed_limit": 1.8
+            "pan_speed_limit": 1.8,
+            "speaker_dead_zone": 0.16
         }
         
         # Professional video editing features (loaded from config)
