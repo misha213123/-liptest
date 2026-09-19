@@ -334,12 +334,24 @@ def main():
     debug_log("[progress] Загружаю аудио всего ролика... (overall: 5.0%)", flush=True)
     audio_path = download_audio(url, analysis_dir)
 
-    debug_log("[progress] Распознаю весь стрим Faster-Whisper... (overall: 28.0%)", flush=True)
+    debug_log("[progress] Проверяю быстрый Faster-Whisper на GPU... (overall: 28.0%)", flush=True)
     try:
-        transcript = core._transcribe_full_faster_whisper(str(audio_path))
+        transcript = core._transcribe_full_faster_whisper(
+            str(audio_path),
+            allow_cpu_fallback=False,
+            progress_callback=lambda p: debug_log(
+                f"[progress] Faster-Whisper GPU {int(p * 100)}% "
+                f"(overall: {28 + p * 17:.1f}%)",
+                flush=True,
+            ),
+        )
     except Exception as exc:
         debug_log(
-            f"[streamer-ai] Локальный Faster-Whisper не сработал: {exc}",
+            f"[streamer-ai] GPU Faster-Whisper недоступен: {exc}",
+            flush=True,
+        )
+        debug_log(
+            "[streamer-ai] CPU medium пропускаю: для длинного VOD это слишком медленно и сильно греет ноутбук.",
             flush=True,
         )
         debug_log(
@@ -347,6 +359,7 @@ def main():
             flush=True,
         )
         transcript = core.transcribe_full_video(str(audio_path))
+
     (analysis_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
 
     chunks = split_transcript(transcript)
