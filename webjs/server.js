@@ -613,7 +613,10 @@ const server = http.createServer((req, res) => {
           switch_threshold: mp.switch_threshold ?? 0.18,
           min_shot_duration: mp.min_shot_duration ?? 45,
           lip_activity: mp.lip_activity_threshold ?? 0.08,
-          speaker_dead_zone: mp.speaker_dead_zone ?? 0.16,
+          speaker_dead_zone: mp.speaker_dead_zone ?? 0.18,
+          speaker_switch_confirm: mp.speaker_switch_confirm ?? 4,
+          speaker_score_ratio: mp.speaker_score_ratio ?? 1.65,
+          speaker_switch_cooldown: mp.speaker_switch_cooldown ?? 0.80,
           gpu: !!(cfg.gpu_acceleration && cfg.gpu_acceleration.enabled),
           hf_model: (ap.highlight_finder || {}).model || 'AUTO',
           server_url: (ap.highlight_finder || {}).base_url || '',
@@ -673,6 +676,7 @@ const server = http.createServer((req, res) => {
           if (isNum(ss.max_chars)) cfg.subtitle_settings.max_chars = Math.max(10, Math.min(40, Math.round(ss.max_chars)));
           if (isNum(ss.outline)) cfg.subtitle_settings.outline = Math.max(0, Math.min(8, Math.round(ss.outline)));
           if (isNum(ss.shadow)) cfg.subtitle_settings.shadow = Math.max(0, Math.min(6, Math.round(ss.shadow)));
+          if (isNum(ss.lead_seconds)) cfg.subtitle_settings.lead_seconds = Math.max(0, Math.min(0.60, ss.lead_seconds));
           for (const k of ['text_color', 'highlight_color']) {
             if (typeof ss[k] === 'string' && /^#[0-9a-fA-F]{6}$/.test(ss[k])) cfg.subtitle_settings[k] = ss[k];
           }
@@ -686,6 +690,9 @@ const server = http.createServer((req, res) => {
         if (isNum(o.min_shot_duration)) cfg.mediapipe_settings.min_shot_duration = Math.max(1, Math.round(o.min_shot_duration));
         if (isNum(o.lip_activity)) cfg.mediapipe_settings.lip_activity_threshold = o.lip_activity;
         if (isNum(o.speaker_dead_zone)) cfg.mediapipe_settings.speaker_dead_zone = Math.max(0.05, Math.min(0.30, o.speaker_dead_zone));
+        if (isNum(o.speaker_switch_confirm)) cfg.mediapipe_settings.speaker_switch_confirm = Math.max(2, Math.min(8, Math.round(o.speaker_switch_confirm)));
+        if (isNum(o.speaker_score_ratio)) cfg.mediapipe_settings.speaker_score_ratio = Math.max(1.1, Math.min(3.0, o.speaker_score_ratio));
+        if (isNum(o.speaker_switch_cooldown)) cfg.mediapipe_settings.speaker_switch_cooldown = Math.max(0.2, Math.min(2.0, o.speaker_switch_cooldown));
         // Pro video editing features
         cfg.pro_settings = cfg.pro_settings || {};
         if ('stabilize' in o) cfg.pro_settings.stabilize = !!o.stabilize;
