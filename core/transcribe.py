@@ -579,6 +579,12 @@ class TranscribeMixin:
             headers = {"Authorization": f"Bearer {api_key}"}
 
             lang = getattr(self, "subtitle_language", None) or "id"
+            if lang == "none":
+                lang = None
+            elif lang:
+                # YouTube subtitle tags such as ru-orig / en-orig are NOT valid
+                # for the OpenAI Whisper API. It requires ISO-639-1 codes.
+                lang = str(lang).split("-", 1)[0].strip().lower() or None
 
             # Compress WAV → MP3 to reduce upload size (proxy rejects large bodies)
             upload_path = audio_path
