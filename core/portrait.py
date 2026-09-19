@@ -723,7 +723,8 @@ class PortraitMixin:
                         # Update previous lip distance
                         mouth_w = max(1e-6, abs(face_landmarks[61].x - face_landmarks[291].x))
                         mouth_w = max(1e-6, abs(face_landmarks[61].x - face_landmarks[291].x))
-                        prev_lip_distances[face_id] = abs(face_landmarks[13].y - face_landmarks[14].y) / mouth_w / mouth_w
+                        mouth_w = max(1e-6, abs(face_landmarks[61].x - face_landmarks[291].x))
+                        prev_lip_distances[face_id] = abs(face_landmarks[13].y - face_landmarks[14].y) / mouth_w / mouth_w / mouth_w
                 
                     # OpusClip-accurate: prioritize active speaker (activity > thresh), not center
                     if faces_data:
