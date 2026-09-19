@@ -175,5 +175,17 @@
     "tz_name": "Asia/Makassar",
     "interval_hours": 5,
     "test_mode": false
+  },
+  "subtitle_settings": {
+    "font_size": 48,
+    "position_y_pct": 0.76,
+    "safe_margin": 72,
+    "max_words": 3,
+    "max_chars": 24,
+    "outline": 3,
+    "shadow": 1,
+    "text_color": "#FFFFFF",
+    "highlight_color": "#00E5FF",
+    "font_name": "Arial"
   }
 }
