@@ -147,8 +147,23 @@ def create_streamer_ass(
         if result.returncode != 0 or not audio_file.exists():
             raise RuntimeError("Не удалось извлечь аудио для субтитров.")
 
-        debug_log("[streamer] Faster-Whisper: точные word timestamps...", flush=True)
-        transcript = core.transcribe_words(str(audio_file))
+        debug_log("[streamer] Субтитры: пробую Faster-Whisper на GPU...", flush=True)
+        try:
+            transcript = core.transcribe_words(
+                str(audio_file),
+                allow_cpu_fallback=False,
+            )
+        except Exception as exc:
+            debug_log(
+                f"[streamer] GPU Faster-Whisper недоступен: {exc}",
+                flush=True,
+            )
+            debug_log(
+                "[streamer] CPU medium пропускаю — использую OpenAI Whisper API "
+                "с word timestamps для быстрого рендера.",
+                flush=True,
+            )
+            transcript = core._whisper_transcribe_words_api(str(audio_file))
 
         sync_offset = float(getattr(core, "subtitle_sync_offset", 0.0) or 0.0)
         sync_offset = max(-1.0, min(1.0, sync_offset))
