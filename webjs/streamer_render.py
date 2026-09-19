@@ -131,6 +131,7 @@ def create_streamer_ass(
     title_text: str,
     title_enabled: bool,
     title_duration: float,
+    title_settings: dict | None,
     webcam_height_pct: float,
 ) -> Path | None:
     if not captions and not title_enabled:
@@ -208,37 +209,62 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
 
     if title_enabled and title_text.strip():
+        title_cfg = dict(title_settings or {})
         top, bottom = split_title(title_text)
         if top:
-            # IMPORTANT: when captions are enabled the ASS canvas is 720x1280,
-            # otherwise this title-only file is 1080x1920. Use the matching
-            # coordinate system so the hook is always truly centered.
             canvas_w, canvas_h = ((720, 1280) if captions else (1080, 1920))
-            center_x = canvas_w // 2
-            center_y = canvas_h // 2
 
+            def _inline_ass_color(value: str, fallback: str) -> str:
+                raw = str(value or fallback).strip().lstrip("#")
+                if not re.fullmatch(r"[0-9A-Fa-f]{6}", raw):
+                    raw = fallback.lstrip("#")
+                rr, gg, bb = raw[0:2], raw[2:4], raw[4:6]
+                return f"&H{bb}{gg}{rr}&".upper()
+
+            x_pct = max(0.10, min(0.90, float(title_cfg.get("x_pct", 0.50) or 0.50)))
+            y_pct = max(0.12, min(0.88, float(title_cfg.get("y_pct", 0.50) or 0.50)))
+            center_x = int(round(canvas_w * x_pct))
+            center_y = int(round(canvas_h * y_pct))
+            font_name = str(title_cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
+            requested_size = max(30, min(110, int(title_cfg.get("font_size", 76) or 76)))
+            size_scale = canvas_w / 1080.0
+            font_size = max(24, int(round(requested_size * size_scale)))
+            outline = max(0, min(10, int(title_cfg.get("outline", 6) or 6)))
+            outline = max(0, int(round(outline * size_scale)))
+            shadow = max(0, min(8, int(title_cfg.get("shadow", 1) or 1)))
+            top_color = _inline_ass_color(title_cfg.get("top_color", "#FF2D1A"), "#FF2D1A")
+            bottom_color = _inline_ass_color(title_cfg.get("bottom_color", "#FFFFFF"), "#FFFFFF")
+            outline_color = _inline_ass_color(title_cfg.get("outline_color", "#000000"), "#000000")
+            uppercase = bool(title_cfg.get("uppercase", True))
+            scale_pct = max(70, min(120, int(title_cfg.get("scale_pct", 96) or 96)))
+            if uppercase:
+                top = top.upper()
+                bottom = bottom.upper()
+
+            # Reduce only when the text is unusually long; manual font size remains primary.
             longest = max(len(top), len(bottom or ""))
-            if canvas_w == 720:
-                font_size = 54 if longest <= 13 else 48 if longest <= 17 else 42
-                outline = 4
-            else:
-                font_size = 82 if longest <= 13 else 72 if longest <= 17 else 62
-                outline = 6
+            if longest > 20:
+                font_size = int(font_size * 0.80)
+            elif longest > 16:
+                font_size = int(font_size * 0.90)
 
-            duration = max(1.2, min(3.5, float(title_duration or 2.3)))
+            duration = max(0.8, min(5.0, float(title_duration or 2.3)))
             base = (
                 r"{\an5\pos(" + str(center_x) + "," + str(center_y) + r")"
-                r"\fnArial Black\b1\fs" + str(font_size)
-                + r"\bord" + str(outline) + r"\shad1\fscx96\fscy96"
+                + r"\fn" + font_name + r"\b1\fs" + str(font_size)
+                + r"\bord" + str(outline)
+                + r"\3c" + outline_color
+                + r"\shad" + str(shadow)
+                + r"\fscx" + str(scale_pct) + r"\fscy" + str(scale_pct)
             )
             if bottom:
                 title_ass = (
                     base
-                    + r"\c&H0000FF&}" + top
-                    + r"\N{\c&HFFFFFF&}" + bottom
+                    + r"\c" + top_color + "}" + top
+                    + r"\N{\c" + bottom_color + "}" + bottom
                 )
             else:
-                title_ass = base + r"\c&H0000FF&}" + top
+                title_ass = base + r"\c" + top_color + "}" + top
 
             with ass_file.open("a", encoding="utf-8") as fh:
                 fh.write(
@@ -265,6 +291,82 @@ def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_fil
     if result.returncode != 0:
         tail = "\n".join((result.stderr or "").splitlines()[-30:])
         raise RuntimeError("Не удалось прожечь текст:\n" + tail)
+
+
+def insert_ad_banner(
+    core: AutoClipperCore,
+    input_path: Path,
+    output_path: Path,
+    banner_path: Path,
+    encoder_args: list[str],
+    *,
+    clip_duration: float,
+    at_pct: float = 0.50,
+    banner_duration: float = 3.0,
+    width_pct: float = 0.78,
+    blur_sigma: float = 18.0,
+    fade_duration: float = 0.25,
+) -> None:
+    """Insert a paused advertising break: freeze+blur video, show centered banner, then resume."""
+    if not banner_path.exists():
+        raise RuntimeError(f"Файл рекламного баннера не найден: {banner_path}")
+
+    clip_duration = max(0.5, float(clip_duration or 0.5))
+    banner_duration = max(1.0, min(10.0, float(banner_duration or 3.0)))
+    at_pct = max(0.08, min(0.92, float(at_pct or 0.50)))
+    pause_at = max(0.20, min(clip_duration - 0.20, clip_duration * at_pct))
+    width_pct = max(0.30, min(0.95, float(width_pct or 0.78)))
+    blur_sigma = max(2.0, min(40.0, float(blur_sigma or 18.0)))
+    fade_duration = max(0.0, min(0.8, float(fade_duration or 0.25)))
+    fade_out_start = max(0.0, banner_duration - fade_duration)
+    max_banner_w = int(round(1080 * width_pct))
+    max_banner_h = int(round(1920 * 0.46))
+
+    filter_complex = (
+        f"[0:v]split=3[vpre0][vfreeze0][vpost0];"
+        f"[vpre0]trim=start=0:end={pause_at:.3f},setpts=PTS-STARTPTS[vpre];"
+        f"[vfreeze0]select='gte(t,{pause_at:.3f})',setpts=PTS-STARTPTS,"
+        f"trim=end_frame=1,tpad=stop_mode=clone:stop_duration={banner_duration:.3f},"
+        f"trim=duration={banner_duration:.3f},"
+        f"gblur=sigma={blur_sigma:.2f},eq=brightness=-0.08:saturation=0.82[vblur];"
+        f"[vpost0]trim=start={pause_at:.3f},setpts=PTS-STARTPTS[vpost];"
+        f"[1:v]scale={max_banner_w}:{max_banner_h}:force_original_aspect_ratio=decrease,"
+        f"format=rgba,"
+        f"fade=t=in:st=0:d={fade_duration:.3f}:alpha=1,"
+        f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}:alpha=1[adimg];"
+        f"[vblur][adimg]overlay=(W-w)/2:(H-h)/2:shortest=1[vad];"
+        f"[vpre][vad][vpost]concat=n=3:v=1:a=0[vout];"
+        f"[0:a]asplit=2[apre0][apost0];"
+        f"[apre0]atrim=start=0:end={pause_at:.3f},asetpts=PTS-STARTPTS,"
+        f"aformat=sample_rates=48000:channel_layouts=stereo[apre];"
+        f"[apost0]atrim=start={pause_at:.3f},asetpts=PTS-STARTPTS,"
+        f"aformat=sample_rates=48000:channel_layouts=stereo[apost];"
+        f"anullsrc=r=48000:cl=stereo:d={banner_duration:.3f}[asilence];"
+        f"[apre][asilence][apost]concat=n=3:v=0:a=1[aout]"
+    )
+
+    cmd = [
+        get_ffmpeg_path(), "-y",
+        "-i", str(input_path),
+        "-loop", "1", "-framerate", "30", "-i", str(banner_path),
+        "-filter_complex", filter_complex,
+        "-map", "[vout]",
+        "-map", "[aout]",
+        *encoder_args,
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-shortest",
+        str(output_path),
+    ]
+    debug_log(
+        f"[streamer] Рекламная пауза: {pause_at:.1f}s, баннер {banner_duration:.1f}s, "
+        f"ширина {width_pct*100:.0f}%, blur {blur_sigma:.0f}.",
+        flush=True,
+    )
+    result = core._run_ffmpeg_subprocess(cmd, timeout=900)
+    if result.returncode != 0:
+        tail = "\n".join((result.stderr or "").splitlines()[-35:])
+        raise RuntimeError("Не удалось вставить рекламный баннер:\n" + tail)
 
 
 def main():
@@ -296,6 +398,15 @@ def main():
     title_enabled = bool(job.get("title_enabled", True))
     title_text = str(job.get("title_text") or "").strip()
     title_duration = float(job.get("title_duration", 2.3) or 2.3)
+    title_settings = dict(job.get("title_settings") or {})
+
+    banner_enabled = bool(job.get("banner_enabled", False))
+    banner_file = str(job.get("banner_file") or "").strip()
+    banner_at_pct = float(job.get("banner_at_pct", 0.50) or 0.50)
+    banner_duration = float(job.get("banner_duration", 3.0) or 3.0)
+    banner_width_pct = float(job.get("banner_width_pct", 0.78) or 0.78)
+    banner_blur = float(job.get("banner_blur", 18.0) or 18.0)
+    banner_fade = float(job.get("banner_fade", 0.25) or 0.25)
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -303,6 +414,7 @@ def main():
 
     source_path = out_dir / "source_16x9.mp4"
     layout_path = out_dir / "layout_9x16.mp4"
+    text_path = out_dir / "text_9x16.mp4"
     final_path = out_dir / "final_9x16.mp4"
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
@@ -354,14 +466,38 @@ def main():
             title_text=title_text,
             title_enabled=title_enabled,
             title_duration=title_duration,
+            title_settings=title_settings,
             webcam_height_pct=top_pct,
         )
 
+    target_before_banner = text_path if banner_enabled else final_path
     if ass_file:
-        debug_log("[progress] Прожигаю текст... (overall: 88.0%)", flush=True)
-        burn_ass(core, layout_path, final_path, ass_file, encoder_args)
+        debug_log("[progress] Прожигаю текст... (overall: 84.0%)", flush=True)
+        burn_ass(core, layout_path, target_before_banner, ass_file, encoder_args)
     else:
-        shutil.copy2(layout_path, final_path)
+        shutil.copy2(layout_path, target_before_banner)
+
+    if banner_enabled:
+        if not banner_file:
+            raise RuntimeError("Реклама включена, но баннер не загружен.")
+        assets_dir = (APP_DIR / "output" / "streamer_assets").resolve()
+        banner_path = (assets_dir / Path(banner_file).name).resolve()
+        if assets_dir not in banner_path.parents:
+            raise RuntimeError("Недопустимый путь баннера.")
+        debug_log("[progress] Вставляю рекламную паузу... (overall: 92.0%)", flush=True)
+        insert_ad_banner(
+            core,
+            target_before_banner,
+            final_path,
+            banner_path,
+            encoder_args,
+            clip_duration=end_sec - start_sec,
+            at_pct=banner_at_pct,
+            banner_duration=banner_duration,
+            width_pct=banner_width_pct,
+            blur_sigma=banner_blur,
+            fade_duration=banner_fade,
+        )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
         raise RuntimeError("Итоговый 9:16 файл не создан")
@@ -392,6 +528,14 @@ def main():
         "title_enabled": title_enabled,
         "title_text": title_text,
         "title_duration": title_duration,
+        "title_settings": title_settings,
+        "banner_enabled": banner_enabled,
+        "banner_file": banner_file,
+        "banner_at_pct": banner_at_pct,
+        "banner_duration": banner_duration,
+        "banner_width_pct": banner_width_pct,
+        "banner_blur": banner_blur,
+        "banner_fade": banner_fade,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
