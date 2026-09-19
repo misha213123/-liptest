@@ -87,7 +87,7 @@ def main():
         thumbnail_settings=cfg.get("thumbnail"),
         metadata_settings=cfg.get("metadata_settings"),
         auto_broll_settings=dict(cfg.get("auto_broll") or {}),
-                subtitle_language=cfg.get("subtitle_language", "id"),
+                subtitle_language=cfg.get("subtitle_language", "ru-orig"),
         subtitle_sync_offset=float(opts.get("sync_offset", cfg.get("subtitle_sync_offset", -0.3))),
     )
     # Per-clip override: BGM mood + B-roll query (dari UI re-render)
