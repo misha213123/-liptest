@@ -46,6 +46,8 @@ const FFMPEG = (() => {
 // only flushes when the ~8KB buffer fills -- so long steps (e.g. local Whisper
 // transcription) appear "stuck" at a stale percentage until the process exits.
 process.env.PYTHONUNBUFFERED = '1';
+process.env.PYTHONUTF8 = '1';
+process.env.PYTHONIOENCODING = 'utf-8';
 
 // --- Auth: password login (cookie HMAC) ---
 const COOKIE_NAME = 'clipper_auth';
