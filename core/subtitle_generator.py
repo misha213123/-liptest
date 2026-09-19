@@ -95,6 +95,152 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(ass_content)
 
+    def create_ass_subtitle_stable(self, transcript, output_path: str, time_offset: float = 0):
+        """Stable short-form captions.
+
+        One ASS dialogue is created per phrase, so the text block never changes
+        its geometry while the phrase is on screen. Word timestamps are used
+        only for karaoke highlighting, which follows speech without the visual
+        jumping caused by rebuilding a line for every active word.
+        """
+        cfg = dict(getattr(self, "subtitle_settings", {}) or {})
+
+        font_size = max(28, min(96, int(cfg.get("font_size", 50) or 50)))
+        position_y_pct = max(0.40, min(0.92, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
+        max_words = max(2, min(7, int(cfg.get("max_words", 4) or 4)))
+        max_chars = max(10, min(42, int(cfg.get("max_chars", 28) or 28)))
+        outline = max(0, min(10, int(cfg.get("outline", 4) or 4)))
+        shadow = max(0, min(8, int(cfg.get("shadow", 1) or 1)))
+        spacing = max(-2, min(8, int(cfg.get("spacing", 0) or 0)))
+        font_name = str(cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
+        uppercase = bool(cfg.get("uppercase", True))
+        background_box = bool(cfg.get("background_box", False))
+        background_opacity = max(0, min(100, int(cfg.get("background_opacity", 55) or 55)))
+
+        def ass_color(hex_value: str, fallback: str, alpha: int = 0) -> str:
+            s = str(hex_value or "").strip().lstrip("#")
+            if not re.fullmatch(r"[0-9a-fA-F]{6}", s):
+                s = fallback.lstrip("#")
+            r, g, b = s[0:2], s[2:4], s[4:6]
+            return f"&H{alpha:02X}{b}{g}{r}".upper()
+
+        highlight = ass_color(cfg.get("highlight_color", "#FFD400"), "#FFD400")
+        normal = ass_color(cfg.get("text_color", "#FFFFFF"), "#FFFFFF")
+        outline_color = ass_color(cfg.get("outline_color", "#000000"), "#000000")
+        bg_alpha = int(round(255 * (1.0 - background_opacity / 100.0)))
+        back_color = ass_color(cfg.get("background_color", "#000000"), "#000000", bg_alpha)
+        border_style = 3 if background_box else 1
+        margin_v = int(round((1.0 - position_y_pct) * 1280))
+
+        ass_content = f"""[Script Info]
+Title: Stable streamer captions
+ScriptType: v4.00+
+WrapStyle: 2
+PlayResX: 720
+PlayResY: 1280
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font_name},{font_size},{highlight},{normal},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_margin},{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+        raw_words = list(getattr(transcript, "words", None) or [])
+        words = []
+        for w in raw_words:
+            token = re.sub(r"\s+", " ", str(getattr(w, "word", "") or "").strip())
+            if not token:
+                continue
+            try:
+                start = max(0.0, float(getattr(w, "start", 0.0)))
+                end = max(start + 0.04, float(getattr(w, "end", start + 0.12)))
+            except Exception:
+                continue
+            words.append({"text": token, "start": start, "end": end})
+
+        # Remove overlapping duplicates often produced at Whisper segment borders.
+        cleaned = []
+        for item in words:
+            norm = re.sub(r"[^\wа-яё]+", "", item["text"].lower(), flags=re.I)
+            if cleaned:
+                prev = cleaned[-1]
+                pnorm = re.sub(r"[^\wа-яё]+", "", prev["text"].lower(), flags=re.I)
+                if norm and norm == pnorm and item["start"] <= prev["end"] + 0.12:
+                    prev["end"] = max(prev["end"], item["end"])
+                    continue
+            cleaned.append(item)
+        words = cleaned
+
+        # Collapse an immediately repeated 2- or 3-word phrase ("а не / а не")
+        # when both copies are adjacent in time. This targets ASR duplication,
+        # not repeats separated by a real pause.
+        i = 0
+        deduped = []
+        while i < len(words):
+            removed = False
+            for n in (3, 2):
+                if i + 2 * n <= len(words):
+                    a = [re.sub(r"\W+", "", x["text"].lower(), flags=re.UNICODE) for x in words[i:i+n]]
+                    b = [re.sub(r"\W+", "", x["text"].lower(), flags=re.UNICODE) for x in words[i+n:i+2*n]]
+                    gap = words[i+n]["start"] - words[i+n-1]["end"]
+                    if a == b and all(a) and gap < 0.22:
+                        deduped.extend(words[i:i+n])
+                        i += 2 * n
+                        removed = True
+                        break
+            if removed:
+                continue
+            deduped.append(words[i])
+            i += 1
+        words = deduped
+
+        chunks = []
+        current = []
+        for item in words:
+            proposed = current + [item]
+            text_len = len(" ".join(x["text"] for x in proposed))
+            gap = item["start"] - current[-1]["end"] if current else 0.0
+            phrase_dur = item["end"] - current[0]["start"] if current else 0.0
+            if current and (
+                len(proposed) > max_words
+                or text_len > max_chars
+                or gap > 0.42
+                or phrase_dur > 2.6
+            ):
+                chunks.append(current)
+                current = [item]
+            else:
+                current = proposed
+        if current:
+            chunks.append(current)
+
+        for chunk in chunks:
+            start_t = max(0.0, chunk[0]["start"] + time_offset)
+            end_t = max(start_t + 0.14, chunk[-1]["end"] + time_offset)
+            parts = []
+            cursor = chunk[0]["start"]
+            for item in chunk:
+                # Include silence before a word in that word's karaoke duration.
+                # This keeps highlighting aligned to actual word timestamps.
+                word_end = max(item["end"], item["start"] + 0.04)
+                dur_cs = max(1, int(round((word_end - cursor) * 100)))
+                token = item["text"].upper() if uppercase else item["text"]
+                token = token.replace("{", "（").replace("}", "）")
+                parts.append("{\\kf%d}%s" % (dur_cs, token))
+                cursor = word_end
+
+            ass_content += (
+                f"Dialogue: 0,{self.format_time(start_t)},{self.format_time(end_t)},"
+                f"Default,,0,0,0,,{' '.join(parts)}\n"
+            )
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(ass_content)
+
     def create_ass_subtitle_capcut(self, transcript, output_path: str, time_offset: float = 0):
         """Create configurable TikTok/CapCut-style captions with word highlighting."""
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
