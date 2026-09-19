@@ -622,7 +622,7 @@ const server = http.createServer((req, res) => {
           core_model: cfg.model || 'gpt-4.1',
           tts_model: (cfg.ai_providers&&cfg.ai_providers.hook_maker&&cfg.ai_providers.hook_maker.model) || cfg.tts_model || 'tts-1',
           temperature: cfg.temperature ?? 1.0,
-          subtitle_language: cfg.subtitle_language || 'id',
+          subtitle_language: cfg.subtitle_language || 'ru-orig',
           hf_system_message: ((ap.highlight_finder || {}).system_message) || '',
           hf_api_key: (ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY || '',
           hf_api_key_set: !!((ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY),
@@ -634,7 +634,7 @@ const server = http.createServer((req, res) => {
           pexels_api_key: (cfg.pexels_api_key || ''),
           thumbnail: cfg.thumbnail || {},
         });
-      } catch { return json(res, 500, { error: 'config.json tidak terbaca' }); }
+      } catch { return json(res, 500, { error: 'Не удалось прочитать config.json' }); }
     }
     // POST /api/config — simpan perubahan parameter (merge; key lain tidak disentuh)
     if (p === '/api/config' && req.method === 'POST') {
@@ -645,7 +645,7 @@ const server = http.createServer((req, res) => {
         try { o = JSON.parse(body || '{}'); } catch {}
         const fp = path.join(ROOT, 'config.json');
         let cfg;
-        try { cfg = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return json(res, 500, { error: 'config.json tidak terbaca' }); }
+        try { cfg = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return json(res, 500, { error: 'Не удалось прочитать config.json' }); }
         const isNum = v => typeof v === 'number' && isFinite(v);
         if ('hook' in o) cfg.hook_enabled = !!o.hook;
         if ('captions' in o) cfg.subtitle_enabled = !!o.captions;
@@ -1141,10 +1141,10 @@ except Exception as e:
       let body = '';
       req.on('data', c => body += c); req.on('end', () => {
         let o = {}; try { o = JSON.parse(body || '{}'); } catch {}
-        if (!fs.existsSync(COOKIES_FILE)) return json(res, 400, { error: 'Belum ada cookies' });
+        if (!fs.existsSync(COOKIES_FILE)) return json(res, 400, { error: 'Файл cookies.txt ещё не загружен' });
         const url = String(o.url || 'https://www.youtube.com/watch?v=jNQXAC9IVRw').trim() || 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
-        const args = ['--cookies', COOKIES_FILE, '--dump-single-json', '--no-warnings', '--skip-download', '--socket-timeout', '15', url];
-        const child = execFile('/usr/local/bin/yt-dlp', args, { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+        const args = ['-m', 'yt_dlp', '--cookies', COOKIES_FILE, '--dump-single-json', '--no-warnings', '--skip-download', '--socket-timeout', '15', url];
+        const child = execFile(PY, args, { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
           if (err) {
             const msg = String(stderr || err.message || '');
             const needsAuth = /Sign in to confirm|confirm your identity|Sign in to YouTube|LOGIN_REQUIRED|"status": *"fail"/i.test(msg);
@@ -1152,8 +1152,8 @@ except Exception as e:
               ok: false,
               auth: needsAuth ? 'gagal' : 'tidak-yakin',
               message: needsAuth
-                ? 'Cookies TIDAK valid — yt-dlp butuh login (YouTube minta verifikasi). Export cookies baru dari browser yang sudah login.'
-                : 'yt-dlp gagal menjalankan test: ' + msg.split('\n').slice(-3).join(' '),
+                ? 'Cookies недействительны — YouTube требует повторную авторизацию. Экспортируйте свежие cookies из браузера, где выполнен вход в YouTube.'
+                : 'Не удалось проверить cookies через yt-dlp: ' + msg.split('\n').slice(-3).join(' '),
               detail: msg.split('\n').slice(-8),
             });
           }
