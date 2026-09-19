@@ -384,7 +384,10 @@ def insert_ad_banner(
     chroma_blend = max(0.0, min(0.50, float(chroma_blend or 0.08)))
 
     scale_expr = (
-        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease"
+        (
+            f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+            f"format=rgba,pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+        )
         if keep_aspect
         else f"scale={target_w}:{target_h}"
     )
