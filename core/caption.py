@@ -153,7 +153,11 @@ class CaptionMixin:
             subtitle_cfg = dict(getattr(self, "subtitle_settings", {}) or {})
             lead_seconds = float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)
             lead_seconds = max(0.0, min(0.60, lead_seconds))
-            ass_offset = time_offset + sync_offset - lead_seconds
+            # Preserve older configs that already use a substantial negative
+            # subtitle_sync_offset (for example -0.30). In that case it already
+            # acts as the lead and we must not double-compensate.
+            effective_lead = 0.0 if abs(sync_offset) >= 0.15 else lead_seconds
+            ass_offset = time_offset + sync_offset - effective_lead
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
             else:
@@ -743,7 +747,11 @@ class CaptionMixin:
             subtitle_cfg = dict(getattr(self, "subtitle_settings", {}) or {})
             lead_seconds = float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)
             lead_seconds = max(0.0, min(0.60, lead_seconds))
-            ass_offset = time_offset + sync_offset - lead_seconds
+            # Preserve older configs that already use a substantial negative
+            # subtitle_sync_offset (for example -0.30). In that case it already
+            # acts as the lead and we must not double-compensate.
+            effective_lead = 0.0 if abs(sync_offset) >= 0.15 else lead_seconds
+            ass_offset = time_offset + sync_offset - effective_lead
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
             else:
