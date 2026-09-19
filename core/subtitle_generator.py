@@ -106,6 +106,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         text_color = ass_color(text_hex, "#FFFFFF")
         highlight_color = ass_color(highlight_hex, "#00E5FF")
+
+        def inline_color(style_color: str) -> str:
+            # Style colour is &HAABBGGRR; inline \c expects &HBBGGRR&.
+            raw = style_color.replace("&H", "")
+            bgr = raw[-6:]
+            return f"&H{bgr}&"
+
+        text_inline = inline_color(text_color)
+        highlight_inline = inline_color(highlight_color)
         margin_v = int(round((1.0 - position_y_pct) * 1280))
 
         # Keep phrases inside the horizontal safe area. This approximate
@@ -226,8 +235,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     token = item["text"].upper()
                     if j == i:
                         parts.append(
-                            "{\\c" + highlight_color + "}" + token
-                            + "{\\c" + text_color + "}"
+                            "{\\c" + highlight_inline + "}" + token
+                            + "{\\c" + text_inline + "}"
                         )
                     else:
                         parts.append(token)
