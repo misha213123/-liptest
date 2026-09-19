@@ -413,14 +413,15 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               <div>
                 <label class="text-[10px] text-zinc-500">Цвет</label>
                 <input id="bannerChromaColor" type="color" value="#00FF00" class="input h-9 p-1 mt-1">
+                <button id="bannerAutoChroma" type="button" class="btn btn-soft w-full !py-1 mt-1 text-[10px]">🎯 Авто цвет</button>
               </div>
               <div>
-                <label class="text-[10px] text-zinc-500">Чувствительность <span id="bannerSimilarityLabel">0.16</span></label>
-                <input id="bannerSimilarity" type="range" min="5" max="45" value="16" class="w-full mt-2">
+                <label class="text-[10px] text-zinc-500">Сила вырезания <span id="bannerSimilarityLabel">0.28</span></label>
+                <input id="bannerSimilarity" type="range" min="5" max="75" value="28" class="w-full mt-2">
               </div>
               <div>
-                <label class="text-[10px] text-zinc-500">Смягчение <span id="bannerBlendLabel">0.08</span></label>
-                <input id="bannerBlend" type="range" min="0" max="30" value="8" class="w-full mt-2">
+                <label class="text-[10px] text-zinc-500">Мягкость края <span id="bannerBlendLabel">0.06</span></label>
+                <input id="bannerBlend" type="range" min="0" max="25" value="6" class="w-full mt-2">
               </div>
             </div>
 
@@ -876,13 +877,21 @@ function drawChromaVideo(ctx,video,r){
      const img=bannerOffCtx.getImageData(0,0,dw,dh),d=img.data;
      const [kr,kg,kb]=hexRgb($('#bannerChromaColor').value);
      const sim=+$('#bannerSimilarity').value/100;
-     const blend=Math.max(.01,+$('#bannerBlend').value/100);
+     const blend=Math.max(.005,+$('#bannerBlend').value/100);
      const threshold=sim*441.67,soft=blend*441.67;
      for(let i=0;i<d.length;i+=4){
        const dr=d[i]-kr,dg=d[i+1]-kg,db=d[i+2]-kb;
        const dist=Math.sqrt(dr*dr+dg*dg+db*db);
-       if(dist<=threshold)d[i+3]=0;
-       else if(dist<threshold+soft)d[i+3]=Math.round(255*((dist-threshold)/soft));
+       if(dist<=threshold){
+         d[i+3]=0;
+       }else if(dist<threshold+soft){
+         d[i+3]=Math.round(255*((dist-threshold)/soft));
+       }
+       // Simple green-spill cleanup for edge pixels left by H.264 compression.
+       if(kg>kr&&kg>kb&&d[i+3]>0&&d[i+1]>d[i]&&d[i+1]>d[i+2]){
+         const neutral=Math.max(d[i],d[i+2]);
+         d[i+1]=Math.round(neutral+(d[i+1]-neutral)*0.35);
+       }
      }
      bannerOffCtx.putImageData(img,0,0);
    }catch(e){bannerPreviewError=true}
@@ -985,6 +994,30 @@ $('#bannerPlayBtn').onclick=async()=>{
 $('#bannerSoundBtn').onclick=()=>{
  bannerVideo.muted=!bannerVideo.muted;
  $('#bannerSoundBtn').textContent=bannerVideo.muted?'🔇 Звук':'🔊 Звук';
+};
+$('#bannerAutoChroma').onclick=()=>{
+ if(bannerVideo.readyState<2)return;
+ const w=96,h=96;
+ const tmp=document.createElement('canvas');tmp.width=w;tmp.height=h;
+ const t=tmp.getContext('2d',{willReadFrequently:true});
+ t.drawImage(bannerVideo,0,0,w,h);
+ const img=t.getImageData(0,0,w,h).data;
+ const samples=[];
+ const boxes=[[0,0,16,16],[w-16,0,16,16],[0,h-16,16,16],[w-16,h-16,16,16]];
+ for(const [bx,by,bw,bh] of boxes){
+   for(let y=by;y<by+bh;y+=2)for(let x=bx;x<bx+bw;x+=2){
+     const i=(y*w+x)*4;samples.push([img[i],img[i+1],img[i+2]]);
+   }
+ }
+ // Prefer green-dominant corner pixels, otherwise average all corners.
+ let use=samples.filter(p=>p[1]>p[0]*1.25&&p[1]>p[2]*1.25);
+ if(use.length<8)use=samples;
+ const avg=k=>Math.round(use.reduce((s,p)=>s+p[k],0)/Math.max(1,use.length));
+ const hex='#'+[avg(0),avg(1),avg(2)].map(v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+ $('#bannerChromaColor').value=hex;
+ $('#bannerSimilarity').value=28;
+ $('#bannerBlend').value=6;
+ bannerPreviewError=false;updateBannerUi();
 };
 $('#bannerCenterBtn').onclick=()=>{$('#bannerX').value=50;$('#bannerY').value=50;updateBannerUi()};
 
