@@ -1298,7 +1298,7 @@ except Exception as e:
 
         const minDuration = Math.max(10, Math.min(180, parseInt(o.min_duration) || 25));
         const maxDuration = Math.max(minDuration, Math.min(240, parseInt(o.max_duration) || 55));
-        const numClips = Math.max(1, Math.min(12, parseInt(o.num_clips) || 5));
+        const numClips = Math.max(1, Math.min(30, parseInt(o.num_clips) || 5));
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
