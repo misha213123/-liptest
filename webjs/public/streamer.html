@@ -241,6 +241,29 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
         <div class="font-bold">4. Рендер</div>
         <p class="text-[11px] text-zinc-500 mt-0.5">AI-момент подставляет таймкоды и заголовок автоматически.</p>
 
+        <div class="soft rounded-xl p-2.5 mt-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="font-bold text-xs">💾 Шаблон всех настроек</div>
+              <div class="text-[10px] text-zinc-500">Webcam, layout, AI-заголовок, субтитры, реклама, качество и AI-параметры.</div>
+            </div>
+            <span id="templateStatus" class="badge text-[10px]">не сохранён</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <input id="templateName" class="input" placeholder="Например: Мой TikTok">
+            <select id="templateSelect" class="input"><option value="">Сохранённые шаблоны...</option></select>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-2">
+            <button id="templateSaveBtn" type="button" class="btn btn-primary !py-2 text-xs">💾 Сохранить</button>
+            <button id="templateLoadBtn" type="button" class="btn btn-soft !py-2 text-xs">↻ Применить</button>
+            <button id="templateDeleteBtn" type="button" class="btn btn-soft !py-2 text-xs">🗑 Удалить</button>
+          </div>
+          <label class="flex items-center gap-2 mt-2 text-[10px] text-zinc-500">
+            <input id="templateAutoLoad" type="checkbox" checked>
+            Автоматически применять последний шаблон при открытии страницы
+          </label>
+        </div>
+
         <div class="mt-3 p-2 rounded-lg bg-black/30 border border-zinc-800">
           <div class="text-[10px] text-zinc-500 text-center mb-2">🎬 Единый шаблон финального Short: webcam + gameplay + AI-заголовок + субтитры + рекламный баннер.</div>
           <div id="overlayEditor" class="mx-auto w-[230px] max-w-full aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-700 relative touch-none select-none">
@@ -694,7 +717,7 @@ async function loadPreview(){
  $('#previewBtn').disabled=true;$('#previewStatus').textContent='⏳ Получаю кадр...';
  const r=await fetch('/api/streamer/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,timestamp:$('#previewTime').value.trim()})});
  const d=await r.json();if(!r.ok){$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+(d.error||'Ошибка');return}
- const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/preview/status')).json();if(!s.running){clearInterval(timer);$('#previewBtn').disabled=false;if(s.result&&s.result.ok){image=new Image();image.onload=()=>{const ar=image.naturalWidth/image.naturalHeight;const cw=Math.min(960,image.naturalWidth||960);canvas.width=cw;canvas.height=Math.round(cw/ar);const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;queueRedraw()}};image.src=s.result.image_url+'?t='+Date.now();$('#previewStatus').textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');$('#sourceState').textContent='Источник готов';$('#sourceState').className='badge text-[11px] text-emerald-300'}else $('#previewStatus').textContent='❌ '+((s.result&&s.result.error)||'Ошибка')}},900)
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/preview/status')).json();if(!s.running){clearInterval(timer);$('#previewBtn').disabled=false;if(s.result&&s.result.ok){image=new Image();image.onload=()=>{const ar=image.naturalWidth/image.naturalHeight;const cw=Math.min(960,image.naturalWidth||960);canvas.width=cw;canvas.height=Math.round(cw/ar);if(templatePendingRect){applyTemplateWebcamRect(templatePendingRect);templatePendingRect=null}else{const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;queueRedraw()}}};image.src=s.result.image_url+'?t='+Date.now();$('#previewStatus').textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');$('#sourceState').textContent='Источник готов';$('#sourceState').className='badge text-[11px] text-emerald-300'}else $('#previewStatus').textContent='❌ '+((s.result&&s.result.error)||'Ошибка')}},900)
 }
 $('#previewBtn').onclick=()=>loadPreview().catch(e=>{$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+e.message});
 
@@ -1296,6 +1319,226 @@ function subtitleSettings(){
    active_boost:$('#subBoost').checked,
    lead_seconds:0.04
  };
+}
+
+const STREAMER_TEMPLATE_KEY='streamer_full_templates_v1';
+const STREAMER_TEMPLATE_LAST_KEY='streamer_full_template_last_v1';
+const STREAMER_TEMPLATE_AUTO_KEY='streamer_full_template_auto_v1';
+let templatePendingRect=null;
+
+function streamerTemplates(){
+ try{return JSON.parse(localStorage.getItem(STREAMER_TEMPLATE_KEY)||'{}')}catch{return{}}
+}
+function setVal(id,value){
+ const el=$('#'+id);if(!el||value===undefined||value===null)return;
+ if(el.type==='checkbox')el.checked=!!value;
+ else el.value=String(value);
+}
+function fullTemplateSnapshot(){
+ return{
+   version:1,
+   saved_at:new Date().toISOString(),
+   analysis:{
+     durationPreset:$('#durationPreset').value,
+     numClips:$('#numClips').value
+   },
+   webcam:{
+     rect:nrect(),
+     camPct:+$('#camPct').value,
+     gameX:+$('#gameX').value,
+     resolution:$('#resolution').value,
+     enhance:$('#webcamEnhance').value
+   },
+   title:{
+     enabled:$('#titleEnabled').checked,
+     duration:$('#titleDuration').value,
+     font:$('#titleFont').value,
+     size:+$('#titleSize').value,
+     x:+$('#titleX').value,
+     y:+$('#titleY').value,
+     outline:+$('#titleOutline').value,
+     topColor:$('#titleTopColor').value,
+     bottomColor:$('#titleBottomColor').value,
+     outlineColor:$('#titleOutlineColor').value
+   },
+   subtitles:{
+     enabled:$('#captions').checked,
+     preset:$('#subPreset').value,
+     style:subtitleStyle,
+     font:$('#subFont').value,
+     size:+$('#subSize').value,
+     x:+$('#subX').value,
+     y:+$('#subPos').value,
+     words:$('#subWords').value,
+     outline:+$('#subOutline').value,
+     textColor:$('#subTextColor').value,
+     highlightColor:$('#subHighlightColor').value,
+     outlineColor:$('#subOutlineColor').value,
+     backgroundColor:$('#subBackgroundColor').value,
+     uppercase:$('#subUppercase').checked,
+     box:$('#subBox').checked,
+     shadow:+$('#subShadow').value,
+     bgOpacity:+$('#subBgOpacity').value
+   },
+   render:{
+     gpu:$('#gpu').checked
+   },
+   banner:{
+     enabled:$('#bannerEnabled').checked,
+     asset:bannerAsset?{...bannerAsset}:null,
+     continueMode:$('#bannerContinue').checked,
+     at:+$('#bannerAt').value,
+     speed:+$('#bannerSpeed').value,
+     width:+$('#bannerWidth').value,
+     height:+$('#bannerHeight').value,
+     x:+$('#bannerX').value,
+     y:+$('#bannerY').value,
+     blur:+$('#bannerBlur').value,
+     keepAspect:$('#bannerKeepAspect').checked,
+     chroma:$('#bannerChroma').checked,
+     chromaColor:$('#bannerChromaColor').value,
+     similarity:+$('#bannerSimilarity').value,
+     blend:+$('#bannerBlend').value,
+     autoCrop:$('#bannerAutoCrop').checked,
+     blackKey:$('#bannerBlackKey').checked,
+     blackStrength:+$('#bannerBlackKeyStrength').value
+   }
+ };
+}
+function applyTemplateWebcamRect(r){
+ if(!r)return;
+ if(canvas.width>0&&canvas.height>0&&image){
+   rect={x:r.x*canvas.width,y:r.y*canvas.height,w:r.w*canvas.width,h:r.h*canvas.height};
+   queueRedraw();rectInfo();
+ }else{
+   templatePendingRect=r;
+ }
+}
+function applyFullTemplate(t,name=''){
+ if(!t)return;
+
+ setVal('durationPreset',t.analysis?.durationPreset);
+ setVal('numClips',t.analysis?.numClips);
+
+ setVal('camPct',t.webcam?.camPct);
+ setVal('gameX',t.webcam?.gameX);
+ setVal('resolution',t.webcam?.resolution);
+ setVal('webcamEnhance',t.webcam?.enhance);
+ if(t.webcam?.rect)applyTemplateWebcamRect(t.webcam.rect);
+
+ setVal('titleEnabled',t.title?.enabled);
+ setVal('titleDuration',t.title?.duration);
+ setVal('titleFont',t.title?.font);
+ setVal('titleSize',t.title?.size);
+ setVal('titleX',t.title?.x);
+ setVal('titleY',t.title?.y);
+ setVal('titleOutline',t.title?.outline);
+ setVal('titleTopColor',t.title?.topColor);
+ setVal('titleBottomColor',t.title?.bottomColor);
+ setVal('titleOutlineColor',t.title?.outlineColor);
+
+ setVal('captions',t.subtitles?.enabled);
+ setVal('subPreset',t.subtitles?.preset);
+ if(t.subtitles?.style)subtitleStyle=t.subtitles.style;
+ setVal('subFont',t.subtitles?.font);
+ setVal('subSize',t.subtitles?.size);
+ setVal('subX',t.subtitles?.x);
+ setVal('subPos',t.subtitles?.y);
+ setVal('subWords',t.subtitles?.words);
+ setVal('subOutline',t.subtitles?.outline);
+ setVal('subTextColor',t.subtitles?.textColor);
+ setVal('subHighlightColor',t.subtitles?.highlightColor);
+ setVal('subOutlineColor',t.subtitles?.outlineColor);
+ setVal('subBackgroundColor',t.subtitles?.backgroundColor);
+ setVal('subUppercase',t.subtitles?.uppercase);
+ setVal('subBox',t.subtitles?.box);
+ setVal('subShadow',t.subtitles?.shadow);
+ setVal('subBgOpacity',t.subtitles?.bgOpacity);
+
+ setVal('gpu',t.render?.gpu);
+
+ setVal('bannerEnabled',t.banner?.enabled);
+ setVal('bannerContinue',t.banner?.continueMode);
+ setVal('bannerAt',t.banner?.at);
+ setVal('bannerSpeed',t.banner?.speed);
+ setVal('bannerWidth',t.banner?.width);
+ setVal('bannerHeight',t.banner?.height);
+ setVal('bannerX',t.banner?.x);
+ setVal('bannerY',t.banner?.y);
+ setVal('bannerBlur',t.banner?.blur);
+ setVal('bannerKeepAspect',t.banner?.keepAspect);
+ setVal('bannerChroma',t.banner?.chroma);
+ setVal('bannerChromaColor',t.banner?.chromaColor);
+ setVal('bannerSimilarity',t.banner?.similarity);
+ setVal('bannerBlend',t.banner?.blend);
+ setVal('bannerAutoCrop',t.banner?.autoCrop);
+ setVal('bannerBlackKey',t.banner?.blackKey);
+ setVal('bannerBlackKeyStrength',t.banner?.blackStrength);
+
+ if(t.banner?.asset?.file){
+   bannerAsset={...t.banner.asset};
+   localStorage.setItem(BANNER_KEY,JSON.stringify(bannerAsset));
+   bannerPreviewError=false;
+ }
+
+ updateLayoutPreview();
+ updateTitlePreview();
+ updateSubtitlePreview();
+ syncMasterLayerVisibility();
+ detectBannerBlackBorderCrop();
+ updateBannerUi();
+
+ if(name){
+   $('#templateName').value=name;
+   $('#templateSelect').value=name;
+   $('#templateStatus').textContent='✅ '+name;
+   localStorage.setItem(STREAMER_TEMPLATE_LAST_KEY,name);
+ }
+}
+function refreshFullTemplates(){
+ const all=streamerTemplates(),sel=$('#templateSelect'),current=sel.value;
+ sel.innerHTML='<option value="">Сохранённые шаблоны...</option>';
+ Object.keys(all).sort((a,b)=>a.localeCompare(b,'ru')).forEach(name=>{
+   const o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o);
+ });
+ const last=localStorage.getItem(STREAMER_TEMPLATE_LAST_KEY)||'';
+ if(all[current])sel.value=current;
+ else if(all[last])sel.value=last;
+}
+function saveFullTemplate(){
+ const name=$('#templateName').value.trim();
+ if(!name)return alert('Введи название шаблона.');
+ const all=streamerTemplates();
+ all[name]=fullTemplateSnapshot();
+ localStorage.setItem(STREAMER_TEMPLATE_KEY,JSON.stringify(all));
+ localStorage.setItem(STREAMER_TEMPLATE_LAST_KEY,name);
+ refreshFullTemplates();$('#templateSelect').value=name;
+ $('#templateStatus').textContent='✅ '+name;
+}
+function loadFullTemplate(name){
+ const all=streamerTemplates(),t=all[name];
+ if(!t)return alert('Выбери сохранённый шаблон.');
+ applyFullTemplate(t,name);
+}
+function deleteFullTemplate(name){
+ if(!name)return alert('Выбери шаблон для удаления.');
+ const all=streamerTemplates();if(!all[name])return;
+ delete all[name];localStorage.setItem(STREAMER_TEMPLATE_KEY,JSON.stringify(all));
+ if(localStorage.getItem(STREAMER_TEMPLATE_LAST_KEY)===name)localStorage.removeItem(STREAMER_TEMPLATE_LAST_KEY);
+ $('#templateName').value='';$('#templateStatus').textContent='удалён';
+ refreshFullTemplates();
+}
+$('#templateSaveBtn').onclick=saveFullTemplate;
+$('#templateLoadBtn').onclick=()=>loadFullTemplate($('#templateSelect').value);
+$('#templateDeleteBtn').onclick=()=>deleteFullTemplate($('#templateSelect').value);
+$('#templateSelect').onchange=()=>{const name=$('#templateSelect').value;if(name)$('#templateName').value=name};
+$('#templateAutoLoad').checked=localStorage.getItem(STREAMER_TEMPLATE_AUTO_KEY)!=='0';
+$('#templateAutoLoad').onchange=()=>localStorage.setItem(STREAMER_TEMPLATE_AUTO_KEY,$('#templateAutoLoad').checked?'1':'0');
+refreshFullTemplates();
+
+const autoTemplateName=localStorage.getItem(STREAMER_TEMPLATE_LAST_KEY)||'';
+if($('#templateAutoLoad').checked&&autoTemplateName&&streamerTemplates()[autoTemplateName]){
+ applyFullTemplate(streamerTemplates()[autoTemplateName],autoTemplateName);
 }
 
 function renderPayload(h){
