@@ -493,8 +493,8 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    // Streamer advertising banner assets (authenticated).
-    const mStreamerAsset = p.match(/^\/streamer-asset\/([^/]+\.(?:png|jpe?g|webp))$/i);
+    // Streamer advertising assets (authenticated): images + video creatives.
+    const mStreamerAsset = p.match(/^\/streamer-asset\/([^/]+\.(?:png|jpe?g|webp|mp4|m4v|mov|webm))$/i);
     if (mStreamerAsset && req.method === 'GET') {
       const name = path.basename(mStreamerAsset[1]);
       const base = path.join(ROOT, 'output', 'streamer_assets');
@@ -503,14 +503,33 @@ const server = http.createServer((req, res) => {
         return json(res, 404, { error: 'streamer asset not found' });
       }
       const ext = path.extname(fp).toLowerCase();
-      const type = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      const mime = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+        '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm'
+      }[ext] || 'application/octet-stream';
       const st = fs.statSync(fp);
-      res.writeHead(200, {
-        'Content-Type': type,
-        'Content-Length': st.size,
-        'Cache-Control': 'no-store'
-      });
-      fs.createReadStream(fp).pipe(res);
+      const range = req.headers.range;
+      const baseHeaders = {
+        'Content-Type': mime,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store',
+        'Content-Disposition': 'inline'
+      };
+      if (range && mime.startsWith('video/')) {
+        const m = range.match(/bytes=(\d*)-(\d*)/);
+        let start = m && m[1] ? parseInt(m[1]) : 0;
+        let end = m && m[2] ? parseInt(m[2]) : st.size - 1;
+        end = Math.min(end, st.size - 1);
+        res.writeHead(206, {
+          ...baseHeaders,
+          'Content-Range': `bytes ${start}-${end}/${st.size}`,
+          'Content-Length': end - start + 1
+        });
+        fs.createReadStream(fp, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, { ...baseHeaders, 'Content-Length': st.size });
+        fs.createReadStream(fp).pipe(res);
+      }
       return;
     }
 
@@ -1114,6 +1133,47 @@ except Exception as e:
         progress: parseOverall(log),
       });
     }
+    // POST /api/streamer/banner-video — raw video upload (MP4/MOV/WEBM/M4V), reused in every clip.
+    if (p === '/api/streamer/banner-video' && req.method === 'POST') {
+      const rawName = String(req.headers['x-filename'] || 'banner.mp4');
+      let decodedName = rawName;
+      try { decodedName = decodeURIComponent(rawName); } catch {}
+      const ext = path.extname(decodedName).toLowerCase();
+      const allowed = new Set(['.mp4', '.m4v', '.mov', '.webm']);
+      if (!allowed.has(ext)) return json(res, 400, { error: 'Нужен видеофайл MP4, MOV, WEBM или M4V.' });
+
+      const maxBytes = 250 * 1024 * 1024;
+      const declared = parseInt(req.headers['content-length'] || '0');
+      if (declared > maxBytes) return json(res, 413, { error: 'Видео рекламы больше 250 МБ.' });
+
+      const chunks = [];
+      let size = 0, tooLarge = false;
+      req.on('data', chunk => {
+        if (tooLarge) return;
+        size += chunk.length;
+        if (size > maxBytes) { tooLarge = true; return; }
+        chunks.push(chunk);
+      });
+      req.on('end', () => {
+        if (tooLarge) return json(res, 413, { error: 'Видео рекламы больше 250 МБ.' });
+        const buf = Buffer.concat(chunks);
+        if (!buf.length) return json(res, 400, { error: 'Пустой видеофайл.' });
+
+        const dir = path.join(ROOT, 'output', 'streamer_assets');
+        fs.mkdirSync(dir, { recursive: true });
+        const name = 'banner_video_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + ext;
+        fs.writeFileSync(path.join(dir, name), buf);
+        return json(res, 200, {
+          ok: true,
+          file: name,
+          url: '/streamer-asset/' + encodeURIComponent(name),
+          size_bytes: buf.length,
+          original_name: path.basename(decodedName)
+        });
+      });
+      return;
+    }
+
     // POST /api/streamer/banner — save one PNG/JPG/WEBP banner for reuse in every rendered clip.
     if (p === '/api/streamer/banner' && req.method === 'POST') {
       let body = '';
