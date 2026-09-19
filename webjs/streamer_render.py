@@ -439,13 +439,9 @@ def insert_ad_banner(
         overlay_ad_filters.append(f"setpts=PTS+{overlay_start:.3f}/TB")
 
         filter_complex = ";".join([
-            "[0:v]split=2[vmain][vblur0]",
-            f"[vblur0]{blur_filter}[vblur]",
-            (
-                f"[vmain][vblur]overlay=0:0:"
-                f"enable='between(t,{overlay_start:.3f},{overlay_end:.3f})':"
-                f"eof_action=pass[vbg]"
-            ),
+            # Continue mode is intentionally clean: NO blur, NO dimming and
+            # NO freeze. The main clip keeps playing unchanged underneath.
+            "[0:v]setpts=PTS-STARTPTS[vbg]",
             f"[1:v]{','.join(overlay_ad_filters)}[advid]",
             (
                 f"[vbg][advid]overlay="
@@ -470,7 +466,8 @@ def insert_ad_banner(
         debug_log(
             f"[streamer] Реклама overlay: start={overlay_start:.1f}s, "
             f"ad={effective_ad:.2f}s, size={width_pct*100:.0f}%x{height_pct*100:.0f}%, "
-            f"pos={x_pct*100:.0f}%/{y_pct*100:.0f}%, blur={blur_sigma:.0f}.",
+            f"pos={x_pct*100:.0f}%/{y_pct*100:.0f}%, no-blur, "
+            f"chroma={'on' if chroma_key else 'off'}.",
             flush=True,
         )
         result = core._run_ffmpeg_subprocess(cmd, timeout=1200)
