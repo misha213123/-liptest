@@ -345,9 +345,17 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <div id="bannerControls" class="soft rounded-lg p-2 mt-2" style="opacity:.45">
             <input id="bannerFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v,.mov" class="input">
             <div id="bannerUploadStatus" class="text-[10px] text-zinc-500 mt-1">MP4 / MOV / WEBM / M4V до 250 МБ. Длительность берётся автоматически из самого рекламного видео.</div>
-            <div id="bannerStage" class="hidden relative mx-auto mt-2 aspect-[9/16] w-[150px] max-w-full overflow-hidden rounded-lg border border-zinc-800 bg-[#1b1b1d]">
-              <div class="absolute inset-0 flex items-center justify-center text-[9px] text-zinc-600">ВИДЕО / BLUR</div>
-              <video id="bannerPreview" class="absolute bg-black object-fill" muted loop playsinline></video>
+            <div id="bannerStage" class="hidden mx-auto mt-2 w-[230px] max-w-full">
+              <div class="relative aspect-[9/16] overflow-hidden rounded-xl border border-zinc-700 bg-[#101114] shadow-inner">
+                <canvas id="bannerEditor" width="540" height="960" class="block w-full h-full cursor-move touch-none select-none"></canvas>
+                <video id="bannerPreview" class="hidden" muted loop playsinline preload="metadata"></video>
+              </div>
+              <div class="grid grid-cols-3 gap-1.5 mt-2">
+                <button id="bannerPlayBtn" type="button" class="btn btn-soft !px-2 !py-1.5">▶ Видео</button>
+                <button id="bannerSoundBtn" type="button" class="btn btn-soft !px-2 !py-1.5">🔇 Звук</button>
+                <button id="bannerCenterBtn" type="button" class="btn btn-soft !px-2 !py-1.5">◎ Центр</button>
+              </div>
+              <div class="text-[10px] text-zinc-500 mt-1 text-center">Перетаскивай баннер мышкой. Тяни за углы рамки, чтобы менять размер.</div>
             </div>
             <div id="bannerDurationInfo" class="text-[10px] text-zinc-500 mt-1"></div>
 
@@ -705,17 +713,62 @@ function titleSettings(){
 $('#titleReset').onclick=()=>{$('#titleX').value=50;$('#titleY').value=50;$('#titleSize').value=76;updateTitlePreview()};
 
 let bannerAsset=null;
-const BANNER_KEY='streamer_banner_video_v2';
+const BANNER_KEY='streamer_banner_video_v3';
 try{bannerAsset=JSON.parse(localStorage.getItem(BANNER_KEY)||'null')}catch{}
+
+const bannerVideo=$('#bannerPreview');
+const bannerCanvas=$('#bannerEditor');
+const bannerCtx=bannerCanvas.getContext('2d',{willReadFrequently:true});
+const bannerOff=document.createElement('canvas');
+const bannerOffCtx=bannerOff.getContext('2d',{willReadFrequently:true});
+let bannerAnim=0,bannerDrag=null,bannerPreviewError=false;
 
 function fmtAdDuration(sec){
  if(!Number.isFinite(sec)||sec<=0)return '';
  const m=Math.floor(sec/60),s=sec-m*60;
  return (m?m+':':'')+s.toFixed(1).padStart(m?4:1,'0')+' сек';
 }
-function updateBannerUi(){
- const on=$('#bannerEnabled').checked;
- $('#bannerControls').style.opacity=on?'1':'.45';
+
+function bannerRect(){
+ const W=bannerCanvas.width,H=bannerCanvas.height;
+ const wp=+$('#bannerWidth').value/100,hp=+$('#bannerHeight').value/100;
+ const xp=+$('#bannerX').value/100,yp=+$('#bannerY').value/100;
+ const w=W*wp,h=H*hp;
+ return{x:(W-w)*xp,y:(H-h)*yp,w,h};
+}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function syncBannerSlidersFromRect(r){
+ const W=bannerCanvas.width,H=bannerCanvas.height;
+ r.w=clamp(r.w,W*.20,W);
+ r.h=clamp(r.h,H*.12,H*.90);
+ r.x=clamp(r.x,0,W-r.w);
+ r.y=clamp(r.y,0,H-r.h);
+ $('#bannerWidth').value=Math.round(r.w/W*100);
+ $('#bannerHeight').value=Math.round(r.h/H*100);
+ $('#bannerX').value=(W-r.w)>1?Math.round(r.x/(W-r.w)*100):50;
+ $('#bannerY').value=(H-r.h)>1?Math.round(r.y/(H-r.h)*100):50;
+ updateBannerLabels();
+}
+function bannerPoint(e){
+ const b=bannerCanvas.getBoundingClientRect();
+ return{
+   x:clamp((e.clientX-b.left)*(bannerCanvas.width/(b.width||1)),0,bannerCanvas.width),
+   y:clamp((e.clientY-b.top)*(bannerCanvas.height/(b.height||1)),0,bannerCanvas.height)
+ };
+}
+function bannerHandleAt(p,r){
+ const s=34;
+ const pts={
+   nw:{x:r.x,y:r.y},ne:{x:r.x+r.w,y:r.y},
+   sw:{x:r.x,y:r.y+r.h},se:{x:r.x+r.w,y:r.y+r.h}
+ };
+ for(const [name,q] of Object.entries(pts)){
+   if(Math.abs(p.x-q.x)<=s&&Math.abs(p.y-q.y)<=s)return name;
+ }
+ if(p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)return 'move';
+ return null;
+}
+function updateBannerLabels(){
  const w=+$('#bannerWidth').value,h=+$('#bannerHeight').value,x=+$('#bannerX').value,y=+$('#bannerY').value;
  $('#bannerAtLabel').textContent=$('#bannerAt').value+'%';
  $('#bannerWidthLabel').textContent=w+'%';
@@ -725,26 +778,158 @@ function updateBannerUi(){
  $('#bannerBlurLabel').textContent=$('#bannerBlur').value;
  $('#bannerSimilarityLabel').textContent=(+$('#bannerSimilarity').value/100).toFixed(2);
  $('#bannerBlendLabel').textContent=(+$('#bannerBlend').value/100).toFixed(2);
+}
+function hexRgb(hex){
+ const h=String(hex||'#00FF00').replace('#','');
+ return[parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||255,parseInt(h.slice(4,6),16)||0];
+}
+function drawChromaVideo(ctx,video,r){
+ const dw=Math.max(2,Math.round(r.w)),dh=Math.max(2,Math.round(r.h));
+ bannerOff.width=dw;bannerOff.height=dh;
+ bannerOffCtx.clearRect(0,0,dw,dh);
+
+ const keep=$('#bannerKeepAspect').checked;
+ if(keep&&video.videoWidth&&video.videoHeight){
+   const ar=video.videoWidth/video.videoHeight,boxAr=dw/dh;
+   let tw=dw,th=dh,tx=0,ty=0;
+   if(ar>boxAr){th=dw/ar;ty=(dh-th)/2}else{tw=dh*ar;tx=(dw-tw)/2}
+   bannerOffCtx.drawImage(video,tx,ty,tw,th);
+ }else{
+   bannerOffCtx.drawImage(video,0,0,dw,dh);
+ }
+
+ if($('#bannerChroma').checked&&!bannerPreviewError){
+   try{
+     const img=bannerOffCtx.getImageData(0,0,dw,dh),d=img.data;
+     const [kr,kg,kb]=hexRgb($('#bannerChromaColor').value);
+     const sim=+$('#bannerSimilarity').value/100;
+     const blend=Math.max(.01,+$('#bannerBlend').value/100);
+     const threshold=sim*441.67,soft=blend*441.67;
+     for(let i=0;i<d.length;i+=4){
+       const dr=d[i]-kr,dg=d[i+1]-kg,db=d[i+2]-kb;
+       const dist=Math.sqrt(dr*dr+dg*dg+db*db);
+       if(dist<=threshold)d[i+3]=0;
+       else if(dist<threshold+soft)d[i+3]=Math.round(255*((dist-threshold)/soft));
+     }
+     bannerOffCtx.putImageData(img,0,0);
+   }catch(e){bannerPreviewError=true}
+ }
+ ctx.drawImage(bannerOff,r.x,r.y,r.w,r.h);
+}
+function drawBannerEditor(){
+ const W=bannerCanvas.width,H=bannerCanvas.height;
+ bannerCtx.clearRect(0,0,W,H);
+
+ // Neutral mock of the underlying 9:16 clip, just to judge placement.
+ const g=bannerCtx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,'#25272d');g.addColorStop(.36,'#1d2026');g.addColorStop(1,'#111318');
+ bannerCtx.fillStyle=g;bannerCtx.fillRect(0,0,W,H);
+ bannerCtx.fillStyle='rgba(255,255,255,.045)';
+ for(let y=0;y<H;y+=64)bannerCtx.fillRect(0,y,W,1);
+ bannerCtx.fillStyle='rgba(255,255,255,.15)';
+ bannerCtx.font='700 24px Arial';bannerCtx.textAlign='center';
+ bannerCtx.fillText($('#bannerContinue').checked?'ОСНОВНОЙ РОЛИК ИДЁТ':'ПАУЗА / BLUR',W/2,52);
+
+ const r=bannerRect();
+ if(bannerVideo.readyState>=2){
+   drawChromaVideo(bannerCtx,bannerVideo,r);
+ }else{
+   bannerCtx.fillStyle='rgba(0,0,0,.7)';bannerCtx.fillRect(r.x,r.y,r.w,r.h);
+   bannerCtx.fillStyle='#aaa';bannerCtx.font='700 20px Arial';
+   bannerCtx.fillText('РЕКЛАМНОЕ ВИДЕО',r.x+r.w/2,r.y+r.h/2);
+ }
+
+ // Editor border + resize handles.
+ bannerCtx.save();
+ bannerCtx.strokeStyle='#67e8f9';bannerCtx.lineWidth=4;
+ bannerCtx.setLineDash([12,8]);bannerCtx.strokeRect(r.x+2,r.y+2,r.w-4,r.h-4);
+ bannerCtx.setLineDash([]);
+ for(const [x,y] of [[r.x,r.y],[r.x+r.w,r.y],[r.x,r.y+r.h],[r.x+r.w,r.y+r.h]]){
+   bannerCtx.fillStyle='#fff';bannerCtx.strokeStyle='#111';bannerCtx.lineWidth=3;
+   bannerCtx.beginPath();bannerCtx.arc(x,y,11,0,Math.PI*2);bannerCtx.fill();bannerCtx.stroke();
+ }
+ bannerCtx.restore();
+
+ bannerAnim=requestAnimationFrame(drawBannerEditor);
+}
+function ensureBannerAnimation(){
+ if(!bannerAnim)bannerAnim=requestAnimationFrame(drawBannerEditor);
+}
+
+bannerCanvas.addEventListener('pointerdown',e=>{
+ if(!bannerAsset)return;
+ const p=bannerPoint(e),r=bannerRect(),mode=bannerHandleAt(p,r);
+ if(!mode)return;
+ e.preventDefault();bannerCanvas.setPointerCapture?.(e.pointerId);
+ bannerDrag={mode,start:p,rect:{...r}};
+});
+bannerCanvas.addEventListener('pointermove',e=>{
+ if(!bannerDrag)return;
+ e.preventDefault();
+ const p=bannerPoint(e),d=bannerDrag,dx=p.x-d.start.x,dy=p.y-d.start.y;
+ let r={...d.rect};
+ if(d.mode==='move'){r.x+=dx;r.y+=dy}
+ else{
+   let left=r.x,right=r.x+r.w,top=r.y,bottom=r.y+r.h;
+   if(d.mode.includes('w'))left+=dx;
+   if(d.mode.includes('e'))right+=dx;
+   if(d.mode.includes('n'))top+=dy;
+   if(d.mode.includes('s'))bottom+=dy;
+   const minW=bannerCanvas.width*.20,minH=bannerCanvas.height*.12;
+   if(right-left<minW){if(d.mode.includes('w'))left=right-minW;else right=left+minW}
+   if(bottom-top<minH){if(d.mode.includes('n'))top=bottom-minH;else bottom=top+minH}
+   r={x:left,y:top,w:right-left,h:bottom-top};
+ }
+ syncBannerSlidersFromRect(r);
+});
+function stopBannerDrag(e){if(!bannerDrag)return;bannerDrag=null;try{bannerCanvas.releasePointerCapture?.(e.pointerId)}catch{}}
+bannerCanvas.addEventListener('pointerup',stopBannerDrag);
+bannerCanvas.addEventListener('pointercancel',stopBannerDrag);
+
+$('#bannerPlayBtn').onclick=async()=>{
+ if(!bannerAsset)return;
+ if(bannerVideo.paused){
+   try{await bannerVideo.play()}catch{}
+ }else bannerVideo.pause();
+ $('#bannerPlayBtn').textContent=bannerVideo.paused?'▶ Видео':'⏸ Пауза';
+};
+$('#bannerSoundBtn').onclick=()=>{
+ bannerVideo.muted=!bannerVideo.muted;
+ $('#bannerSoundBtn').textContent=bannerVideo.muted?'🔇 Звук':'🔊 Звук';
+};
+$('#bannerCenterBtn').onclick=()=>{$('#bannerX').value=50;$('#bannerY').value=50;updateBannerUi()};
+
+function updateBannerUi(){
+ const on=$('#bannerEnabled').checked;
+ $('#bannerControls').style.opacity=on?'1':'.45';
+ updateBannerLabels();
  $('#bannerChromaControls').classList.toggle('hidden',!$('#bannerChroma').checked);
+
  const continueMode=$('#bannerContinue').checked;
+ $('#bannerBlur').disabled=continueMode;
+ $('#bannerBlur').closest('div').style.opacity=continueMode?'.35':'1';
  $('#bannerModeHelp').textContent=continueMode
-   ?'Продолжение: основной ролик идёт как обычно БЕЗ размытия. Хромакей баннера убирается, и рекламное видео появляется поверх.'
+   ?'Продолжение: основной ролик идёт без паузы и без размытия. Хромакей убирается, реклама появляется поверх.'
    :'Пауза: основной ролик замрёт, фон размоется, рекламное видео проиграется целиком, затем ролик продолжится.';
- const pv=$('#bannerPreview'),stage=$('#bannerStage');
- pv.style.width=w+'%';pv.style.height=h+'%';
- pv.style.left=((100-w)*(x/100))+'%';
- pv.style.top=((100-h)*(y/100))+'%';
- pv.style.objectFit=$('#bannerKeepAspect').checked?'contain':'fill';
+
  if(bannerAsset&&bannerAsset.url){
-   if(!pv.src||!pv.src.includes(bannerAsset.file))pv.src=bannerAsset.url+'?t='+Date.now();
+   const stage=$('#bannerStage');
+   if(!bannerVideo.src||!bannerVideo.src.includes(bannerAsset.file)){
+     bannerPreviewError=false;
+     bannerVideo.src=bannerAsset.url+'?t='+Date.now();
+     bannerVideo.load();
+   }
    stage.classList.remove('hidden');
    $('#bannerUploadStatus').textContent='✅ Рекламное видео загружено: '+(bannerAsset.original_name||bannerAsset.file);
    $('#bannerDurationInfo').textContent=bannerAsset.duration?('Длительность рекламы: '+fmtAdDuration(bannerAsset.duration)):'Длительность будет определена автоматически при рендере.';
+   ensureBannerAnimation();
  }
 }
 $('#bannerEnabled').onchange=updateBannerUi;
 ['bannerAt','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
-['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor'].forEach(id=>$('#'+id).addEventListener('change',updateBannerUi));
+['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor'].forEach(id=>$('#'+id).addEventListener('change',()=>{bannerPreviewError=false;updateBannerUi()}));
+bannerVideo.addEventListener('play',()=>{$('#bannerPlayBtn').textContent='⏸ Пауза'});
+bannerVideo.addEventListener('pause',()=>{$('#bannerPlayBtn').textContent='▶ Видео'});
 
 $('#bannerFileInput').onchange=async()=>{
  const file=$('#bannerFileInput').files&&$('#bannerFileInput').files[0];
@@ -778,7 +963,9 @@ $('#bannerFileInput').onchange=async()=>{
  bannerAsset=data;
  localStorage.setItem(BANNER_KEY,JSON.stringify(data));
  $('#bannerEnabled').checked=true;
+ bannerPreviewError=false;
  updateBannerUi();
+ try{await bannerVideo.play()}catch{}
 };
 updateBannerUi();
 
