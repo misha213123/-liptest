@@ -407,6 +407,10 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                 <input id="bannerAt" type="range" min="10" max="90" value="50" class="w-full mt-2">
               </div>
               <div>
+                <label class="text-[10px] text-zinc-500">Скорость рекламы <span id="bannerSpeedLabel">1.0x</span></label>
+                <input id="bannerSpeed" type="range" min="1" max="2" step="0.1" value="1" class="w-full mt-2">
+              </div>
+              <div>
                 <label class="text-[10px] text-zinc-500">Размытие фона <span id="bannerBlurLabel">18</span></label>
                 <input id="bannerBlur" type="range" min="0" max="35" value="18" class="w-full mt-2">
               </div>
@@ -450,7 +454,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               </div>
             </div>
 
-            <div id="bannerModeHelp" class="text-[10px] text-zinc-500 mt-2">В режиме без паузы основной ролик и его звук продолжаются, реклама идёт поверх размытого видео.</div>
+            <div id="bannerModeHelp" class="text-[10px] text-zinc-500 mt-2">Скорость рекламы можно менять от 1.0x до 2.0x. Длительность автоматически сокращается.</div>
           </div>
         </div>
 
@@ -890,6 +894,7 @@ function updateBannerLabels(){
  $('#bannerXLabel').textContent=x+'%';
  $('#bannerYLabel').textContent=y+'%';
  $('#bannerBlurLabel').textContent=$('#bannerBlur').value;
+ $('#bannerSpeedLabel').textContent=(+$('#bannerSpeed').value).toFixed(1)+'x';
  $('#bannerSimilarityLabel').textContent=(+$('#bannerSimilarity').value/100).toFixed(2);
  $('#bannerBlendLabel').textContent=(+$('#bannerBlend').value/100).toFixed(2);
 }
@@ -1083,6 +1088,7 @@ bannerCanvas.addEventListener('pointercancel',stopBannerDrag);
 $('#bannerPlayBtn').onclick=async()=>{
  if(!bannerAsset)return;
  if(bannerVideo.paused){
+   bannerVideo.playbackRate=+$('#bannerSpeed').value||1;
    try{await bannerVideo.play()}catch{}
  }else bannerVideo.pause();
  $('#bannerPlayBtn').textContent=bannerVideo.paused?'▶ Видео':'⏸ Пауза';
@@ -1124,6 +1130,7 @@ function updateBannerUi(){
  $('#bannerChromaControls').classList.toggle('hidden',!$('#bannerChroma').checked);
 
  const continueMode=$('#bannerContinue').checked;
+ bannerVideo.playbackRate=+$('#bannerSpeed').value||1;
  $('#bannerBlur').disabled=continueMode;
  $('#bannerBlur').closest('div').style.opacity=continueMode?'.35':'1';
  $('#bannerModeHelp').textContent=continueMode
@@ -1143,12 +1150,16 @@ function updateBannerUi(){
    const cropText=$('#bannerAutoCrop').checked&&((crop.x>.01)||(crop.y>.01)||(crop.w<.98)||(crop.h<.98))
      ?(' • поля обрезаны: '+Math.round(crop.w*100)+'×'+Math.round(crop.h*100)+'%')
      :'';
-   $('#bannerDurationInfo').textContent=(bannerAsset.duration?('Длительность рекламы: '+fmtAdDuration(bannerAsset.duration)):'Длительность будет определена автоматически при рендере.')+cropText;
+   const speed=+$('#bannerSpeed').value||1;
+   const durationText=bannerAsset.duration
+     ?('Длительность: '+fmtAdDuration(bannerAsset.duration)+' → '+fmtAdDuration(bannerAsset.duration/speed)+' при '+speed.toFixed(1)+'x')
+     :'Длительность будет определена автоматически при рендере.';
+   $('#bannerDurationInfo').textContent=durationText+cropText;
    ensureBannerAnimation();
  }
 }
 $('#bannerEnabled').onchange=updateBannerUi;
-['bannerAt','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
+['bannerAt','bannerSpeed','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
 ['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor','bannerAutoCrop'].forEach(id=>$('#'+id).addEventListener('change',()=>{bannerPreviewError=false;detectBannerBlackBorderCrop();updateBannerUi()}));
 bannerVideo.addEventListener('loadeddata',()=>{detectBannerBlackBorderCrop();updateBannerUi()});
 bannerVideo.addEventListener('play',()=>{$('#bannerPlayBtn').textContent='⏸ Пауза'});
@@ -1271,7 +1282,7 @@ function renderPayload(h){
  const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1}}
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value}
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
