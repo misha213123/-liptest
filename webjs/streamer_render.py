@@ -290,6 +290,9 @@ def main():
     top_pct = float(job.get("webcam_height_pct", 0.365) or 0.365)
     game_center_x = float(job.get("gameplay_center_x", 0.50) or 0.50)
     captions = bool(job.get("captions", True))
+    subtitle_style = str(job.get("subtitle_style") or "pop").strip().lower()
+    subtitle_settings = dict(job.get("subtitle_settings") or {})
+    webcam_enhance = str(job.get("webcam_enhance") or "hq").strip().lower()
     title_enabled = bool(job.get("title_enabled", True))
     title_text = str(job.get("title_text") or "").strip()
     title_duration = float(job.get("title_duration", 2.3) or 2.3)
@@ -304,6 +307,12 @@ def main():
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
+    if subtitle_style in ("pop", "karaoke"):
+        core.subtitle_style = subtitle_style
+    if subtitle_settings:
+        merged_subtitle_settings = dict(getattr(core, "subtitle_settings", {}) or {})
+        merged_subtitle_settings.update(subtitle_settings)
+        core.subtitle_settings = merged_subtitle_settings
 
     debug_log("[progress] Загружаю выбранный момент... (overall: 5.0%)", flush=True)
     debug_log(f"[streamer] {fmt_time(start_sec)} -> {fmt_time(end_sec)}", flush=True)
@@ -312,7 +321,7 @@ def main():
         fmt_time(start_sec),
         fmt_time(end_sec),
         str(source_path),
-        resolution=str(job.get("resolution") or "auto"),
+        resolution=str(job.get("resolution") or "best"),
     )
 
     debug_log("[progress] Собираю webcam + gameplay... (overall: 35.0%)", flush=True)
@@ -331,6 +340,7 @@ def main():
         webcam_height_pct=top_pct,
         gameplay_center_x=game_center_x,
         webcam_padding=int(job.get("webcam_padding", 0) or 0),
+        webcam_enhance=webcam_enhance,
     )
 
     ass_file = None
@@ -376,6 +386,9 @@ def main():
         "webcam_height_pct": top_pct,
         "gameplay_center_x": game_center_x,
         "captions": captions,
+        "subtitle_style": subtitle_style,
+        "subtitle_settings": subtitle_settings,
+        "webcam_enhance": webcam_enhance,
         "title_enabled": title_enabled,
         "title_text": title_text,
         "title_duration": title_duration,
