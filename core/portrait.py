@@ -224,7 +224,7 @@ class PortraitMixin:
                 cached = mode
 
             if cached == "legacy":
-                return [*self._ffmpeg_filter_file_args(script_path)]
+                return ["-filter_complex_script", script_path]
             return ["-/filter_complex", script_path]
 
         def _build_portrait_filter_script(self, crop_positions, crop_w, crop_h,
