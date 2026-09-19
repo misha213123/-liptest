@@ -167,7 +167,7 @@ def download_audio(url: str, out_dir: Path) -> Path:
     return candidates[0]
 
 
-def split_transcript(transcript: str, max_chars: int = 32000) -> list[str]:
+def split_transcript(transcript: str, max_chars: int = 24000) -> list[str]:
     lines = [line for line in (transcript or "").splitlines() if line.strip()]
     chunks = []
     current = []
@@ -304,11 +304,13 @@ def global_rank(core: AutoClipperCore, candidates: list[dict], target: int, vide
 def cache_paths(url: str, min_duration: int, max_duration: int, requested: int) -> dict:
     url_key = hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:24]
     cache_dir = APP_DIR / "output" / "streamer_cache" / url_key
-    analysis_key = f"{min_duration}_{max_duration}_{requested}"
+    analysis_key = f"{min_duration}_{max_duration}_{requested}_v2"
+    pool_key = f"{min_duration}_{max_duration}_v2"
     return {
         "dir": cache_dir,
         "transcript": cache_dir / "transcript.txt",
         "info": cache_dir / "video_info.json",
+        "candidates": cache_dir / f"candidates_{pool_key}.json",
         "analysis": cache_dir / f"analysis_{analysis_key}.json",
     }
 
@@ -332,7 +334,7 @@ def main():
 
     min_duration = max(10, min(180, int(job.get("min_duration") or 25)))
     max_duration = max(min_duration, min(240, int(job.get("max_duration") or 55)))
-    requested = max(1, min(12, int(job.get("num_clips") or 5)))
+    requested = max(1, min(30, int(job.get("num_clips") or 5)))
 
     cache = cache_paths(url, min_duration, max_duration, requested)
     cache["dir"].mkdir(parents=True, exist_ok=True)
@@ -342,6 +344,8 @@ def main():
     if cache["analysis"].exists():
         try:
             cached_payload = json.loads(cache["analysis"].read_text(encoding="utf-8"))
+            if int(cached_payload.get("schema_version") or 0) < 2:
+                raise ValueError("старый формат кэша")
             cached_payload["ok"] = True
             cached_payload["id"] = str(job.get("id") or cached_payload.get("id") or uuid.uuid4().hex[:12])
             cached_payload["cached"] = True
@@ -419,55 +423,109 @@ def main():
 
     (analysis_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
 
-    chunks = split_transcript(transcript)
-    debug_log(f"[streamer-ai] Расшифровка разделена на {len(chunks)} частей.", flush=True)
+    candidates = []
+    if cache["candidates"].exists():
+        try:
+            cached_candidates = json.loads(cache["candidates"].read_text(encoding="utf-8"))
+            if isinstance(cached_candidates, list) and cached_candidates:
+                candidates = cached_candidates
+                debug_log(
+                    f"[progress] ♻ Использую сохранённый пул из {len(candidates)} моментов — повторно весь VOD не анализирую. (overall: 84.0%)",
+                    flush=True,
+                )
+        except Exception as exc:
+            debug_log(f"[streamer-ai] Кэш кандидатов не прочитан: {exc}", flush=True)
 
-    per_chunk = max(2, min(6, math.ceil((requested * 2.2) / max(1, len(chunks)))))
-    all_candidates = []
-    for i, chunk in enumerate(chunks, 1):
-        p0 = 48 + ((i - 1) / len(chunks)) * 34
+    if not candidates:
+        chunks = split_transcript(transcript)
+        video_duration = float(info.get("duration") or 0)
+        # Long VODs need a large candidate pool. Rough target: at least one
+        # candidate per ~3 minutes, or 3x the requested TOP count.
+        pool_target = max(12, requested * 3, math.ceil(video_duration / 180.0) if video_duration else 12)
+        pool_target = min(120, pool_target)
+        per_chunk = max(4, min(12, math.ceil(pool_target / max(1, len(chunks)))))
+
         debug_log(
-            f"[progress] OpenAI ищет моменты: часть {i}/{len(chunks)} (overall: {p0:.1f}%)",
+            f"[streamer-ai] Расшифровка: {len(chunks)} частей. "
+            f"Цель — собрать до ~{pool_target} сильных кандидатов ({per_chunk} на часть).",
             flush=True,
         )
-        try:
-            found = core.find_highlights(
-                chunk,
-                dict(info),
-                per_chunk,
-                min_duration=min_duration,
-                max_duration=max_duration,
+
+        all_candidates = []
+        for i, chunk in enumerate(chunks, 1):
+            p0 = 48 + ((i - 1) / len(chunks)) * 34
+            debug_log(
+                f"[progress] OpenAI ищет моменты по всему VOD: часть {i}/{len(chunks)} (overall: {p0:.1f}%)",
+                flush=True,
             )
-            all_candidates.extend(found or [])
-        except Exception as exc:
-            debug_log(f"[streamer-ai] Часть {i}: {exc}", flush=True)
+            try:
+                found = core.find_highlights(
+                    chunk,
+                    dict(info),
+                    per_chunk,
+                    min_duration=min_duration,
+                    max_duration=max_duration,
+                )
+                all_candidates.extend(found or [])
+            except Exception as exc:
+                debug_log(f"[streamer-ai] Часть {i}: {exc}", flush=True)
 
-    if not all_candidates:
-        raise RuntimeError("OpenAI не нашёл подходящих моментов в ролике.")
+        if not all_candidates:
+            raise RuntimeError("OpenAI не нашёл подходящих моментов в ролике.")
 
-    candidates = normalize_candidates(
-        core,
-        all_candidates,
-        min_duration,
-        max_duration,
-        float(info.get("duration") or 0),
+        candidates = normalize_candidates(
+            core,
+            all_candidates,
+            min_duration,
+            max_duration,
+            video_duration,
+        )
+        if not candidates:
+            raise RuntimeError("После проверки длительности не осталось подходящих моментов.")
+
+        # Keep the whole deduplicated pool. It can be reused when user later
+        # changes only the desired TOP count.
+        write_json(cache["candidates"], candidates)
+        debug_log(
+            f"[streamer-ai] ✓ Сохранён пул из {len(candidates)} моментов. "
+            f"Можно менять TOP N без повторного анализа всего VOD.",
+            flush=True,
+        )
+
+    debug_log(
+        f"[progress] OpenAI выбирает TOP-{min(requested, len(candidates))} из {len(candidates)} кандидатов... (overall: 88.0%)",
+        flush=True,
     )
-    if not candidates:
-        raise RuntimeError("После проверки длительности не осталось подходящих моментов.")
+    best = global_rank(core, candidates, min(requested, len(candidates)), info)
 
-    debug_log("[progress] OpenAI выбирает лучшие моменты всего ролика... (overall: 88.0%)", flush=True)
-    best = global_rank(core, candidates, requested, info)
+    def sig(h):
+        return (
+            str(h.get("start_time") or ""),
+            str(h.get("end_time") or ""),
+            str(h.get("title") or ""),
+        )
 
-    for h in best:
+    best_sigs = {sig(h) for h in best}
+    alternatives = [
+        h for h in sorted(candidates, key=lambda x: x.get("virality_score", 0), reverse=True)
+        if sig(h) not in best_sigs
+    ]
+
+    # Strip internal ids from both lists before they reach UI/cache.
+    for h in list(best) + alternatives:
         h.pop("_candidate_id", None)
 
     payload = {
+        "schema_version": 2,
         "ok": True,
         "id": analysis_id,
         "video_info": info,
         "min_duration": min_duration,
         "max_duration": max_duration,
+        "top_count": len(best),
+        "candidate_count": len(best) + len(alternatives),
         "highlights": best,
+        "alternatives": alternatives,
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -481,7 +539,10 @@ def main():
     write_json(cache["analysis"], cache_payload)
     debug_log("[streamer-ai] ✓ AI-анализ сохранён. Повтор с теми же настройками будет без API.", flush=True)
 
-    debug_log(f"[progress] Найдено {len(best)} лучших моментов. (overall: 100.0%)", flush=True)
+    debug_log(
+        f"[progress] Готово: TOP {len(best)} + ещё {len(alternatives)} подходящих моментов. (overall: 100.0%)",
+        flush=True,
+    )
     print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 
