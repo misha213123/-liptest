@@ -5,6 +5,7 @@ Refactored to use OpenAI Whisper API instead of local model
 
 import subprocess
 import os
+import shutil
 import re
 import threading
 import json
@@ -956,6 +957,28 @@ class HighlightMixin:
             try:
                 # Process each selected clip
                 total_clips = len(selected_highlights)
+                is_youtube = 'youtube.com' in url or 'youtu.be' in url
+                is_tiktok_fb = 'tiktok.com' in url or 'facebook.com' in url or 'fb.watch' in url
+                batch_section_paths = None
+
+                if is_youtube:
+                    batch_dir = self.temp_dir / "youtube_batch"
+                    self.set_progress(
+                        f"Downloading {total_clips} YouTube sections in one batch...",
+                        0.03
+                    )
+                    batch_section_paths = self.download_video_sections_batch(
+                        url,
+                        selected_highlights,
+                        batch_dir,
+                        resolution
+                    )
+                    if len(batch_section_paths) != total_clips:
+                        raise Exception(
+                            f"Batch download returned {len(batch_section_paths)} files "
+                            f"for {total_clips} selected highlights"
+                        )
+
                 for i, highlight in enumerate(selected_highlights, 1):
                     if self.is_cancelled():
                         session_data["status"] = "cancelled"
@@ -982,10 +1005,15 @@ class HighlightMixin:
                     clip_dir.mkdir(parents=True, exist_ok=True)
                     section_path = str(clip_dir / "landscape.mp4")
                 
-                    is_youtube = 'youtube.com' in url or 'youtu.be' in url
-                    is_tiktok_fb = 'tiktok.com' in url or 'facebook.com' in url or 'fb.watch' in url
                     try:
-                        if is_tiktok_fb:
+                        if is_youtube and batch_section_paths:
+                            batch_src = Path(batch_section_paths[i - 1])
+                            if not batch_src.exists():
+                                raise Exception(f"Batch section file missing: {batch_src}")
+                            shutil.copy2(str(batch_src), section_path)
+                            video_path = section_path
+                            self.log(f"  Using batch section {i}/{total_clips}: {batch_src.name}")
+                        elif is_tiktok_fb:
                             # TikTok/FB: full res tanpa section, tanpa resolusi filter
                             self.log(f"  TikTok/FB detected — full download tanpa section (auto res)")
                             full_tmp = str(session_dir / f"_full_{i}.mp4")
