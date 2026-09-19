@@ -946,13 +946,66 @@ def main():
 
     debug_log("[progress] Загружаю выбранный момент... (overall: 5.0%)", flush=True)
     debug_log(f"[streamer] {fmt_time(start_sec)} -> {fmt_time(end_sec)}", flush=True)
-    core.download_video_section(
-        url,
-        fmt_time(start_sec),
-        fmt_time(end_sec),
-        str(source_path),
-        resolution=requested_resolution,
-    )
+
+    batch_id = re.sub(r"[^A-Za-z0-9_-]+", "", str(job.get("batch_id") or ""))[:64]
+    batch_sections = job.get("batch_sections") if isinstance(job.get("batch_sections"), list) else []
+    try:
+        batch_index = int(job.get("batch_index", -1))
+    except Exception:
+        batch_index = -1
+
+    if batch_id and batch_sections and 0 <= batch_index < len(batch_sections):
+        batch_dir = APP_DIR / "output" / "streamer_batches" / batch_id
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        allowed = {".mp4", ".mkv", ".webm", ".mov"}
+        batch_files = sorted(
+            p for p in batch_dir.glob("batch_*")
+            if p.is_file() and p.suffix.lower() in allowed and ".part" not in p.name
+        )
+
+        if len(batch_files) != len(batch_sections):
+            debug_log(
+                f"[streamer] Batch source: скачиваю {len(batch_sections)} выбранных моментов "
+                "одним yt-dlp запуском.",
+                flush=True,
+            )
+            batch_files = [
+                Path(p) for p in core.download_video_sections_batch(
+                    url,
+                    batch_sections,
+                    batch_dir,
+                    resolution=requested_resolution,
+                )
+            ]
+        else:
+            debug_log(
+                f"[streamer] Batch source: использую уже скачанные секции "
+                f"({len(batch_files)} шт.), без нового запроса к YouTube.",
+                flush=True,
+            )
+
+        if len(batch_files) != len(batch_sections):
+            raise RuntimeError(
+                f"Batch source mismatch: ожидалось {len(batch_sections)}, "
+                f"получено {len(batch_files)}"
+            )
+
+        selected_source = batch_files[batch_index]
+        if not selected_source.exists():
+            raise RuntimeError(f"Batch section не найден: {selected_source}")
+        shutil.copy2(selected_source, source_path)
+        debug_log(
+            f"[streamer] Batch section {batch_index + 1}/{len(batch_sections)} -> {source_path.name}",
+            flush=True,
+        )
+    else:
+        core.download_video_section(
+            url,
+            fmt_time(start_sec),
+            fmt_time(end_sec),
+            str(source_path),
+            resolution=requested_resolution,
+        )
 
     requested_gpu = bool(job.get("gpu", True))
     effective_gpu = True if turbo_requested else requested_gpu
