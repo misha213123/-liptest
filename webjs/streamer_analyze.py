@@ -6,10 +6,12 @@ import hashlib
 import math
 import os
 import re
+import shutil
 import sys
 import traceback
 import uuid
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
@@ -117,11 +119,13 @@ def fetch_info(url: str) -> dict:
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     return {
+        "id": str(info.get("id") or ""),
         "title": info.get("title") or "Streamer VOD",
         "channel": info.get("channel") or info.get("uploader") or "",
         "description": (info.get("description") or "")[:2000],
         "duration": float(info.get("duration") or 0),
         "extractor": info.get("extractor_key") or info.get("extractor") or "",
+        "webpage_url": str(info.get("webpage_url") or url),
     }
 
 
@@ -301,8 +305,40 @@ def global_rank(core: AutoClipperCore, candidates: list[dict], target: int, vide
     return sorted(candidates, key=lambda x: x.get("virality_score", 0), reverse=True)[:target]
 
 
+def canonical_source_identity(url: str) -> str:
+    """Stable identity for the same VOD even if URL has t=, playlist, share params, etc."""
+    raw = str(url or "").strip()
+    try:
+        p = urlparse(raw)
+        host = (p.netloc or "").lower().split(":")[0]
+        path = p.path or ""
+
+        if host in ("youtu.be", "www.youtu.be"):
+            vid = path.strip("/").split("/")[0]
+            if vid:
+                return f"youtube:{vid}"
+
+        if "youtube.com" in host:
+            qs = parse_qs(p.query or "")
+            vid = (qs.get("v") or [""])[0]
+            if not vid:
+                m = re.search(r"/(?:shorts|live|embed)/([^/?#]+)", path)
+                if m:
+                    vid = m.group(1)
+            if vid:
+                return f"youtube:{vid}"
+
+        # Twitch/Kick/share URLs: query and fragment normally don't identify
+        # a different VOD, so ignore them.
+        clean_path = re.sub(r"/+$", "", path)
+        return f"{host}{clean_path}".lower()
+    except Exception:
+        return raw
+
+
 def cache_paths(url: str, min_duration: int, max_duration: int, requested: int) -> dict:
-    url_key = hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:24]
+    identity = canonical_source_identity(url)
+    url_key = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
     cache_dir = APP_DIR / "output" / "streamer_cache" / url_key
     analysis_key = f"{min_duration}_{max_duration}_{requested}_v2"
     pool_key = f"{min_duration}_{max_duration}_v2"
@@ -313,6 +349,61 @@ def cache_paths(url: str, min_duration: int, max_duration: int, requested: int) 
         "candidates": cache_dir / f"candidates_{pool_key}.json",
         "analysis": cache_dir / f"analysis_{analysis_key}.json",
     }
+
+
+def recover_cache_for_info(cache: dict, info: dict) -> bool:
+    """Migrate an older raw-URL cache folder when the same VOD is found under another URL."""
+    root = APP_DIR / "output" / "streamer_cache"
+    if not root.exists():
+        return False
+
+    wanted_id = str(info.get("id") or "").strip()
+    wanted_title = str(info.get("title") or "").strip()
+    wanted_channel = str(info.get("channel") or "").strip()
+    wanted_duration = float(info.get("duration") or 0)
+
+    for d in root.iterdir():
+        if not d.is_dir() or d.resolve() == cache["dir"].resolve():
+            continue
+        meta_path = d / "video_info.json"
+        transcript_path = d / "transcript.txt"
+        if not meta_path.exists() or not transcript_path.exists() or transcript_path.stat().st_size < 20:
+            continue
+        try:
+            old = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        old_id = str(old.get("id") or "").strip()
+        old_title = str(old.get("title") or "").strip()
+        old_channel = str(old.get("channel") or "").strip()
+        old_duration = float(old.get("duration") or 0)
+
+        same = False
+        if wanted_id and old_id and wanted_id == old_id:
+            same = True
+        elif wanted_title and old_title == wanted_title and abs(old_duration - wanted_duration) <= 2.0:
+            if not wanted_channel or not old_channel or wanted_channel == old_channel:
+                same = True
+
+        if not same:
+            continue
+
+        cache["dir"].mkdir(parents=True, exist_ok=True)
+        for src in d.iterdir():
+            if not src.is_file():
+                continue
+            dst = cache["dir"] / src.name
+            if not dst.exists():
+                shutil.copy2(src, dst)
+        write_json(cache["info"], info)
+        debug_log(
+            f"[streamer-ai] ♻ Нашёл старый кэш этого же VOD ({d.name}) и перенёс его. "
+            "Повторная транскрипция не нужна.",
+            flush=True,
+        )
+        return True
+    return False
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -381,6 +472,9 @@ def main():
         f"[streamer-ai] {info.get('title')} | {info.get('channel')} | {info.get('duration',0):.0f}s",
         flush=True,
     )
+
+    if not cache["transcript"].exists():
+        recover_cache_for_info(cache, info)
 
     if cache["transcript"].exists() and cache["transcript"].stat().st_size > 20:
         transcript = cache["transcript"].read_text(encoding="utf-8")
