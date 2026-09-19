@@ -293,6 +293,37 @@ def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_fil
         raise RuntimeError("Не удалось прожечь текст:\n" + tail)
 
 
+def probe_media_info(media_path: Path) -> dict:
+    """Return duration and whether an audio stream exists, using ffprobe next to ffmpeg."""
+    ffmpeg = Path(get_ffmpeg_path())
+    ffprobe = ffmpeg.with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
+    cmd = [
+        str(ffprobe), "-v", "error",
+        "-show_entries", "format=duration:stream=codec_type",
+        "-of", "json",
+        str(media_path),
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=SUBPROCESS_FLAGS,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Не удалось прочитать рекламное видео через ffprobe.")
+    try:
+        data = json.loads(result.stdout or "{}")
+        duration = float((data.get("format") or {}).get("duration") or 0)
+        has_audio = any((s or {}).get("codec_type") == "audio" for s in (data.get("streams") or []))
+    except Exception as exc:
+        raise RuntimeError("Не удалось определить длительность рекламного видео.") from exc
+    if duration <= 0:
+        raise RuntimeError("У рекламного видео не определилась длительность.")
+    return {"duration": duration, "has_audio": has_audio}
+
+
 def insert_ad_banner(
     core: AutoClipperCore,
     input_path: Path,
@@ -302,72 +333,149 @@ def insert_ad_banner(
     *,
     clip_duration: float,
     at_pct: float = 0.50,
-    banner_duration: float = 3.0,
     width_pct: float = 0.78,
+    height_pct: float = 0.38,
+    x_pct: float = 0.50,
+    y_pct: float = 0.50,
     blur_sigma: float = 18.0,
-    fade_duration: float = 0.25,
-) -> None:
-    """Insert a paused advertising break: freeze+blur video, show centered banner, then resume."""
+    fade_duration: float = 0.20,
+    chroma_key: bool = False,
+    chroma_color: str = "#00FF00",
+    chroma_similarity: float = 0.16,
+    chroma_blend: float = 0.08,
+    keep_aspect: bool = True,
+) -> float:
+    """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
-        raise RuntimeError(f"Файл рекламного баннера не найден: {banner_path}")
+        raise RuntimeError(f"Файл рекламного видео не найден: {banner_path}")
 
-    clip_duration = max(0.5, float(clip_duration or 0.5))
-    banner_duration = max(1.0, min(10.0, float(banner_duration or 3.0)))
-    at_pct = max(0.08, min(0.92, float(at_pct or 0.50)))
+    ad_info = probe_media_info(banner_path)
+    banner_duration = max(0.10, min(120.0, float(ad_info["duration"])))
+    ad_has_audio = bool(ad_info["has_audio"])
+
+    main_info = probe_media_info(input_path)
+    main_has_audio = bool(main_info["has_audio"])
+
+    clip_duration = max(0.5, float(clip_duration or main_info["duration"] or 0.5))
+    at_pct = max(0.05, min(0.95, float(at_pct or 0.50)))
     pause_at = max(0.20, min(clip_duration - 0.20, clip_duration * at_pct))
-    width_pct = max(0.30, min(0.95, float(width_pct or 0.78)))
-    blur_sigma = max(2.0, min(40.0, float(blur_sigma or 18.0)))
-    fade_duration = max(0.0, min(0.8, float(fade_duration or 0.25)))
-    fade_out_start = max(0.0, banner_duration - fade_duration)
-    max_banner_w = int(round(1080 * width_pct))
-    max_banner_h = int(round(1920 * 0.46))
 
-    filter_complex = (
-        f"[0:v]split=3[vpre0][vfreeze0][vpost0];"
-        f"[vpre0]trim=start=0:end={pause_at:.3f},setpts=PTS-STARTPTS[vpre];"
-        f"[vfreeze0]select='gte(t,{pause_at:.3f})',setpts=PTS-STARTPTS,"
-        f"trim=end_frame=1,tpad=stop_mode=clone:stop_duration={banner_duration:.3f},"
-        f"trim=duration={banner_duration:.3f},"
-        f"gblur=sigma={blur_sigma:.2f},eq=brightness=-0.08:saturation=0.82[vblur];"
-        f"[vpost0]trim=start={pause_at:.3f},setpts=PTS-STARTPTS[vpost];"
-        f"[1:v]scale={max_banner_w}:{max_banner_h}:force_original_aspect_ratio=decrease,"
-        f"format=rgba,"
-        f"fade=t=in:st=0:d={fade_duration:.3f}:alpha=1,"
-        f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}:alpha=1[adimg];"
-        f"[vblur][adimg]overlay=(W-w)/2:(H-h)/2:shortest=1[vad];"
-        f"[vpre][vad][vpost]concat=n=3:v=1:a=0[vout];"
-        f"[0:a]asplit=2[apre0][apost0];"
-        f"[apre0]atrim=start=0:end={pause_at:.3f},asetpts=PTS-STARTPTS,"
-        f"aformat=sample_rates=48000:channel_layouts=stereo[apre];"
-        f"[apost0]atrim=start={pause_at:.3f},asetpts=PTS-STARTPTS,"
-        f"aformat=sample_rates=48000:channel_layouts=stereo[apost];"
-        f"anullsrc=r=48000:cl=stereo:d={banner_duration:.3f}[asilence];"
-        f"[apre][asilence][apost]concat=n=3:v=0:a=1[aout]"
+    width_pct = max(0.15, min(1.00, float(width_pct or 0.78)))
+    height_pct = max(0.10, min(0.95, float(height_pct or 0.38)))
+    x_pct = max(0.0, min(1.0, float(x_pct or 0.50)))
+    y_pct = max(0.0, min(1.0, float(y_pct or 0.50)))
+    blur_sigma = max(0.0, min(45.0, float(blur_sigma or 18.0)))
+    fade_duration = max(0.0, min(0.8, float(fade_duration or 0.20)))
+    fade_duration = min(fade_duration, banner_duration / 3.0)
+    fade_out_start = max(0.0, banner_duration - fade_duration)
+
+    target_w = max(64, int(round(1080 * width_pct)))
+    target_h = max(64, int(round(1920 * height_pct)))
+    post_duration = max(0.0, clip_duration - pause_at)
+
+    raw_chroma = str(chroma_color or "#00FF00").strip().lstrip("#")
+    if not re.fullmatch(r"[0-9A-Fa-f]{6}", raw_chroma):
+        raw_chroma = "00FF00"
+    chroma_similarity = max(0.01, min(0.60, float(chroma_similarity or 0.16)))
+    chroma_blend = max(0.0, min(0.50, float(chroma_blend or 0.08)))
+
+    scale_expr = (
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease"
+        if keep_aspect
+        else f"scale={target_w}:{target_h}"
     )
+    ad_filters = [
+        f"trim=duration={banner_duration:.3f}",
+        "setpts=PTS-STARTPTS",
+        scale_expr,
+        "format=rgba",
+    ]
+    if chroma_key:
+        ad_filters.append(f"chromakey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}")
+    if fade_duration > 0:
+        ad_filters.append(f"fade=t=in:st=0:d={fade_duration:.3f}:alpha=1")
+        ad_filters.append(f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}:alpha=1")
+
+    blur_filter = (
+        f"gblur=sigma={blur_sigma:.2f},eq=brightness=-0.08:saturation=0.82"
+        if blur_sigma > 0
+        else "eq=brightness=-0.08:saturation=0.82"
+    )
+
+    video_parts = [
+        "[0:v]split=3[vpre0][vfreeze0][vpost0]",
+        f"[vpre0]trim=start=0:end={pause_at:.3f},setpts=PTS-STARTPTS[vpre]",
+        (
+            f"[vfreeze0]select='gte(t,{pause_at:.3f})',setpts=PTS-STARTPTS,"
+            f"trim=end_frame=1,tpad=stop_mode=clone:stop_duration={banner_duration:.3f},"
+            f"trim=duration={banner_duration:.3f},{blur_filter}[vblur]"
+        ),
+        f"[vpost0]trim=start={pause_at:.3f},setpts=PTS-STARTPTS[vpost]",
+        f"[1:v]{','.join(ad_filters)}[advid]",
+        (
+            f"[vblur][advid]overlay="
+            f"x='(W-w)*{x_pct:.4f}':y='(H-h)*{y_pct:.4f}':"
+            f"eof_action=pass:shortest=1[vad]"
+        ),
+        "[vpre][vad][vpost]concat=n=3:v=1:a=0[vout]",
+    ]
+
+    audio_parts = []
+    if main_has_audio:
+        audio_parts.extend([
+            "[0:a]asplit=2[apre0][apost0]",
+            (
+                f"[apre0]atrim=start=0:end={pause_at:.3f},asetpts=PTS-STARTPTS,"
+                f"aformat=sample_rates=48000:channel_layouts=stereo[apre]"
+            ),
+            (
+                f"[apost0]atrim=start={pause_at:.3f},asetpts=PTS-STARTPTS,"
+                f"aformat=sample_rates=48000:channel_layouts=stereo[apost]"
+            ),
+        ])
+    else:
+        audio_parts.extend([
+            f"anullsrc=r=48000:cl=stereo:d={pause_at:.3f}[apre]",
+            f"anullsrc=r=48000:cl=stereo:d={post_duration:.3f}[apost]",
+        ])
+
+    if ad_has_audio:
+        audio_parts.append(
+            f"[1:a]atrim=duration={banner_duration:.3f},asetpts=PTS-STARTPTS,"
+            f"aformat=sample_rates=48000:channel_layouts=stereo,"
+            f"apad=pad_dur={banner_duration:.3f},atrim=duration={banner_duration:.3f}[aad]"
+        )
+    else:
+        audio_parts.append(f"anullsrc=r=48000:cl=stereo:d={banner_duration:.3f}[aad]")
+
+    audio_parts.append("[apre][aad][apost]concat=n=3:v=0:a=1[aout]")
+    filter_complex = ";".join(video_parts + audio_parts)
 
     cmd = [
         get_ffmpeg_path(), "-y",
         "-i", str(input_path),
-        "-loop", "1", "-framerate", "30", "-i", str(banner_path),
+        "-i", str(banner_path),
         "-filter_complex", filter_complex,
         "-map", "[vout]",
         "-map", "[aout]",
         *encoder_args,
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
-        "-shortest",
         str(output_path),
     ]
+
     debug_log(
-        f"[streamer] Рекламная пауза: {pause_at:.1f}s, баннер {banner_duration:.1f}s, "
-        f"ширина {width_pct*100:.0f}%, blur {blur_sigma:.0f}.",
+        f"[streamer] Рекламное видео: pause={pause_at:.1f}s, ad={banner_duration:.2f}s, "
+        f"size={width_pct*100:.0f}%x{height_pct*100:.0f}%, "
+        f"pos={x_pct*100:.0f}%/{y_pct*100:.0f}%, chroma={'on' if chroma_key else 'off'}.",
         flush=True,
     )
-    result = core._run_ffmpeg_subprocess(cmd, timeout=900)
+    result = core._run_ffmpeg_subprocess(cmd, timeout=1200)
     if result.returncode != 0:
-        tail = "\n".join((result.stderr or "").splitlines()[-35:])
-        raise RuntimeError("Не удалось вставить рекламный баннер:\n" + tail)
+        tail = "\n".join((result.stderr or "").splitlines()[-40:])
+        raise RuntimeError("Не удалось вставить рекламное видео:\n" + tail)
 
+    return banner_duration
 
 def main():
     if len(sys.argv) < 3:
@@ -403,10 +511,17 @@ def main():
     banner_enabled = bool(job.get("banner_enabled", False))
     banner_file = str(job.get("banner_file") or "").strip()
     banner_at_pct = float(job.get("banner_at_pct", 0.50) or 0.50)
-    banner_duration = float(job.get("banner_duration", 3.0) or 3.0)
     banner_width_pct = float(job.get("banner_width_pct", 0.78) or 0.78)
+    banner_height_pct = float(job.get("banner_height_pct", 0.38) or 0.38)
+    banner_x_pct = float(job.get("banner_x_pct", 0.50) or 0.50)
+    banner_y_pct = float(job.get("banner_y_pct", 0.50) or 0.50)
     banner_blur = float(job.get("banner_blur", 18.0) or 18.0)
-    banner_fade = float(job.get("banner_fade", 0.25) or 0.25)
+    banner_fade = float(job.get("banner_fade", 0.20) or 0.20)
+    banner_chroma_key = bool(job.get("banner_chroma_key", False))
+    banner_chroma_color = str(job.get("banner_chroma_color") or "#00FF00")
+    banner_chroma_similarity = float(job.get("banner_chroma_similarity", 0.16) or 0.16)
+    banner_chroma_blend = float(job.get("banner_chroma_blend", 0.08) or 0.08)
+    banner_keep_aspect = bool(job.get("banner_keep_aspect", True))
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -470,6 +585,7 @@ def main():
             webcam_height_pct=top_pct,
         )
 
+    banner_duration_actual = 0.0
     target_before_banner = text_path if banner_enabled else final_path
     if ass_file:
         debug_log("[progress] Прожигаю текст... (overall: 84.0%)", flush=True)
@@ -485,7 +601,7 @@ def main():
         if assets_dir not in banner_path.parents:
             raise RuntimeError("Недопустимый путь баннера.")
         debug_log("[progress] Вставляю рекламную паузу... (overall: 92.0%)", flush=True)
-        insert_ad_banner(
+        banner_duration_actual = insert_ad_banner(
             core,
             target_before_banner,
             final_path,
@@ -493,10 +609,17 @@ def main():
             encoder_args,
             clip_duration=end_sec - start_sec,
             at_pct=banner_at_pct,
-            banner_duration=banner_duration,
             width_pct=banner_width_pct,
+            height_pct=banner_height_pct,
+            x_pct=banner_x_pct,
+            y_pct=banner_y_pct,
             blur_sigma=banner_blur,
             fade_duration=banner_fade,
+            chroma_key=banner_chroma_key,
+            chroma_color=banner_chroma_color,
+            chroma_similarity=banner_chroma_similarity,
+            chroma_blend=banner_chroma_blend,
+            keep_aspect=banner_keep_aspect,
         )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
@@ -532,10 +655,18 @@ def main():
         "banner_enabled": banner_enabled,
         "banner_file": banner_file,
         "banner_at_pct": banner_at_pct,
-        "banner_duration": banner_duration,
+        "banner_duration": banner_duration_actual,
         "banner_width_pct": banner_width_pct,
+        "banner_height_pct": banner_height_pct,
+        "banner_x_pct": banner_x_pct,
+        "banner_y_pct": banner_y_pct,
         "banner_blur": banner_blur,
         "banner_fade": banner_fade,
+        "banner_chroma_key": banner_chroma_key,
+        "banner_chroma_color": banner_chroma_color,
+        "banner_chroma_similarity": banner_chroma_similarity,
+        "banner_chroma_blend": banner_chroma_blend,
+        "banner_keep_aspect": banner_keep_aspect,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
