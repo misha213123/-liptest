@@ -1486,24 +1486,27 @@ class PortraitMixin:
                         else:
                             pending_face_x = None
                             pending_switch_count = 0
-                            # Same speaker: move camera slowly with the face.
-                            locked_face_x = (
-                                locked_face_x * 0.84
-                                + nearest_locked["x"] * 0.16
-                            )
+                            # Same speaker: keep the frame STATIC inside a generous
+                            # dead-zone. Reframe only when the face actually walks
+                            # toward the edge of the 9:16 crop.
+                            same_speaker_offset = nearest_locked["x"] - locked_face_x
+                            dead_zone = crop_w * 0.16
+                            if abs(same_speaker_offset) > dead_zone:
+                                max_step = max(12.0, crop_w * 0.045)
+                                locked_face_x += max(
+                                    -max_step,
+                                    min(max_step, same_speaker_offset * 0.20),
+                                )
                     else:
-                        # Silence/non-speech: do not switch faces.
+                        # Silence/non-speech: freeze the current framing completely.
+                        # This removes tiny MediaPipe landmark jitter from the crop.
                         pending_face_x = None
                         pending_switch_count = 0
-                        locked_face_x = (
-                            locked_face_x * 0.92
-                            + nearest_locked["x"] * 0.08
-                        )
 
                 if locked_face_x is None:
                     locked_face_x = orig_w / 2
 
-                crop_x = int(round(locked_face_x - crop_w / 2))
+                crop_x = int(round((locked_face_x - crop_w / 2) / 8.0) * 8)
                 crop_x = max(0, min(crop_x, orig_w - crop_w))
                 analyzed_indices.append(frames_read)
                 analyzed_positions_x.append(crop_x)
