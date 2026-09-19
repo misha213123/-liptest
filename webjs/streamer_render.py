@@ -350,6 +350,9 @@ def insert_ad_banner(
     mode: str = "pause",
     source_crop: dict | None = None,
     speed: float = 1.0,
+    black_key: bool = True,
+    black_similarity: float = 0.05,
+    black_blend: float = 0.02,
 ) -> float:
     """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
@@ -408,6 +411,8 @@ def insert_ad_banner(
         raw_chroma = "00FF00"
     chroma_similarity = max(0.01, min(0.80, float(chroma_similarity or 0.28)))
     chroma_blend = max(0.0, min(0.35, float(chroma_blend or 0.06)))
+    black_similarity = max(0.005, min(0.20, float(black_similarity or 0.05)))
+    black_blend = max(0.0, min(0.10, float(black_blend or 0.02)))
 
     scale_expr = (
         (
@@ -418,18 +423,69 @@ def insert_ad_banner(
         if keep_aspect
         else crop_prefix + f"scale={target_w}:{target_h}"
     )
-    ad_filters = [
+    ad_base_filters = [
         f"trim=duration={banner_source_duration:.3f}",
         f"setpts=(PTS-STARTPTS)/{banner_speed:.4f}",
         f"trim=duration={banner_duration:.3f}",
         scale_expr,
         "format=rgba",
     ]
-    if chroma_key:
-        ad_filters.append(f"colorkey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}")
-    if fade_duration > 0:
-        ad_filters.append(f"fade=t=in:st=0:d={fade_duration:.3f}:alpha=1")
-        ad_filters.append(f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}:alpha=1")
+
+    def build_ad_video_graph(
+        base_filters: list[str],
+        out_label: str,
+        *,
+        fade_in_out: float,
+        fade_out_at: float,
+        shift_seconds: float | None = None,
+    ) -> list[str]:
+        """Build one transparent ad stream while preserving BOTH green-key and black-key alpha."""
+        graph = [f"[1:v]{','.join(base_filters)}[adbase]"]
+        key_label = "adbase"
+
+        if chroma_key and black_key:
+            graph.extend([
+                "[adbase]split=3[adcolor][adgreen][adblack]",
+                (
+                    f"[adgreen]colorkey=0x{raw_chroma}:"
+                    f"{chroma_similarity:.3f}:{chroma_blend:.3f},alphaextract[agreen]"
+                ),
+                (
+                    f"[adblack]colorkey=0x000000:"
+                    f"{black_similarity:.3f}:{black_blend:.3f},alphaextract[ablack]"
+                ),
+                "[agreen][ablack]blend=all_mode=multiply[akey]",
+                "[adcolor][akey]alphamerge[adkey]",
+            ])
+            key_label = "adkey"
+        elif chroma_key:
+            graph.append(
+                f"[adbase]colorkey=0x{raw_chroma}:"
+                f"{chroma_similarity:.3f}:{chroma_blend:.3f}[adkey]"
+            )
+            key_label = "adkey"
+        elif black_key:
+            graph.append(
+                f"[adbase]colorkey=0x000000:"
+                f"{black_similarity:.3f}:{black_blend:.3f}[adkey]"
+            )
+            key_label = "adkey"
+
+        post = []
+        if fade_in_out > 0:
+            post.append(f"fade=t=in:st=0:d={fade_in_out:.3f}:alpha=1")
+            post.append(
+                f"fade=t=out:st={max(0.0, fade_out_at):.3f}:"
+                f"d={fade_in_out:.3f}:alpha=1"
+            )
+        if shift_seconds is not None:
+            post.append(f"setpts=PTS+{shift_seconds:.3f}/TB")
+
+        if post:
+            graph.append(f"[{key_label}]{','.join(post)}[{out_label}]")
+        elif key_label != out_label:
+            graph.append(f"[{key_label}]null[{out_label}]")
+        return graph
 
     blur_filter = (
         f"gblur=sigma={blur_sigma:.2f},eq=brightness=-0.08:saturation=0.82"
@@ -447,31 +503,26 @@ def insert_ad_banner(
         effective_ad = max(0.10, min(banner_duration, clip_duration - overlay_start))
         overlay_end = overlay_start + effective_ad
 
-        overlay_ad_filters = [
+        overlay_base_filters = [
             f"trim=duration={banner_source_duration:.3f}",
             f"setpts=(PTS-STARTPTS)/{banner_speed:.4f}",
             f"trim=duration={effective_ad:.3f}",
             scale_expr,
             "format=rgba",
         ]
-        if chroma_key:
-            overlay_ad_filters.append(
-                f"colorkey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}"
-            )
         overlay_fade = min(fade_duration, effective_ad / 3.0)
-        if overlay_fade > 0:
-            overlay_ad_filters.append(f"fade=t=in:st=0:d={overlay_fade:.3f}:alpha=1")
-            overlay_ad_filters.append(
-                f"fade=t=out:st={max(0.0, effective_ad-overlay_fade):.3f}:"
-                f"d={overlay_fade:.3f}:alpha=1"
-            )
-        overlay_ad_filters.append(f"setpts=PTS+{overlay_start:.3f}/TB")
 
         filter_complex = ";".join([
             # Continue mode is intentionally clean: NO blur, NO dimming and
             # NO freeze. The main clip keeps playing unchanged underneath.
             "[0:v]setpts=PTS-STARTPTS[vbg]",
-            f"[1:v]{','.join(overlay_ad_filters)}[advid]",
+            *build_ad_video_graph(
+                overlay_base_filters,
+                "advid",
+                fade_in_out=overlay_fade,
+                fade_out_at=max(0.0, effective_ad - overlay_fade),
+                shift_seconds=overlay_start,
+            ),
             (
                 f"[vbg][advid]overlay="
                 f"x='W*{x_pct:.4f}-w/2':y='H*{y_pct:.4f}-h/2':"
@@ -515,7 +566,12 @@ def insert_ad_banner(
             f"trim=duration={banner_duration:.3f},{blur_filter}[vblur]"
         ),
         f"[vpost0]trim=start={pause_at:.3f},setpts=PTS-STARTPTS[vpost]",
-        f"[1:v]{','.join(ad_filters)}[advid]",
+        *build_ad_video_graph(
+            ad_base_filters,
+            "advid",
+            fade_in_out=fade_duration,
+            fade_out_at=fade_out_start,
+        ),
         (
             f"[vblur][advid]overlay="
             f"x='W*{x_pct:.4f}-w/2':y='H*{y_pct:.4f}-h/2':"
@@ -631,6 +687,8 @@ def main():
     banner_mode = str(job.get("banner_mode") or "pause").strip().lower()
     banner_source_crop = dict(job.get("banner_source_crop") or {})
     banner_speed = max(1.0, min(2.0, float(job.get("banner_speed", 1.0) or 1.0)))
+    banner_black_key = bool(job.get("banner_black_key", True))
+    banner_black_similarity = float(job.get("banner_black_similarity", 0.05) or 0.05)
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -732,6 +790,9 @@ def main():
             mode=banner_mode,
             source_crop=banner_source_crop,
             speed=banner_speed,
+            black_key=banner_black_key,
+            black_similarity=banner_black_similarity,
+            black_blend=0.02,
         )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
@@ -782,6 +843,8 @@ def main():
         "banner_mode": banner_mode,
         "banner_source_crop": banner_source_crop,
         "banner_speed": banner_speed,
+        "banner_black_key": banner_black_key,
+        "banner_black_similarity": banner_black_similarity,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
