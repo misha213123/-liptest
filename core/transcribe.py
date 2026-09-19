@@ -436,14 +436,16 @@ class TranscribeMixin:
         
             return segments
 
-        def transcribe_words(self, audio_path: str, progress_callback=None):
-            """Transcribe audio with word-level timestamps using local Faster-Whisper.
+        def transcribe_words(self, audio_path: str, progress_callback=None, allow_cpu_fallback: bool = True):
+            """Transcribe audio with word-level timestamps using local Faster-Whisper."""
+            return self._transcribe_words_faster_whisper(
+                audio_path,
+                progress_callback=progress_callback,
+                allow_cpu_fallback=allow_cpu_fallback,
+            )
 
-            Captions now always run fully offline via Faster-Whisper (no Whisper API).
-            """
-            return self._transcribe_words_faster_whisper(audio_path, progress_callback=progress_callback)
-
-        def _transcribe_words_faster_whisper(self, audio_path: str, progress_callback=None):
+        def _transcribe_words_faster_whisper(self, audio_path: str, progress_callback=None,
+                                             allow_cpu_fallback: bool = True):
             """Transcribe an audio file with word-level timestamps using local Faster-Whisper with VAD.
         
             Returns an object exposing .words and .segments (mirroring the SDK response shape).
@@ -502,6 +504,8 @@ class TranscribeMixin:
                             pass
             except RuntimeError as e:
                 if not self._is_faster_whisper_cuda_runtime_error(e):
+                    raise
+                if not allow_cpu_fallback:
                     raise
                 self.log(
                     "  [Caption] ⚠ CUDA runtime неполная — "
