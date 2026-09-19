@@ -52,6 +52,7 @@ def main():
         face_tracking_mode=cfg.get("face_tracking_mode", "opencv"),
         portrait_mode=cfg.get("portrait_mode", "crop"),
         subtitle_style=cfg.get("subtitle_style", "pop"),
+        subtitle_settings=cfg.get("subtitle_settings"),
         aspect_ratio=cfg.get("aspect_ratio", "9:16"),
         mediapipe_settings=cfg.get("mediapipe_settings"),
         ai_providers=prov or None,
