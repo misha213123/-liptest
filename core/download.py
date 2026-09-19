@@ -1257,7 +1257,7 @@ class DownloadMixin:
             small webcam crop can benefit from 1440p/2160p/4K+ source pixels.
             """
             res = str(resolution or "").strip().lower()
-            res_map = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
+            res_map = {"4320p": 4320, "2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
             is_auto = res in ("auto", "auto (best)", "best", "otomatis")
             target_h = res_map.get(res, 1080)
         
