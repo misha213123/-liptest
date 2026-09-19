@@ -1016,6 +1016,17 @@ def main():
         )
     core.enable_gpu_acceleration(effective_gpu)
     encoder_args = tune_encoder_args(core.get_video_encoder_args())
+    if _is_hw_encoder_args(encoder_args):
+        debug_log(
+            "[streamer] GPU encode: hardware encoder active (" + " ".join(encoder_args) + ")",
+            flush=True,
+        )
+    else:
+        debug_log(
+            "[streamer] NVENC недоступен: CUDA-фильтры будут работать на GPU, "
+            "а финальное кодирование — libx264 на CPU.",
+            flush=True,
+        )
 
     ass_file = None
     if captions or (title_enabled and title_text):
