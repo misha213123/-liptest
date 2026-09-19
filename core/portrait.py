@@ -1448,6 +1448,9 @@ class PortraitMixin:
                         locked_face_x = candidate["x"]
                         pending_face_x = None
                         pending_switch_count = 0
+                        self.log(
+                            f"  🎙 Speaker lock after scene change: x={locked_face_x:.0f}"
+                        )
 
                     elif voice_active and candidate["activity"] >= lip_threshold:
                         switch_distance = abs(
@@ -1474,6 +1477,10 @@ class PortraitMixin:
                             # 2 samples ~= 0.3s at 25-30fps with ANALYSIS_STEP=4.
                             if pending_switch_count >= 2:
                                 locked_face_x = candidate["x"]
+                                self.log(
+                                    f"  🎙 Active speaker switch: x={locked_face_x:.0f}, "
+                                    f"voice={voice_level:.2f}, lip={candidate['activity']:.3f}"
+                                )
                                 pending_face_x = None
                                 pending_switch_count = 0
                         else:
