@@ -103,6 +103,104 @@ class PortraitMixin:
             target = np.arange(total_frames, dtype=float)
             return np.interp(target, x, y).tolist()
 
+        def _extract_voice_activity_envelope(self, input_path: str):
+            """Extract a lightweight speech/activity envelope from the clip audio.
+
+            The envelope does not identify a speaker by itself. It gates visual
+            lip-motion tracking so the camera only changes faces while somebody
+            is actually speaking. This prevents switches caused by blinking,
+            smiles, head turns or silent mouth movement.
+            """
+            try:
+                sample_rate = 16000
+                cmd = [
+                    self.ffmpeg_path, "-v", "error", "-i", input_path,
+                    "-vn", "-ac", "1", "-ar", str(sample_rate),
+                    "-f", "s16le", "pipe:1",
+                ]
+                result = subprocess.run(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=120, creationflags=SUBPROCESS_FLAGS,
+                )
+                if result.returncode != 0 or not result.stdout:
+                    return None
+
+                samples = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32)
+                if samples.size < sample_rate // 2:
+                    return None
+
+                # 50 ms RMS bins, smoothed over ~250 ms.
+                bin_samples = max(1, int(sample_rate * 0.05))
+                n = samples.size // bin_samples
+                if n <= 1:
+                    return None
+                arr = samples[:n * bin_samples].reshape(n, bin_samples)
+                rms = np.sqrt(np.mean(arr * arr, axis=1) + 1.0)
+                if rms.size >= 5:
+                    rms = np.convolve(rms, np.ones(5, dtype=np.float32) / 5.0, mode="same")
+
+                noise = float(np.percentile(rms, 20))
+                speech = float(np.percentile(rms, 80))
+                span = max(150.0, speech - noise)
+                norm = np.clip((rms - noise) / span, 0.0, 1.5)
+
+                self.log(
+                    f"  Voice gate: audio envelope ready "
+                    f"(noise={noise:.0f}, speech={speech:.0f})"
+                )
+                return {
+                    "values": norm,
+                    "bin_sec": 0.05,
+                    "threshold": 0.18,
+                }
+            except Exception as e:
+                self.log(f"  ⚠ Voice gate unavailable: {e}")
+                return None
+
+        @staticmethod
+        def _voice_activity_at(envelope, time_sec: float) -> float:
+            if not envelope:
+                return 1.0
+            values = envelope.get("values")
+            if values is None or len(values) == 0:
+                return 1.0
+            step = float(envelope.get("bin_sec", 0.05) or 0.05)
+            idx = int(max(0.0, time_sec) / step)
+            idx = max(0, min(idx, len(values) - 1))
+            return float(values[idx])
+
+        @staticmethod
+        def _interpolate_tracking_with_cuts(sampled_values: list, sampled_indices: list,
+                                            total_frames: int, cut_threshold: float) -> list:
+            """Interpolate small same-speaker movement, but hard-cut large speaker jumps."""
+            if not sampled_values:
+                return []
+            if len(sampled_values) == 1 or total_frames <= 1:
+                return [sampled_values[0]] * max(1, total_frames)
+
+            out = [float(sampled_values[0])] * total_frames
+            for i in range(len(sampled_values) - 1):
+                start = max(0, min(int(sampled_indices[i]), total_frames - 1))
+                end = max(start + 1, min(int(sampled_indices[i + 1]), total_frames))
+                a = float(sampled_values[i])
+                b = float(sampled_values[i + 1])
+
+                if abs(b - a) >= cut_threshold:
+                    # Hold the old speaker until the next sampled frame, then cut.
+                    for j in range(start, end):
+                        out[j] = a
+                else:
+                    span = max(1, end - start)
+                    for j in range(start, end):
+                        t = (j - start) / span
+                        out[j] = a + (b - a) * t
+
+            last_idx = max(0, min(int(sampled_indices[-1]), total_frames))
+            last_val = float(sampled_values[-1])
+            for j in range(last_idx, total_frames):
+                out[j] = last_val
+            return out
+
         def _build_portrait_filter_script(self, crop_positions, crop_w, crop_h,
                                           out_w, out_h, min_run=20, quantize=4,
                                           crop_ys=None) -> str:
@@ -623,10 +721,9 @@ class PortraitMixin:
                         })
                     
                         # Update previous lip distance
-                        upper_lip = face_landmarks[13]  # Upper lip center
-                        lower_lip = face_landmarks[14]  # Lower lip center
-                        lip_distance = abs(upper_lip.y - lower_lip.y)
-                        prev_lip_distances[face_id] = lip_distance
+                        mouth_w = max(1e-6, abs(face_landmarks[61].x - face_landmarks[291].x))
+                        mouth_w = max(1e-6, abs(face_landmarks[61].x - face_landmarks[291].x))
+                        prev_lip_distances[face_id] = abs(face_landmarks[13].y - face_landmarks[14].y) / mouth_w / mouth_w
                 
                     # OpusClip-accurate: prioritize active speaker (activity > thresh), not center
                     if faces_data:
@@ -689,40 +786,25 @@ class PortraitMixin:
             )
             cap.release()
 
-        def _calculate_lip_activity(self, face_landmarks, frame_width, frame_height, prev_lip_distance=None):
-            """Calculate lip movement activity score"""
-        
-            # Key lip landmarks (MediaPipe Face Landmarker indices)
-            # Upper lip: 13, Lower lip: 14
+        def _calculate_lip_activity(self, face_landmarks, frame_width, frame_height, prev_lip_ratio=None):
+            """Estimate speaking-related mouth motion.
+
+            Static mouth openness is a weak signal (a smile can look "active").
+            Use change in normalized mouth aspect ratio as the main signal.
+            """
             upper_lip = face_landmarks[13]
             lower_lip = face_landmarks[14]
-        
-            # Mouth corners: 61 (left), 291 (right)
             mouth_left = face_landmarks[61]
             mouth_right = face_landmarks[291]
-        
-            # Calculate mouth openness (vertical distance)
+
             mouth_height = abs(upper_lip.y - lower_lip.y)
-        
-            # Calculate mouth width (horizontal distance)
-            mouth_width = abs(mouth_left.x - mouth_right.x)
-        
-            # Aspect ratio (height/width) - higher when mouth is open
-            if mouth_width > 0:
-                aspect_ratio = mouth_height / mouth_width
-            else:
-                aspect_ratio = 0
-        
-            # Calculate movement delta (change from previous frame)
-            delta = 0
-            if prev_lip_distance is not None:
-                delta = abs(mouth_height - prev_lip_distance)
-        
-            # Activity score: combination of openness and movement
-            # Weight movement more heavily (0.6) than static openness (0.4)
-            activity_score = (aspect_ratio * 0.4) + (delta * 0.6)
-        
-            return activity_score
+            mouth_width = max(1e-6, abs(mouth_left.x - mouth_right.x))
+            ratio = mouth_height / mouth_width
+
+            delta = abs(ratio - prev_lip_ratio) if prev_lip_ratio is not None else 0.0
+            # Motion dominates; a small openness term helps at syllable starts.
+            activity_score = (delta * 0.88) + (max(0.0, ratio - 0.10) * 0.12)
+            return float(activity_score)
 
         def _stabilize_positions_with_activity(self, positions, activities, min_shot_duration, switch_threshold, orig_w):
             """Stabilize crop positions based on activity scores.
@@ -1252,6 +1334,10 @@ class PortraitMixin:
             frames_read = 0
             prev_lip_distances = {}
             prev_best_face = None
+            locked_face_x = None
+            pending_face_x = None
+            pending_switch_count = 0
+            voice_envelope = self._extract_voice_activity_envelope(input_path)
             
             ANALYSIS_STEP = 5
             scale = min(1.0, 640 / orig_w)
@@ -1297,19 +1383,71 @@ class PortraitMixin:
                         faces_data.append({'x': face_x, 'y': face_y, 'activity': activity, 'score': combined_score})
                         prev_lip_distances[face_id] = abs(face_landmarks[13].y - face_landmarks[14].y)
                     
-                    active = [f for f in faces_data if f['activity'] > lip_threshold]
-                    if active:
-                        # Balance speaking activity with screen-center stability.
-                        best_face = max(active, key=lambda f: f['score'])
+                    voice_level = self._voice_activity_at(
+                        voice_envelope, frames_read / fps if fps else 0.0
+                    )
+                    voice_threshold = (
+                        float(voice_envelope.get("threshold", 0.18))
+                        if voice_envelope else 0.0
+                    )
+                    voice_active = voice_level >= voice_threshold
+
+                    # Pick the mouth moving most while speech is present.
+                    candidate = max(faces_data, key=lambda f: f['activity'])
+                    if locked_face_x is None:
+                        # Initial lock: prefer a visibly moving mouth, otherwise center.
+                        if voice_active and candidate['activity'] > lip_threshold:
+                            locked_face_x = candidate['x']
+                        else:
+                            locked_face_x = min(
+                                faces_data, key=lambda f: abs(f['x'] - orig_w / 2)
+                            )['x']
+
+                    nearest_locked = min(faces_data, key=lambda f: abs(f['x'] - locked_face_x))
+                    nearest_dist = abs(nearest_locked['x'] - locked_face_x)
+
+                    if nearest_dist > crop_w * 0.70:
+                        # Hard scene cut / old speaker disappeared.
+                        locked_face_x = candidate['x']
+                        pending_face_x = None
+                        pending_switch_count = 0
+                    elif voice_active and candidate['activity'] > lip_threshold:
+                        switch_distance = abs(candidate['x'] - nearest_locked['x'])
+                        activity_advantage = candidate['activity'] - nearest_locked['activity']
+
+                        if switch_distance > crop_w * 0.42 and activity_advantage > 0.006:
+                            if pending_face_x is not None and abs(candidate['x'] - pending_face_x) < crop_w * 0.30:
+                                pending_switch_count += 1
+                            else:
+                                pending_face_x = candidate['x']
+                                pending_switch_count = 1
+
+                            # About 0.4s at 25fps / analysis step 5.
+                            if pending_switch_count >= 2:
+                                locked_face_x = candidate['x']
+                                pending_face_x = None
+                                pending_switch_count = 0
+                        else:
+                            pending_face_x = None
+                            pending_switch_count = 0
+                            # Same speaker: follow slowly, not frame-to-frame.
+                            locked_face_x = (locked_face_x * 0.82) + (nearest_locked['x'] * 0.18)
                     else:
-                        best_face = prev_best_face or min(faces_data, key=lambda f: abs(f['x'] - orig_w/2))
-                    
+                        # Silence / non-speech audio: never switch speaker.
+                        pending_face_x = None
+                        pending_switch_count = 0
+                        locked_face_x = (locked_face_x * 0.90) + (nearest_locked['x'] * 0.10)
+
+                    best_face = min(faces_data, key=lambda f: abs(f['x'] - locked_face_x))
                     prev_best_face = best_face
-                    best_face_x, best_face_y = best_face['x'], best_face['y']
+                    best_face_x, best_face_y = locked_face_x, best_face['y']
                     max_activity = best_face['activity']
                 
-                if not results.face_landmarks and prev_best_face:
-                    best_face_x = prev_best_face.get('x', best_face_x)
+                if not results.face_landmarks:
+                    if locked_face_x is not None:
+                        best_face_x = locked_face_x
+                    elif prev_best_face:
+                        best_face_x = prev_best_face.get('x', best_face_x)
 
                 crop_x = int(best_face_x - crop_w / 2)
                 analyzed_indices.append(frames_read)
@@ -1324,19 +1462,17 @@ class PortraitMixin:
                     progress_callback((frames_read / total_frames) * 0.4 if total_frames else 0.4)
                     last_log_time = time.time()
 
-            crop_positions = self._interpolate_sampled(analyzed_positions_x, analyzed_indices, frames_read)
+            crop_positions = self._interpolate_tracking_with_cuts(
+                analyzed_positions_x, analyzed_indices, frames_read,
+                cut_threshold=crop_w * 0.42,
+            )
             crop_ys = [0] * max(0, frames_read)
-            face_activities = self._interpolate_sampled(analyzed_activities, analyzed_indices, frames_read)
-            
-            if self.mediapipe_settings.get("smooth_follow", True):
-                pan_limit = self.mediapipe_settings.get("pan_speed_limit", 1.8)
-                crop_positions = self._smooth_follow_positions(crop_positions, pan_limit)
             
             self._encode_portrait_single_pass(
                 input_path, output_path, crop_positions, crop_w, crop_h, out_w, out_h,
                 crop_ys=crop_ys, progress_callback=lambda p: progress_callback(0.45 + p * 0.4),
                 duration=frames_read / fps,
-                **({"min_run": 3, "quantize": 2} if self.mediapipe_settings.get("smooth_follow", True) else {})
+                min_run=8, quantize=8,
             )
             cap.release()
             progress_callback(1.0)
