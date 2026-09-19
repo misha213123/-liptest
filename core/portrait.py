@@ -1241,8 +1241,9 @@ class PortraitMixin:
             crop_w, crop_h = self._get_crop_window(orig_w, orig_h, zoom_factor=zoom_factor)
             out_w, out_h = self._get_ratio_dimensions()
             
-            lip_threshold = self.mediapipe_settings.get("lip_activity_threshold", 0.08)
-            center_weight = self.mediapipe_settings.get("center_weight", 0.15)
+            # Ignore tiny lip-noise so tracking does not jump between faces.
+            lip_threshold = max(0.03, float(self.mediapipe_settings.get("lip_activity_threshold", 0.08) or 0.0))
+            center_weight = max(0.15, float(self.mediapipe_settings.get("center_weight", 0.15) or 0.0))
             
             analyzed_indices = []
             analyzed_positions_x = []
@@ -1298,7 +1299,8 @@ class PortraitMixin:
                     
                     active = [f for f in faces_data if f['activity'] > lip_threshold]
                     if active:
-                        best_face = max(active, key=lambda f: f['activity'])
+                        # Balance speaking activity with screen-center stability.
+                        best_face = max(active, key=lambda f: f['score'])
                     else:
                         best_face = prev_best_face or min(faces_data, key=lambda f: abs(f['x'] - orig_w/2))
                     
@@ -1306,6 +1308,9 @@ class PortraitMixin:
                     best_face_x, best_face_y = best_face['x'], best_face['y']
                     max_activity = best_face['activity']
                 
+                if not results.face_landmarks and prev_best_face:
+                    best_face_x = prev_best_face.get('x', best_face_x)
+
                 crop_x = int(best_face_x - crop_w / 2)
                 analyzed_indices.append(frames_read)
                 analyzed_positions_x.append(max(0, min(crop_x, orig_w - crop_w)))
