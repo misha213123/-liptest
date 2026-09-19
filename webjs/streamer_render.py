@@ -22,6 +22,7 @@ from openai import OpenAI
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
+from core.streamer_gpu_turbo import cuda_filters_available, render_streamer_gpu_turbo
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
 
@@ -86,7 +87,7 @@ def tune_encoder_args(args: list[str]) -> list[str]:
         replace_value("-b:v", "10M")
         replace_value("-maxrate", "16M")
         replace_value("-bufsize", "24M")
-        replace_value("-preset", "p6")
+        replace_value("-preset", "p4")
     elif "libx264" in joined:
         replace_value("-crf", "16")
         replace_value("-preset", "medium")
@@ -816,6 +817,19 @@ def main():
         merged_subtitle_settings.update(subtitle_settings)
         core.subtitle_settings = merged_subtitle_settings
 
+    turbo_requested = str(os.environ.get("STREAMER_GPU_TURBO", "0")).strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    requested_resolution = str(job.get("resolution") or "best")
+    if turbo_requested and requested_resolution.strip().lower() in ("best", "auto"):
+        requested_resolution = str(
+            os.environ.get("STREAMER_GPU_TURBO_SOURCE", "1080p") or "1080p"
+        )
+        debug_log(
+            f"[streamer] 🚀 GPU TURBO source cap: {requested_resolution}",
+            flush=True,
+        )
+
     debug_log("[progress] Загружаю выбранный момент... (overall: 5.0%)", flush=True)
     debug_log(f"[streamer] {fmt_time(start_sec)} -> {fmt_time(end_sec)}", flush=True)
     core.download_video_section(
@@ -823,31 +837,15 @@ def main():
         fmt_time(start_sec),
         fmt_time(end_sec),
         str(source_path),
-        resolution=str(job.get("resolution") or "best"),
+        resolution=requested_resolution,
     )
 
-    debug_log("[progress] Собираю webcam + gameplay... (overall: 35.0%)", flush=True)
     core.enable_gpu_acceleration(bool(job.get("gpu", True)))
     encoder_args = tune_encoder_args(core.get_video_encoder_args())
 
-    renderer = StreamerLayoutRenderer(
-        ffmpeg_path=get_ffmpeg_path(),
-        encoder_args=encoder_args,
-        log=lambda m: debug_log(m, flush=True),
-    )
-    renderer.render(
-        str(source_path),
-        str(layout_path),
-        webcam_rect,
-        webcam_height_pct=top_pct,
-        gameplay_center_x=game_center_x,
-        webcam_padding=int(job.get("webcam_padding", 0) or 0),
-        webcam_enhance=webcam_enhance,
-    )
-
     ass_file = None
     if captions or (title_enabled and title_text):
-        debug_log("[progress] Готовлю субтитры и заголовок... (overall: 70.0%)", flush=True)
+        debug_log("[progress] Готовлю субтитры и заголовок... (overall: 32.0%)", flush=True)
         ass_file = create_streamer_ass(
             core,
             source_path,
@@ -865,11 +863,70 @@ def main():
 
     banner_duration_actual = 0.0
     target_before_banner = text_path if banner_enabled else final_path
-    if ass_file:
-        debug_log("[progress] Прожигаю текст... (overall: 84.0%)", flush=True)
-        burn_ass(core, layout_path, target_before_banner, ass_file, encoder_args)
-    else:
-        shutil.copy2(layout_path, target_before_banner)
+    turbo_done = False
+
+    if turbo_requested and bool(job.get("gpu", True)):
+        if cuda_filters_available(get_ffmpeg_path()):
+            try:
+                debug_log(
+                    "[progress] 🚀 GPU TURBO: CUDA scale + текст + NVENC одним проходом... "
+                    "(overall: 55.0%)",
+                    flush=True,
+                )
+                render_streamer_gpu_turbo(
+                    ffmpeg_path=get_ffmpeg_path(),
+                    input_path=str(source_path),
+                    output_path=str(target_before_banner),
+                    webcam_rect=webcam_rect,
+                    encoder_args=encoder_args,
+                    ass_file=ass_file,
+                    webcam_height_pct=top_pct,
+                    gameplay_center_x=game_center_x,
+                    webcam_padding=int(job.get("webcam_padding", 0) or 0),
+                    log=lambda m: debug_log(m, flush=True),
+                )
+                turbo_done = True
+                debug_log(
+                    "[progress] 🚀 GPU TURBO pass готов. (overall: 88.0%)",
+                    flush=True,
+                )
+            except Exception as exc:
+                debug_log(
+                    f"[streamer] ⚠ GPU TURBO не прошёл: {exc}",
+                    flush=True,
+                )
+                debug_log(
+                    "[streamer] ↩ Автоматически возвращаюсь к старому безопасному pipeline.",
+                    flush=True,
+                )
+        else:
+            debug_log(
+                "[streamer] ⚠ scale_cuda/hwupload_cuda не найдены — использую старый pipeline.",
+                flush=True,
+            )
+
+    if not turbo_done:
+        debug_log("[progress] Собираю webcam + gameplay... (overall: 35.0%)", flush=True)
+        renderer = StreamerLayoutRenderer(
+            ffmpeg_path=get_ffmpeg_path(),
+            encoder_args=encoder_args,
+            log=lambda m: debug_log(m, flush=True),
+        )
+        renderer.render(
+            str(source_path),
+            str(layout_path),
+            webcam_rect,
+            webcam_height_pct=top_pct,
+            gameplay_center_x=game_center_x,
+            webcam_padding=int(job.get("webcam_padding", 0) or 0),
+            webcam_enhance=webcam_enhance,
+        )
+
+        if ass_file:
+            debug_log("[progress] Прожигаю текст... (overall: 84.0%)", flush=True)
+            burn_ass(core, layout_path, target_before_banner, ass_file, encoder_args)
+        else:
+            shutil.copy2(layout_path, target_before_banner)
 
     if banner_enabled:
         if not banner_file:
@@ -957,7 +1014,7 @@ def main():
         "banner_black_key": banner_black_key,
         "banner_black_similarity": banner_black_similarity,
         "source_file": source_path.name,
-        "layout_file": layout_path.name,
+        "layout_file": layout_path.name if layout_path.exists() else "",
         "final_file": final_path.name,
         "export_file": export_name,
         "export_path": str(export_path),
