@@ -186,8 +186,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if top:
             # Keep the title just below the webcam/game boundary, like short-form
             # gaming edits. Red top line + white second line with thick black outline.
-            y = int(round(1920 * max(0.25, min(0.48, webcam_height_pct)))) + 38
-            y = max(500, min(1020, y))
+            # Captions use a 720x1280 ASS canvas; keep title coordinates in
+            # that same space so it stays exactly at the webcam/game boundary.
+            y = int(round(1280 * max(0.25, min(0.48, webcam_height_pct)))) + 24
+            y = max(340, min(700, y))
             duration = max(1.2, min(3.5, float(title_duration or 2.3)))
             if bottom:
                 title_ass = (
