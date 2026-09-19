@@ -1559,9 +1559,23 @@ $('#renderBtn').onclick=renderCurrent;
 async function renderAllChecked(){
  const selected=[...document.querySelectorAll('.hl-check:checked')].map(x=>analysisHighlights[+x.dataset.i]).filter(Boolean);if(!selected.length)return alert('Отметь хотя бы один момент.');if(!nrect())return alert('Сначала выдели веб-камеру.');
  $('#renderAllBtn').disabled=true;
+
+ // All checked highlights from the same source share one batch id. The first
+ // render downloads every selected YouTube range in one yt-dlp run; following
+ // renders reuse those local section files instead of touching YouTube again.
+ const batchId='streamer_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);
+ const batchSections=selected.map(h=>({start_time:h.start_time,end_time:h.end_time}));
+
  for(let i=0;i<selected.length;i++){
    const h=selected[i];
-   try{const payload=renderPayload(h);const r=await runRender(payload,'Клип '+(i+1)+'/'+selected.length);addResult(r,payload.title_text)}catch(e){$('#renderStatus').textContent='❌ '+e.message;break}
+   try{
+     const payload=renderPayload(h);
+     payload.batch_id=batchId;
+     payload.batch_index=i;
+     payload.batch_sections=batchSections;
+     const r=await runRender(payload,'Клип '+(i+1)+'/'+selected.length);
+     addResult(r,payload.title_text)
+   }catch(e){$('#renderStatus').textContent='❌ '+e.message;break}
  }
  $('#renderAllBtn').disabled=false;$('#renderBtn').disabled=false;
 }
