@@ -426,12 +426,11 @@ class HighlightMixin:
                     try:
                         self.log(f"  ⏳ Mengirim request ke AI... (percobaan {attempt}/{max_attempts})")
                         response = self.highlight_client.chat.completions.create(
-                            model=self.model,
-                            messages=[{"role": "user", "content": prompt}],
-                            temperature=self.temperature,
-                            max_tokens=request_clips * 300 + 2500,  # headroom ekstra: model reasoning buang token di reasoning_content
-                            timeout=float(os.environ.get('AI_HIGHLIGHT_TIMEOUT', '600.0'))  # transcript panjang + banyak klip butuh >2 menit
-                        )
+    model=self.model,
+    messages=[{"role": "user", "content": prompt}],
+    max_completion_tokens=request_clips * 300 + 2500,
+    timeout=float(os.environ.get('AI_HIGHLIGHT_TIMEOUT', '600.0'))
+)
                         if getattr(response, 'choices', None):
                             break
                         self.log("  ⚠ Respons AI tanpa 'choices' — mengulang...")

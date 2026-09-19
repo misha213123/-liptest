@@ -344,3 +344,15 @@ config - Copy.json
 
 # Whisper models (runtime download)
 faster_whisper_models/
+
+.env
+config.json
+cookies.txt
+output/
+.venv/
+
+.env
+config.json
+cookies.txt
+output/
+.venv/
