@@ -801,6 +801,11 @@ def main():
     top_pct = float(job.get("webcam_height_pct", 0.365) or 0.365)
     game_center_x = float(job.get("gameplay_center_x", 0.50) or 0.50)
     captions = bool(job.get("captions", True))
+    force_captions = str(os.environ.get("STREAMER_FORCE_CAPTIONS", "0")).strip().lower() in (
+        "1", "true", "yes", "on"
+    )
+    if force_captions:
+        captions = True
     subtitle_style = str(job.get("subtitle_style") or "pop").strip().lower()
     subtitle_settings = dict(job.get("subtitle_settings") or {})
     webcam_enhance = str(job.get("webcam_enhance") or "hq").strip().lower()
@@ -870,7 +875,14 @@ def main():
         resolution=requested_resolution,
     )
 
-    core.enable_gpu_acceleration(bool(job.get("gpu", True)))
+    requested_gpu = bool(job.get("gpu", True))
+    effective_gpu = True if turbo_requested else requested_gpu
+    if turbo_requested and not requested_gpu:
+        debug_log(
+            "[streamer] 🚀 GPU TURBO принудительно включает GPU, игнорирую gpu=false из шаблона/UI.",
+            flush=True,
+        )
+    core.enable_gpu_acceleration(effective_gpu)
     encoder_args = tune_encoder_args(core.get_video_encoder_args())
 
     ass_file = None
@@ -895,7 +907,7 @@ def main():
     target_before_banner = text_path if banner_enabled else final_path
     turbo_done = False
 
-    if turbo_requested and bool(job.get("gpu", True)):
+    if turbo_requested and effective_gpu:
         if cuda_filters_available(get_ffmpeg_path()):
             try:
                 debug_log(
