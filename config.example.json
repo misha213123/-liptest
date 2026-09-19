@@ -57,7 +57,8 @@
     "min_shot_duration": 45,
     "center_weight": 0.12,
     "smooth_follow": true,
-    "pan_speed_limit": 1.5
+    "pan_speed_limit": 1.5,
+    "speaker_dead_zone": 0.16
   },
   "repliz": {
     "access_key": "",
