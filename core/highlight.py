@@ -357,8 +357,14 @@ class HighlightMixin:
                 i += 1
             return "".join(out)
 
-        def find_highlights(self, transcript: str, video_info: dict, num_clips) -> list:
-            """Find highlights using AI (OpenAI-compatible API)"""
+        def find_highlights(self, transcript: str, video_info: dict, num_clips,
+                            min_duration: float = 58, max_duration: float = 120) -> list:
+            """Find highlights using AI (OpenAI-compatible API).
+
+            min_duration/max_duration are configurable so specialized workflows
+            such as Streamer Clips can request short vertical clips without being
+            rejected by the legacy 58–120 second filter.
+            """
             self.log(f"[2/4] Finding highlights (using {self.model})...")
         
             # Parse num_clips. "auto" → AI decides the count itself (no cap).
@@ -610,7 +616,9 @@ class HighlightMixin:
                     f"Unexpected AI response type: {type(highlights).__name__}"
                 )
         
-            # Filter by duration (min 58s, max 120s)
+            # Filter by the workflow's requested duration range.
+            min_duration = max(1.0, float(min_duration or 1.0))
+            max_duration = max(min_duration, float(max_duration or min_duration))
             valid = []
             for h in highlights:
                 # Fallback: convert "reason" to "description" if exists
@@ -647,14 +655,23 @@ class HighlightMixin:
                     h["description"] = h.get("title", "No description")
                     self.log(f"  ⚠ Missing description for '{h.get('title', 'Unknown')}', using title")
             
-                if 58 <= duration <= 120:
+                if min_duration <= duration <= max_duration:
                     valid.append(h)
                     virality = h.get("virality_score", 5)
-                    self.log(f"  ✓ {h['title']} ({duration:.0f}s) [🔥 {virality}/10]")
-                elif duration > 120:
-                    self.log(f"  ✗ {h['title']} ({duration:.0f}s) - Too long, skipped")
-                elif duration < 58:
-                    self.log(f"  ✗ {h['title']} ({duration:.0f}s) - Too short, skipped")
+                    self.log(
+                        f"  ✓ {h['title']} ({duration:.0f}s) "
+                        f"[🔥 {virality}/100]"
+                    )
+                elif duration > max_duration:
+                    self.log(
+                        f"  ✗ {h['title']} ({duration:.0f}s) - "
+                        f"Too long (>{max_duration:.0f}s), skipped"
+                    )
+                elif duration < min_duration:
+                    self.log(
+                        f"  ✗ {h['title']} ({duration:.0f}s) - "
+                        f"Too short (<{min_duration:.0f}s), skipped"
+                    )
             
                 if not auto_mode and len(valid) >= num_clips:
                     break
@@ -662,8 +679,11 @@ class HighlightMixin:
             # If we don't have enough valid clips, warn user (manual mode only)
             if not auto_mode and len(valid) < num_clips:
                 self.log(f"\n⚠️ WARNING: Only found {len(valid)} valid clips out of {num_clips} requested!")
-                self.log(f"   AI returned many segments that were too short (< 58s).")
-                self.log(f"   Consider using a better AI model or adjusting the prompt.")
+                self.log(
+                    f"   Requested duration range: "
+                    f"{min_duration:.0f}–{max_duration:.0f}s."
+                )
+                self.log("   AI returned too few segments inside that range.")
         
             if auto_mode:
                 # Auto mode: AI decides the count — return every valid highlight found.
