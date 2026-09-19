@@ -15,7 +15,11 @@ class SubtitleGeneratorMixin:
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
 
         font_size = max(28, min(96, int(cfg.get("font_size", 48) or 48)))
-        position_y_pct = max(0.40, min(0.92, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        position_x_pct = max(0.05, min(0.95, float(cfg.get("position_x_pct", 0.50) or 0.50)))
+        position_y_pct = max(0.08, min(0.94, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        pos_x = int(round(720 * position_x_pct))
+        pos_y = int(round(1280 * position_y_pct))
+        position_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
         safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
         max_words = max(1, min(7, int(cfg.get("max_words", 3) or 3)))
         outline = max(0, min(10, int(cfg.get("outline", 3) or 3)))
@@ -89,7 +93,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_t = max(start_t + 0.15, float(chunk[-1].end) + time_offset)
             ass_content += (
                 f"Dialogue: 0,{self.format_time(start_t)},{self.format_time(end_t)},"
-                f"Default,,0,0,0,,{' '.join(parts)}\n"
+                f"Default,,0,0,0,,{position_tag}{' '.join(parts)}\n"
             )
 
         with open(output_path, "w", encoding="utf-8") as f:
@@ -106,7 +110,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
 
         font_size = max(28, min(96, int(cfg.get("font_size", 50) or 50)))
-        position_y_pct = max(0.40, min(0.92, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        position_x_pct = max(0.05, min(0.95, float(cfg.get("position_x_pct", 0.50) or 0.50)))
+        position_y_pct = max(0.08, min(0.94, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        pos_x = int(round(720 * position_x_pct))
+        pos_y = int(round(1280 * position_y_pct))
+        position_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
         safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
         max_words = max(2, min(7, int(cfg.get("max_words", 4) or 4)))
         max_chars = max(10, min(42, int(cfg.get("max_chars", 28) or 28)))
@@ -235,7 +243,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             ass_content += (
                 f"Dialogue: 0,{self.format_time(start_t)},{self.format_time(end_t)},"
-                f"Default,,0,0,0,,{' '.join(parts)}\n"
+                f"Default,,0,0,0,,{position_tag}{' '.join(parts)}\n"
             )
 
         with open(output_path, "w", encoding="utf-8") as f:
@@ -246,7 +254,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
 
         font_size = max(28, min(96, int(cfg.get("font_size", 48) or 48)))
-        position_y_pct = max(0.40, min(0.92, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        position_x_pct = max(0.05, min(0.95, float(cfg.get("position_x_pct", 0.50) or 0.50)))
+        position_y_pct = max(0.08, min(0.94, float(cfg.get("position_y_pct", 0.76) or 0.76)))
+        pos_x = int(round(720 * position_x_pct))
+        pos_y = int(round(1280 * position_y_pct))
+        position_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
         safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
         max_words = max(1, min(7, int(cfg.get("max_words", 3) or 3)))
         user_max_chars = max(8, min(48, int(cfg.get("max_chars", 24) or 24)))
@@ -408,7 +420,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 line = " ".join(parts)
                 ass_content += (
                     f"Dialogue: 0,{self.format_time(start)},{self.format_time(end)},"
-                    f"Default,,0,0,0,,{line}\n"
+                    f"Default,,0,0,0,,{position_tag}{line}\n"
                 )
 
         with open(output_path, "w", encoding="utf-8") as f:
