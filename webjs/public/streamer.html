@@ -233,7 +233,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
             <div id="layoutTitle" class="absolute text-center font-black leading-tight drop-shadow cursor-move border border-dashed border-cyan-300/70 rounded-md px-1 py-0.5"
                  style="left:50%;top:50%;transform:translate(-50%,-50%);width:92%;font-size:16px;touch-action:none">
-              <span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span>
+              <span id="layoutTitleText"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></span>
               <span id="titleMouseHandle" class="absolute -right-2 -bottom-2 w-4 h-4 rounded-full bg-white border-2 border-zinc-900 cursor-nwse-resize"></span>
             </div>
 
@@ -649,7 +649,7 @@ function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileNam
 $('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
 
 $('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText()}catch{}};
-function updateLayoutPreview(){const cp=+$('#camPct').value,gp=+$('#gameX').value;$('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';$('#layoutCam').style.height=cp+'%';$('#layoutGame').style.height=(100-cp)+'%';$('#layoutTitle').style.top='50%'}
+function updateLayoutPreview(){const cp=+$('#camPct').value,gp=+$('#gameX').value;$('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';$('#layoutCam').style.height=cp+'%';$('#layoutGame').style.height=(100-cp)+'%'}
 $('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;updateLayoutPreview();
 
 async function loadPreview(){
@@ -698,7 +698,7 @@ function updateTitlePreview(){
  el.style.fontFamily='"'+$('#titleFont').value+'", sans-serif';
  el.style.fontSize=Math.max(6,+$('#titleSize').value/9)+'px';
  el.style.textShadow='0 0 2px '+$('#titleOutlineColor').value;
- el.innerHTML='<span style="color:'+$('#titleTopColor').value+'">'+esc(top)+'</span>'+(bottom?'<br><span style="color:'+$('#titleBottomColor').value+'">'+esc(bottom)+'</span>':'');
+ $('#layoutTitleText').innerHTML='<span style="color:'+$('#titleTopColor').value+'">'+esc(top)+'</span>'+(bottom?'<br><span style="color:'+$('#titleBottomColor').value+'">'+esc(bottom)+'</span>':'');
  $('#titleSizeLabel').textContent=$('#titleSize').value;
  $('#titleYLabel').textContent=$('#titleY').value+'%';
  $('#titleXLabel').textContent=$('#titleX').value+'%';
@@ -723,6 +723,62 @@ function titleSettings(){
  const el=$('#'+id);if(el){el.addEventListener('input',updateTitlePreview);el.addEventListener('change',updateTitlePreview)}
 });
 $('#titleReset').onclick=()=>{$('#titleX').value=50;$('#titleY').value=50;$('#titleSize').value=76;updateTitlePreview()};
+
+function setupOverlayMouseEditor({element,handle,xInput,yInput,sizeInput,minSize,maxSize,onUpdate}){
+ const editor=$('#overlayEditor');
+ let action=null;
+
+ function startDrag(e,kind){
+   e.preventDefault();e.stopPropagation();
+   const er=editor.getBoundingClientRect();
+   action={
+     kind,
+     pointerId:e.pointerId,
+     startX:e.clientX,startY:e.clientY,
+     x:+xInput.value,y:+yInput.value,size:+sizeInput.value,
+     width:er.width||1,height:er.height||1
+   };
+   try{element.setPointerCapture?.(e.pointerId)}catch{}
+ }
+ element.addEventListener('pointerdown',e=>{
+   if(e.target===handle)return;
+   startDrag(e,'move');
+ });
+ handle.addEventListener('pointerdown',e=>startDrag(e,'resize'));
+
+ element.addEventListener('pointermove',e=>{
+   if(!action||e.pointerId!==action.pointerId)return;
+   e.preventDefault();
+   const dx=e.clientX-action.startX,dy=e.clientY-action.startY;
+   if(action.kind==='move'){
+     const minX=+xInput.min||0,maxX=+xInput.max||100,minY=+yInput.min||0,maxY=+yInput.max||100;
+     xInput.value=Math.round(clamp(action.x+dx/action.width*100,minX,maxX));
+     yInput.value=Math.round(clamp(action.y+dy/action.height*100,minY,maxY));
+   }else{
+     const delta=(dx+dy)*0.55;
+     sizeInput.value=Math.round(clamp(action.size+delta,minSize,maxSize));
+   }
+   onUpdate();
+ });
+ function stop(e){
+   if(!action)return;
+   try{element.releasePointerCapture?.(action.pointerId)}catch{}
+   action=null;
+ }
+ element.addEventListener('pointerup',stop);
+ element.addEventListener('pointercancel',stop);
+}
+
+setupOverlayMouseEditor({
+ element:$('#layoutTitle'),handle:$('#titleMouseHandle'),
+ xInput:$('#titleX'),yInput:$('#titleY'),sizeInput:$('#titleSize'),
+ minSize:40,maxSize:110,onUpdate:updateTitlePreview
+});
+setupOverlayMouseEditor({
+ element:$('#layoutSubtitle'),handle:$('#subMouseHandle'),
+ xInput:$('#subX'),yInput:$('#subPos'),sizeInput:$('#subSize'),
+ minSize:30,maxSize:84,onUpdate:updateSubtitlePreview
+});
 
 let bannerAsset=null;
 const BANNER_KEY='streamer_banner_video_v3';
@@ -1022,31 +1078,35 @@ function applySubtitlePreset(name){
  updateSubtitlePreview();
 }
 function updateSubtitlePreview(){
- const size=+$('#subSize').value,pos=+$('#subPos').value,outline=+$('#subOutline').value;
+ const size=+$('#subSize').value,pos=+$('#subPos').value,x=+$('#subX').value,outline=+$('#subOutline').value;
  const text=$('#subTextColor').value,hi=$('#subHighlightColor').value,oc=$('#subOutlineColor').value,bg=$('#subBackgroundColor').value;
  const box=$('#subBox').checked,opacity=+$('#subBgOpacity').value/100,font=$('#subFont').value;
- $('#subSizeLabel').textContent=size;$('#subPosLabel').textContent=pos+'%';$('#subOutlineLabel').textContent=outline;$('#subBgOpacityLabel').textContent=Math.round(opacity*100)+'%';
+ $('#subSizeLabel').textContent=size;$('#subPosLabel').textContent=pos+'%';$('#subXLabel').textContent=x+'%';$('#subOutlineLabel').textContent=outline;$('#subBgOpacityLabel').textContent=Math.round(opacity*100)+'%';
  $('#subBgControls').classList.toggle('hidden',!box);
- const pv=$('#subPreview'),active=$('#subPreviewActive');
- pv.style.top=pos+'%';pv.style.fontFamily='"'+font+'", sans-serif';pv.style.fontSize=Math.max(12,size*.36)+'px';pv.style.color=text;
+ const pv=$('#layoutSubtitle'),active=$('#layoutSubtitleActive');
+ pv.style.left=x+'%';pv.style.top=pos+'%';pv.style.transform='translate(-50%,-50%)';
+ pv.style.fontFamily='"'+font+'", sans-serif';pv.style.fontSize=Math.max(9,size/4)+'px';pv.style.color=text;
  pv.style.textTransform=$('#subUppercase').checked?'uppercase':'none';
- pv.style.textShadow=[outline+'px 0 '+oc,-outline+'px 0 '+oc,'0 '+outline+'px '+oc,'0 '+(-outline)+'px '+oc].join(',');
- pv.style.background=box?hexToRgba(bg,opacity):'transparent';pv.style.padding=box?'4px 8px':'0';pv.style.borderRadius=box?'8px':'0';
- active.style.color=hi;active.style.fontSize=$('#subBoost').checked?'112%':'100%';
+ const op=Math.max(1,outline/2);
+ pv.style.textShadow=[op+'px 0 '+oc,-op+'px 0 '+oc,'0 '+op+'px '+oc,'0 '+(-op)+'px '+oc].join(',');
+ pv.style.background=box?hexToRgba(bg,opacity):'transparent';pv.style.padding=box?'4px 7px':'4px 6px';pv.style.borderRadius=box?'8px':'6px';
+ active.style.color=hi;active.style.fontSize='100%';
 }
 function hexToRgba(hex,a){const h=hex.replace('#','');const n=parseInt(h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
 $('#subPreset').onchange=()=>applySubtitlePreset($('#subPreset').value);
-['subFont','subSize','subPos','subWords','subOutline','subTextColor','subHighlightColor','subOutlineColor','subBackgroundColor','subUppercase','subBoost','subBox','subShadow','subBgOpacity'].forEach(id=>{
+['subFont','subSize','subPos','subX','subWords','subOutline','subTextColor','subHighlightColor','subOutlineColor','subBackgroundColor','subUppercase','subBoost','subBox','subShadow','subBgOpacity'].forEach(id=>{
  const el=$('#'+id);if(el){el.addEventListener('input',updateSubtitlePreview);el.addEventListener('change',updateSubtitlePreview)}
 });
 $('#captions').onchange=()=>{$('#subtitleStudio').style.opacity=$('#captions').checked?'1':'.45'};
 applySubtitlePreset('gaming');
+updateSubtitlePreview();
 updateTitlePreview();
 
 function subtitleSettings(){
  return{
    font_name:$('#subFont').value,
    font_size:+$('#subSize').value,
+   position_x_pct:+$('#subX').value/100,
    position_y_pct:+$('#subPos').value/100,
    max_words:+$('#subWords').value,
    max_chars:28,
