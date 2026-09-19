@@ -1252,11 +1252,12 @@ class DownloadMixin:
         def _resolve_target_height(self, url: str, resolution: str) -> int:
             """Resolve the requested resolution to an actual target height.
         
-            For "auto" (or when the requested height is not on the server),
-            returns the best height the server actually offers (capped at 2160).
+            For "auto"/"best", returns the highest resolution the server
+            actually offers. Streamer mode intentionally does not cap this so a
+            small webcam crop can benefit from 1440p/2160p/4K+ source pixels.
             """
             res = str(resolution or "").strip().lower()
-            res_map = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
+            res_map = {"4320p": 4320, "2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360, "240p": 240, "144p": 144}
             is_auto = res in ("auto", "auto (best)", "best", "otomatis")
             target_h = res_map.get(res, 1080)
         
@@ -1269,8 +1270,8 @@ class DownloadMixin:
             if heights:
                 self.log(f"  Server offers: {', '.join(f'{h}p' for h in heights)}")
                 if is_auto:
-                    target_h = min(max(heights), 2160)
-                    self.log(f"  Auto resolution → {target_h}p (best available)")
+                    target_h = max(heights)
+                    self.log(f"  Auto resolution → {target_h}p (absolute best available)")
                 elif target_h not in heights:
                     fallback = max([h for h in heights if h <= target_h] or [min(heights)])
                     self.log(f"  ⚠ {target_h}p not available, using {fallback}p instead")

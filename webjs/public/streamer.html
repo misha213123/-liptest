@@ -1,0 +1,1571 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streamer Studio — Auto Clipper</title>
+<link rel="stylesheet" href="/app.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0c0f;
+  --panel:#121316;
+  --panel-2:#17181c;
+  --input:#15161a;
+  --line:#2d2f35;
+  --line-strong:#3a3d45;
+  --text:#f4f4f5;
+  --text-2:#d4d4d8;
+  --muted:#8b9099;
+  --muted-2:#646a73;
+  --primary:#e4e4e7;
+  --primary-text:#111214;
+  --hover:#1d1f24;
+  --shadow:0 12px 30px rgba(0,0,0,.18);
+}
+html[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f4f4f5;
+  --panel:#ffffff;
+  --panel-2:#f7f7f8;
+  --input:#ffffff;
+  --line:#d9dadd;
+  --line-strong:#c7c9ce;
+  --text:#18181b;
+  --text-2:#3f3f46;
+  --muted:#71717a;
+  --muted-2:#9ca3af;
+  --primary:#27272a;
+  --primary-text:#ffffff;
+  --hover:#eeeeef;
+  --shadow:0 10px 24px rgba(24,24,27,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-size:14px;transition:background .15s,color .15s}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+.soft{background:var(--panel-2);border:1px solid var(--line)}
+.input{width:100%;background:var(--input);border:1px solid var(--line-strong);border-radius:8px;padding:.48rem .65rem;color:var(--text);font-size:13px}
+.input:focus{outline:none;border-color:#71717a;box-shadow:0 0 0 2px rgba(113,113,122,.12)}
+.btn{border-radius:8px;padding:.48rem .7rem;font-weight:700;transition:.12s;display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--primary);color:var(--primary-text);border:1px solid transparent}
+.btn-primary:hover{filter:brightness(.96)}
+.btn-soft{background:var(--panel-2);border:1px solid var(--line-strong);color:var(--text-2)}
+.btn-soft:hover{background:var(--hover)}
+.btn-purple{background:#3f3f46;border:1px solid #52525b;color:#fff}
+html[data-theme="light"] .btn-purple{background:#52525b}
+.badge{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:.25rem .5rem;color:var(--muted)}
+.appbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:8px}
+.app-logo{width:32px;height:32px;border-radius:8px;background:var(--primary);color:var(--primary-text);display:grid;place-items:center;font-size:12px;font-weight:900}
+.stepbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px}
+.stepbar>div{background:var(--panel-2);padding:7px 9px;min-width:0}
+.stepbar b{display:inline-grid;place-items:center;width:19px;height:19px;margin-right:5px;border-radius:6px;background:var(--panel);border:1px solid var(--line);font-size:10px}
+.stepbar span{font-size:11px;color:var(--muted);white-space:nowrap}
+#previewStage{width:100%;background:#08090b;border:1px solid var(--line);border-radius:10px;padding:6px;overflow:hidden}
+html[data-theme="light"] #previewStage{background:#ececef}
+#previewCanvas{display:block;width:min(960px,100%);height:auto;margin:0 auto;border:0;border-radius:7px;background:#050505;touch-action:none;cursor:crosshair;user-select:none;-webkit-user-select:none}
+progress{accent-color:#71717a}
+progress::-webkit-progress-bar{background:var(--panel-2);border-radius:999px}
+progress::-webkit-progress-value{background:#71717a;border-radius:999px}
+input[type="range"]{accent-color:#71717a}
+.hl-card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px;transition:.12s}
+.hl-card:hover{border-color:var(--line-strong)}
+.hl-card.active{border-color:#71717a;box-shadow:0 0 0 2px rgba(113,113,122,.10)}
+.score{background:#3f3f46;color:#fff}
+pre{white-space:pre-wrap;word-break:break-word}
+.text-cyan-300,.text-purple-300,.text-emerald-300{color:var(--text-2)!important}
+.text-zinc-300{color:var(--text-2)!important}
+.text-zinc-400,.text-zinc-500,.text-zinc-600{color:var(--muted)!important}
+.border-zinc-800{border-color:var(--line)!important}
+.bg-zinc-950{background:var(--panel-2)!important}
+html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{background:rgba(0,0,0,.035)!important}
+@media(max-width:900px){
+  .stepbar{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .appbar{align-items:flex-start;flex-direction:column}
+}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-[1320px] mx-auto p-2 md:p-4">
+
+  <header class="appbar">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="app-logo">SC</div>
+      <div class="min-w-0">
+        <div class="font-black leading-tight">Streamer Clips</div>
+        <div class="text-[11px] text-zinc-500 truncate">VOD → лучшие моменты → готовые 9:16 клипы</div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button id="themeToggle" class="btn btn-soft" type="button" title="Сменить тему">☾ Тема</button>
+      <a href="/settings.html" class="btn btn-soft">⚙ Настройки</a>
+      <a href="/create.html" class="btn btn-soft">Обычные клипы</a>
+    </div>
+  </header>
+
+  <div class="stepbar">
+    <div><b>1</b><span>Источник</span></div>
+    <div><b>2</b><span>Рамка вебки</span></div>
+    <div><b>3</b><span>AI-моменты</span></div>
+    <div><b>4</b><span>Рендер</span></div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[1.55fr_.72fr] gap-3">
+
+    <main class="space-y-3 min-w-0">
+      <section class="panel p-3">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="font-bold">1. Источник</div>
+          <span id="sourceState" class="badge text-[11px]">Не загружен</span>
+        </div>
+        <div class="flex gap-2">
+          <input id="sourceUrl" class="input flex-1" placeholder="YouTube / Twitch / Kick URL">
+          <button id="pasteBtn" class="btn btn-soft shrink-0" type="button">📋 Вставить</button>
+        </div>
+      </section>
+
+      <section class="panel p-3 md:p-4">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <div>
+            <div class="font-bold">2. Рамка веб-камеры</div>
+            <p class="text-[11px] text-zinc-500 mt-0.5">Выдели один раз и сохрани профиль стримера.</p>
+          </div>
+          <button id="clearBox" class="btn btn-soft text-xs" type="button">Сбросить рамку</button>
+        </div>
+
+        <div class="grid md:grid-cols-[1fr_auto] gap-2 mb-3">
+          <div>
+            <label class="text-[11px] text-zinc-500">Кадр для настройки вебки</label>
+            <input id="previewTime" class="input mt-1" value="00:00:10">
+          </div>
+          <button id="previewBtn" class="btn btn-primary self-end" type="button">🖼 Получить кадр</button>
+        </div>
+        <div id="previewStatus" class="text-xs text-zinc-500 mb-2"></div>
+
+        <div id="previewStage"><canvas id="previewCanvas" width="960" height="540"></canvas></div>
+
+        <div class="grid grid-cols-4 gap-1.5 mt-2 text-[10px]">
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">X</span><div id="rx">—</div></div>
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">Y</span><div id="ry">—</div></div>
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">W</span><div id="rw">—</div></div>
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">H</span><div id="rh">—</div></div>
+        </div>
+
+        <div class="grid md:grid-cols-[1fr_auto_1fr] gap-2 mt-3">
+          <input id="profileName" class="input" placeholder="Профиль стримера, например: Sasavot">
+          <button id="saveProfile" class="btn btn-soft" type="button">💾 Сохранить рамку</button>
+          <select id="profileSelect" class="input"><option value="">Сохранённые профили...</option></select>
+        </div>
+      </section>
+      <section class="panel p-3 md:p-4">
+        <div class="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <div class="font-bold">3. Лучшие моменты</div>
+            <p class="text-[11px] text-zinc-500 mt-0.5">OpenAI найдёт таймкоды и создаст короткие заголовки.</p>
+          </div>
+          <span class="badge text-[11px]">AI-заголовок ~2.3 сек</span>
+        </div>
+        <div class="grid md:grid-cols-[1fr_auto] gap-3 p-3 soft rounded-xl">
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+            <div>
+              <label class="text-[11px] text-zinc-500">Длительность клипа</label>
+              <select id="durationPreset" class="input mt-1">
+                <option value="15,30">15–30 сек</option>
+                <option value="25,45" selected>25–45 сек</option>
+                <option value="35,60">35–60 сек</option>
+                <option value="45,75">45–75 сек</option>
+                <option value="60,90">60–90 сек</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] text-zinc-500">Сколько показать в TOP</label>
+              <select id="numClips" class="input mt-1">
+                <option value="3">TOP 3</option>
+                <option value="5" selected>TOP 5</option>
+                <option value="10">TOP 10</option>
+                <option value="15">TOP 15</option>
+                <option value="20">TOP 20</option>
+                <option value="30">TOP 30</option>
+              </select>
+              <div class="text-[10px] text-zinc-500 mt-1">Остальные сильные моменты не пропадут — AI покажет их ниже отдельно.</div>
+            </div>
+            <div class="col-span-2 md:col-span-1">
+              <label class="text-[11px] text-zinc-500">AI</label>
+              <div class="input mt-1 text-sm text-emerald-300 flex items-center gap-2"><span>●</span> OpenAI Highlight Finder</div>
+            </div>
+          </div>
+          <button id="analyzeBtn" class="btn btn-purple md:min-w-[210px] self-end" type="button">✨ Найти лучшие моменты</button>
+        </div>
+
+        <div id="analysisBox" class="hidden mt-4">
+          <div class="flex items-center justify-between text-xs mb-2">
+            <span id="analysisStatus" class="text-zinc-300">Подготовка...</span>
+            <span id="analysisPct" class="text-cyan-300 font-bold">0%</span>
+          </div>
+          <progress id="analysisProgress" max="100" value="0" class="w-full h-2"></progress>
+          <details class="mt-2">
+            <summary class="text-[11px] text-zinc-600 cursor-pointer">Лог AI-анализа</summary>
+            <pre id="analysisLog" class="mt-2 bg-black/40 rounded-lg p-3 max-h-52 overflow-auto text-[10px] text-zinc-500"></pre>
+          </details>
+        </div>
+
+        <div id="highlightsSection" class="hidden mt-5">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 class="font-black">🔥 Лучшие моменты от OpenAI</h3>
+              <p class="text-xs text-zinc-500">Название каждой карточки — это уже AI-заголовок для ролика. Он автоматически появится в видео примерно на 2.3 секунды. При желании его можно исправить справа.</p>
+            </div>
+            <button id="renderAllBtn" class="btn btn-primary text-sm" type="button">⚡ Сделать все отмеченные</button>
+          </div>
+          <div id="highlightsList" class="grid md:grid-cols-2 gap-2"></div>
+
+          <details id="moreHighlightsSection" class="hidden soft rounded-xl p-3 mt-3">
+            <summary class="cursor-pointer flex items-center justify-between gap-2">
+              <span class="font-bold">Ещё подходящие моменты</span>
+              <span id="moreHighlightsCount" class="badge text-[11px]">0</span>
+            </summary>
+            <p class="text-[11px] text-zinc-500 mt-2">Это сильные кандидаты со всего VOD, которые не вошли в основной TOP. Они по умолчанию не отмечены для рендера.</p>
+            <div class="flex gap-2 mt-2">
+              <button id="selectMoreBtn" class="btn btn-soft !py-1.5 text-xs" type="button">Отметить все дополнительные</button>
+              <button id="clearMoreBtn" class="btn btn-soft !py-1.5 text-xs" type="button">Снять дополнительные</button>
+            </div>
+            <div id="moreHighlightsList" class="grid md:grid-cols-2 gap-2 mt-3"></div>
+          </details>
+
+      </section>
+    </main>
+
+    <aside class="space-y-3 xl:sticky xl:top-3 xl:self-start">
+      <section class="panel p-3">
+        <div class="font-bold">4. Рендер</div>
+        <p class="text-[11px] text-zinc-500 mt-0.5">AI-момент подставляет таймкоды и заголовок автоматически.</p>
+
+        <div class="soft rounded-xl p-2.5 mt-3">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="font-bold text-xs">💾 Шаблон всех настроек</div>
+              <div class="text-[10px] text-zinc-500">Webcam, layout, AI-заголовок, субтитры, реклама, качество и AI-параметры.</div>
+            </div>
+            <span id="templateStatus" class="badge text-[10px]">не сохранён</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <input id="templateName" class="input" placeholder="Например: Мой TikTok">
+            <select id="templateSelect" class="input"><option value="">Сохранённые шаблоны...</option></select>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-2">
+            <button id="templateSaveBtn" type="button" class="btn btn-primary !py-2 text-xs">💾 Сохранить</button>
+            <button id="templateLoadBtn" type="button" class="btn btn-soft !py-2 text-xs">↻ Применить</button>
+            <button id="templateDeleteBtn" type="button" class="btn btn-soft !py-2 text-xs">🗑 Удалить</button>
+          </div>
+          <label class="flex items-center gap-2 mt-2 text-[10px] text-zinc-500">
+            <input id="templateAutoLoad" type="checkbox" checked>
+            Автоматически применять последний шаблон при открытии страницы
+          </label>
+        </div>
+
+        <div class="mt-3 p-2 rounded-lg bg-black/30 border border-zinc-800">
+          <div class="text-[10px] text-zinc-500 text-center mb-2">🎬 Единый шаблон финального Short: webcam + gameplay + AI-заголовок + субтитры + рекламный баннер.</div>
+          <div id="overlayEditor" class="mx-auto w-[230px] max-w-full aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-700 relative touch-none select-none">
+            <div id="layoutCam" class="absolute inset-x-0 top-0 z-[1] bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300 pointer-events-none" style="height:36%">WEBCAM • HQ</div>
+            <div id="layoutGame" class="absolute inset-x-0 bottom-0 z-[1] bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300 pointer-events-none" style="height:64%">GAMEPLAY</div>
+
+            <canvas id="layoutBannerCanvas" width="540" height="960" class="absolute inset-0 z-[8] w-full h-full pointer-events-none"></canvas>
+            <div id="layoutBannerBadge" class="hidden absolute left-2 top-2 z-[9] rounded-md bg-fuchsia-500/90 px-1.5 py-0.5 text-[8px] font-black text-white pointer-events-none">РЕКЛАМА</div>
+
+            <div id="layoutTitle" class="absolute z-[12] text-center font-black leading-tight drop-shadow cursor-move border border-dashed border-cyan-300/70 rounded-md px-1 py-0.5"
+                 style="left:50%;top:50%;transform:translate(-50%,-50%);width:92%;font-size:16px;touch-action:none">
+              <span id="layoutTitleText"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></span>
+              <span id="titleMouseHandle" class="absolute -right-2 -bottom-2 w-4 h-4 rounded-full bg-white border-2 border-zinc-900 cursor-nwse-resize"></span>
+            </div>
+
+            <div id="layoutSubtitle" class="absolute z-[12] text-center font-black leading-tight cursor-move border border-dashed border-yellow-300/70 rounded-md px-1.5 py-1"
+                 style="left:50%;top:77%;transform:translate(-50%,-50%);font-family:'Arial Black';font-size:14px;color:#fff;touch-action:none">
+              <span id="layoutSubWord0">ЭТО</span>
+              <span id="layoutSubWord1">ЛУЧШИЙ</span>
+              <span id="layoutSubWord2">МОМЕНТ</span>
+              <span id="subMouseHandle" class="absolute -right-2 -bottom-2 w-4 h-4 rounded-full bg-white border-2 border-zinc-900 cursor-nwse-resize"></span>
+            </div>
+          </div>
+          <div class="flex flex-wrap justify-center gap-2 mt-2 text-[9px] text-zinc-500">
+            <span>🟦 AI-заголовок</span><span>🟨 субтитры</span><span>🟪 реклама</span>
+          </div>
+        </div>
+
+        <div class="mt-3 space-y-2.5">
+          <div>
+            <div class="flex justify-between text-xs"><label class="text-zinc-400">Высота webcam</label><span id="camPctLabel">36%</span></div>
+            <input id="camPct" type="range" min="25" max="48" value="36" class="w-full mt-1">
+          </div>
+          <div>
+            <div class="flex justify-between text-xs"><label class="text-zinc-400">Центр gameplay</label><span id="gameXLabel">50%</span></div>
+            <input id="gameX" type="range" min="0" max="100" value="50" class="w-full mt-1">
+          </div>
+          <div>
+            <label class="text-[11px] text-zinc-500">Качество источника</label>
+            <select id="resolution" class="input mt-1">
+              <option value="best" selected>Лучшее доступное — без ограничения</option>
+              <option value="4320p">до 8K / 4320p</option>
+              <option value="2160p">до 4K / 2160p</option>
+              <option value="1440p">до 1440p</option>
+              <option value="1080p">до 1080p</option>
+              <option value="720p">до 720p</option>
+            </select>
+            <div class="text-[10px] text-zinc-500 mt-1">Для маленькой вебки лучше брать максимальный исходник.</div>
+          </div>
+          <div>
+            <label class="text-[11px] text-zinc-500">Улучшение вебки</label>
+            <select id="webcamEnhance" class="input mt-1">
+              <option value="hq">HQ — Lanczos + резкость</option>
+              <option value="max" selected>HQ+ — максимум чёткости</option>
+              <option value="off">Без улучшения</option>
+            </select>
+            <div class="text-[10px] text-zinc-500 mt-1">HQ+ не создаёт детали из воздуха, но уменьшает ощущение мыла после увеличения.</div>
+          </div>
+        </div>
+
+        <div class="border-t border-zinc-800 mt-4 pt-4">
+          <label class="flex items-center justify-between gap-3">
+            <span>
+              <b class="text-sm">AI-заголовок</b>
+              <span class="block text-[10px] text-zinc-600">Текст от OpenAI можно полностью переоформить и поднять/опустить.</span>
+            </span>
+            <input id="titleEnabled" type="checkbox" checked>
+          </label>
+          <input id="titleText" class="input mt-2" maxlength="80" placeholder="AI-заголовок выбранного момента">
+
+          <details class="soft rounded-lg p-2 mt-2" open>
+            <summary class="cursor-pointer font-bold text-xs">✏️ Редактор заголовка</summary>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <div>
+                <label class="text-[10px] text-zinc-500">Шрифт</label>
+                <select id="titleFont" class="input mt-1">
+                  <option selected>Arial Black</option>
+                  <option>Impact</option>
+                  <option>Segoe UI</option>
+                  <option>Trebuchet MS</option>
+                  <option>Tahoma</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Показывать</label>
+                <select id="titleDuration" class="input mt-1">
+                  <option value="1.5">1.5 сек</option>
+                  <option value="1.8">1.8 сек</option>
+                  <option value="2.3" selected>2.3 сек</option>
+                  <option value="2.8">2.8 сек</option>
+                  <option value="3.5">3.5 сек</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Размер <span id="titleSizeLabel">76</span></label>
+                <input id="titleSize" type="range" min="40" max="110" value="76" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Высота <span id="titleYLabel">50%</span></label>
+                <input id="titleY" type="range" min="8" max="92" value="50" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Горизонталь <span id="titleXLabel">50%</span></label>
+                <input id="titleX" type="range" min="5" max="95" value="50" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Обводка <span id="titleOutlineLabel">6</span></label>
+                <input id="titleOutline" type="range" min="0" max="10" value="6" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Верхняя строка</label>
+                <input id="titleTopColor" type="color" value="#FF2D1A" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Нижняя строка</label>
+                <input id="titleBottomColor" type="color" value="#FFFFFF" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Цвет обводки</label>
+                <input id="titleOutlineColor" type="color" value="#000000" class="input h-9 p-1 mt-1">
+              </div>
+              <div class="flex items-end">
+                <button id="titleReset" class="btn btn-soft w-full" type="button">По центру</button>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="border-t border-zinc-800 mt-4 pt-4">
+          <label class="flex items-center justify-between gap-3">
+            <span>
+              <b class="text-sm">📢 Рекламное видео</b>
+              <span class="block text-[10px] text-zinc-600">Можно выбрать: пауза основного ролика или наложение поверх продолжающегося видео.</span>
+            </span>
+            <input id="bannerEnabled" type="checkbox">
+          </label>
+
+          <div id="bannerControls" class="soft rounded-lg p-2 mt-2" style="opacity:.45">
+            <input id="bannerFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v,.mov" class="input">
+            <div id="bannerUploadStatus" class="text-[10px] text-zinc-500 mt-1">MP4 / MOV / WEBM / M4V до 250 МБ. Длительность берётся автоматически из самого рекламного видео.</div>
+            <div id="bannerStage" class="hidden mx-auto mt-2 w-[230px] max-w-full">
+              <div class="relative aspect-[9/16] overflow-hidden rounded-xl border border-zinc-700 bg-[#101114] shadow-inner">
+                <canvas id="bannerEditor" width="540" height="960" class="block w-full h-full cursor-move touch-none select-none"></canvas>
+                <video id="bannerPreview" class="hidden" muted loop playsinline preload="metadata"></video>
+              </div>
+              <div class="grid grid-cols-3 gap-1.5 mt-2">
+                <button id="bannerPlayBtn" type="button" class="btn btn-soft !px-2 !py-1.5">▶ Видео</button>
+                <button id="bannerSoundBtn" type="button" class="btn btn-soft !px-2 !py-1.5">🔇 Звук</button>
+                <button id="bannerCenterBtn" type="button" class="btn btn-soft !px-2 !py-1.5">◎ Центр</button>
+              </div>
+              <div class="text-[10px] text-zinc-500 mt-1 text-center">Таскай весь баннер мышкой даже при размере 100%. Его можно увести ниже/выше кадра; лишняя часть просто обрежется. Края и углы меняют размер.</div>
+            </div>
+            <div id="bannerDurationInfo" class="text-[10px] text-zinc-500 mt-1"></div>
+
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <div class="flex items-end">
+                <label class="soft rounded-lg px-2 py-2 w-full flex items-center gap-2 text-[11px]">
+                  <input id="bannerContinue" type="checkbox" checked>
+                  <span><b>Продолжать ролик с баннером</b><span class="block text-[10px] text-zinc-500">Без паузы и без размытия</span></span>
+                </label>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Когда в ролике <span id="bannerAtLabel">50%</span></label>
+                <input id="bannerAt" type="range" min="10" max="90" value="50" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Скорость рекламы <span id="bannerSpeedLabel">1.0x</span></label>
+                <input id="bannerSpeed" type="range" min="1" max="2" step="0.1" value="1" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Размытие фона <span id="bannerBlurLabel">18</span></label>
+                <input id="bannerBlur" type="range" min="0" max="35" value="18" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Ширина <span id="bannerWidthLabel">78%</span></label>
+                <input id="bannerWidth" type="range" min="20" max="100" value="78" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Высота <span id="bannerHeightLabel">38%</span></label>
+                <input id="bannerHeight" type="range" min="8" max="100" value="38" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Центр X <span id="bannerXLabel">50%</span></label>
+                <input id="bannerX" type="range" min="0" max="100" value="50" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Центр Y <span id="bannerYLabel">50%</span></label>
+                <input id="bannerY" type="range" min="0" max="100" value="50" class="w-full mt-2">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+              <label class="flex items-center gap-2"><input id="bannerKeepAspect" type="checkbox"> Сохранять пропорции</label>
+              <label class="flex items-center gap-2"><input id="bannerChroma" type="checkbox" checked> Убрать хромакей</label>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+              <label class="flex items-center gap-2"><input id="bannerAutoCrop" type="checkbox" checked> Авто убрать внешние чёрные поля</label>
+              <label class="flex items-center gap-2"><input id="bannerBlackKey" type="checkbox" checked> Убрать чёрные полосы внутри</label>
+            </div>
+            <div id="bannerBlackKeyControls" class="mt-2">
+              <label class="text-[10px] text-zinc-500">Сила удаления чёрного <span id="bannerBlackKeyLabel">0.05</span></label>
+              <input id="bannerBlackKeyStrength" type="range" min="1" max="15" value="5" class="w-full mt-1">
+            </div>
+            <div id="bannerChromaControls" class="hidden grid grid-cols-3 gap-2 mt-2">
+              <div>
+                <label class="text-[10px] text-zinc-500">Цвет</label>
+                <input id="bannerChromaColor" type="color" value="#00FF00" class="input h-9 p-1 mt-1">
+                <button id="bannerAutoChroma" type="button" class="btn btn-soft w-full !py-1 mt-1 text-[10px]">🎯 Авто цвет</button>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Сила вырезания <span id="bannerSimilarityLabel">0.28</span></label>
+                <input id="bannerSimilarity" type="range" min="5" max="75" value="28" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Мягкость края <span id="bannerBlendLabel">0.06</span></label>
+                <input id="bannerBlend" type="range" min="0" max="25" value="6" class="w-full mt-2">
+              </div>
+            </div>
+
+            <div id="bannerModeHelp" class="text-[10px] text-zinc-500 mt-2">Скорость рекламы можно менять от 1.0x до 2.0x. Длительность автоматически сокращается.</div>
+          </div>
+        </div>
+
+        <div class="border-t border-zinc-800 mt-4 pt-4">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[11px] text-zinc-500">Начало</label>
+              <input id="startTime" class="input mt-1" value="00:00:10">
+            </div>
+            <div>
+              <label class="text-[11px] text-zinc-500">Конец</label>
+              <input id="endTime" class="input mt-1" value="00:00:45">
+            </div>
+          </div>
+          <div class="flex gap-4 mt-3 text-sm items-center">
+            <label class="flex items-center gap-2"><input id="captions" type="checkbox" checked> Субтитры</label>
+            <label class="flex items-center gap-2"><input id="gpu" type="checkbox" checked> GPU</label>
+          </div>
+
+          <details id="subtitleStudio" class="soft rounded-lg p-2 mt-2" open>
+            <summary class="cursor-pointer font-bold text-xs">🎨 Стабильные субтитры</summary>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <div>
+                <label class="text-[10px] text-zinc-500">Пресет</label>
+                <select id="subPreset" class="input mt-1">
+                  <option value="gaming" selected>Gaming — белый + жёлтый</option>
+                  <option value="tiktok">TikTok — белый + бирюзовый</option>
+                  <option value="neon">Neon — белый + розовый</option>
+                  <option value="minimal">Minimal — чистый белый</option>
+                  <option value="karaoke">Karaoke</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Шрифт</label>
+                <select id="subFont" class="input mt-1">
+                  <option>Arial Black</option>
+                  <option>Impact</option>
+                  <option>Segoe UI</option>
+                  <option>Trebuchet MS</option>
+                  <option>Tahoma</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Размер <span id="subSizeLabel">52</span></label>
+                <input id="subSize" type="range" min="30" max="84" value="52" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Позиция Y <span id="subPosLabel">77%</span></label>
+                <input id="subPos" type="range" min="8" max="94" value="77" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Позиция X <span id="subXLabel">50%</span></label>
+                <input id="subX" type="range" min="5" max="95" value="50" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Слов одновременно</label>
+                <select id="subWords" class="input mt-1">
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4" selected>4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Обводка <span id="subOutlineLabel">4</span></label>
+                <input id="subOutline" type="range" min="0" max="8" value="4" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Текст</label>
+                <input id="subTextColor" type="color" value="#FFFFFF" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Активное слово</label>
+                <input id="subHighlightColor" type="color" value="#FFD400" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Обводка</label>
+                <input id="subOutlineColor" type="color" value="#000000" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Фон</label>
+                <input id="subBackgroundColor" type="color" value="#000000" class="input h-9 p-1 mt-1">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+              <label class="flex items-center gap-2"><input id="subUppercase" type="checkbox" checked> CAPS</label>
+              <label class="flex items-center gap-2 text-zinc-500"><input id="subBoost" type="checkbox" disabled> Без скачков размера</label>
+              <label class="flex items-center gap-2"><input id="subBox" type="checkbox"> Подложка под текст</label>
+              <label class="flex items-center gap-2">Тень <input id="subShadow" type="range" min="0" max="5" value="1" class="w-20"></label>
+            </div>
+
+            <div id="subBgControls" class="hidden mt-2">
+              <div class="flex justify-between text-[10px] text-zinc-500"><span>Прозрачность подложки</span><span id="subBgOpacityLabel">55%</span></div>
+              <input id="subBgOpacity" type="range" min="15" max="90" value="55" class="w-full">
+            </div>
+
+            <div class="text-[10px] text-zinc-500 mt-2">Положение и размер можно менять мышкой в общем 9:16 макете выше.</div>
+          </details>
+        </div>
+
+        <button id="renderBtn" class="btn btn-primary w-full mt-4" type="button">🎬 Сделать выбранный момент</button>
+        <div id="renderStatus" class="text-xs text-zinc-400 mt-3"></div>
+        <progress id="renderProgress" max="100" value="0" class="w-full h-2 mt-2"></progress>
+        <details class="mt-2">
+          <summary class="text-[11px] text-zinc-600 cursor-pointer">Лог рендера</summary>
+          <pre id="renderLog" class="mt-2 bg-black/40 rounded-lg p-3 max-h-48 overflow-auto text-[10px] text-zinc-500"></pre>
+        </details>
+      </section>
+
+      <section id="resultPanel" class="panel p-4 hidden">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <h2 class="font-black">✅ Готовые клипы</h2>
+          <span id="resultCount" class="badge text-[11px]">0</span>
+        </div>
+        <video id="resultVideo" controls playsinline class="w-full rounded-xl bg-black aspect-[9/16] max-h-[560px]"></video>
+        <div class="soft rounded-lg px-2 py-1.5 text-[11px] text-zinc-500 mt-2">📁 Все финальные MP4: <b>output\FINAL_STREAMER_CLIPS</b></div>
+        <div id="resultList" class="space-y-2 mt-2"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+
+const THEME_KEY='streamer_studio_theme_v1';
+function applyTheme(theme){
+  const t=theme==='light'?'light':'dark';
+  document.documentElement.dataset.theme=t;
+  localStorage.setItem(THEME_KEY,t);
+  const b=$('#themeToggle');
+  if(b) b.textContent=t==='light'?'☀ Светлая':'☾ Ночная';
+}
+applyTheme(localStorage.getItem(THEME_KEY)||'dark');
+$('#themeToggle').onclick=()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
+
+const canvas=$('#previewCanvas'),ctx=canvas.getContext('2d');
+let image=null,rect=null,dragging=false,startPt=null,analysisHighlights=[],topHighlightCount=0,activeHighlight=-1,renderedResults=[];
+let drawQueued=false;
+function queueRedraw(withInfo=true){
+  if(drawQueued)return;
+  drawQueued=true;
+  requestAnimationFrame(()=>{
+    drawQueued=false;
+    redraw();
+    if(withInfo) rectInfo();
+  });
+}
+
+function drawPlaceholder(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#050505';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#71717a';ctx.font='30px sans-serif';ctx.textAlign='center';
+  ctx.fillText('Получите кадр и обведите веб-камеру',canvas.width/2,canvas.height/2);
+}
+function redraw(){
+  if(!image){drawPlaceholder();return;}
+  ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  if(rect){
+    ctx.save();ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(image,rect.x,rect.y,rect.w,rect.h,rect.x,rect.y,rect.w,rect.h);
+    ctx.strokeStyle='#ff2d2d';ctx.lineWidth=5;ctx.strokeRect(rect.x+2,rect.y+2,rect.w-4,rect.h-4);
+    ctx.fillStyle='#ff2d2d';ctx.font='bold 22px sans-serif';ctx.textAlign='left';ctx.fillText('WEBCAM',rect.x+12,Math.max(28,rect.y+30));ctx.restore();
+  }
+}
+drawPlaceholder();
+function point(e){
+  // offsetX/offsetY are relative to the ACTUAL canvas content box and stay
+  // correct with browser zoom, page scroll and responsive CSS scaling.
+  const b=canvas.getBoundingClientRect();
+  const cssW=canvas.clientWidth||b.width||1;
+  const cssH=canvas.clientHeight||b.height||1;
+  let cssX,cssY;
+  if(e.target===canvas&&Number.isFinite(e.offsetX)&&Number.isFinite(e.offsetY)){
+    cssX=e.offsetX;cssY=e.offsetY;
+  }else{
+    cssX=e.clientX-b.left;cssY=e.clientY-b.top;
+  }
+  return{
+    x:Math.max(0,Math.min(canvas.width,cssX*(canvas.width/cssW))),
+    y:Math.max(0,Math.min(canvas.height,cssY*(canvas.height/cssH)))
+  };
+}
+canvas.addEventListener('pointerdown',e=>{
+  if(!image)return;
+  e.preventDefault();
+  dragging=true;
+  startPt=point(e);
+  rect={x:startPt.x,y:startPt.y,w:1,h:1};
+  try{canvas.setPointerCapture(e.pointerId)}catch{}
+  queueRedraw();
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!dragging)return;
+  e.preventDefault();
+  const p=point(e);
+  rect={
+    x:Math.min(startPt.x,p.x),y:Math.min(startPt.y,p.y),
+    w:Math.abs(p.x-startPt.x),h:Math.abs(p.y-startPt.y)
+  };
+  queueRedraw();
+});
+function finishSelection(e){
+  if(!dragging)return;
+  dragging=false;
+  try{if(e&&canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId)}catch{}
+  if(rect&&(rect.w<12||rect.h<12))rect=null;
+  queueRedraw();
+}
+canvas.addEventListener('pointerup',finishSelection);
+canvas.addEventListener('pointercancel',finishSelection);
+$('#clearBox').onclick=()=>{rect=null;redraw();rectInfo()};
+function nrect(){return rect?{x:+(rect.x/canvas.width).toFixed(6),y:+(rect.y/canvas.height).toFixed(6),w:+(rect.w/canvas.width).toFixed(6),h:+(rect.h/canvas.height).toFixed(6)}:null}
+function rectInfo(){const r=nrect();$('#rx').textContent=r?(r.x*100).toFixed(1)+'%':'—';$('#ry').textContent=r?(r.y*100).toFixed(1)+'%':'—';$('#rw').textContent=r?(r.w*100).toFixed(1)+'%':'—';$('#rh').textContent=r?(r.h*100).toFixed(1)+'%':'—'}
+
+const PROFILE_KEY='streamer_webcam_profiles_v3';
+function profiles(){try{return JSON.parse(localStorage.getItem(PROFILE_KEY)||'{}')}catch{return{}}}
+function refreshProfiles(){const all=profiles(),sel=$('#profileSelect'),cur=sel.value;sel.innerHTML='<option value="">Сохранённые профили...</option>';Object.keys(all).sort().forEach(name=>{const o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o)});if(all[cur])sel.value=cur}
+$('#saveProfile').onclick=()=>{const name=$('#profileName').value.trim(),r=nrect();if(!name)return alert('Введи имя профиля.');if(!r)return alert('Сначала выдели вебку.');const all=profiles();all[name]={rect:r,camPct:+$('#camPct').value,gameX:+$('#gameX').value};localStorage.setItem(PROFILE_KEY,JSON.stringify(all));refreshProfiles();$('#profileSelect').value=name};
+function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileName').value=name;$('#camPct').value=p.camPct||36;$('#gameX').value=p.gameX??50;updateLayoutPreview();if(p.rect){rect={x:p.rect.x*canvas.width,y:p.rect.y*canvas.height,w:p.rect.w*canvas.width,h:p.rect.h*canvas.height};redraw();rectInfo()}}
+$('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
+
+$('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText()}catch{}};
+function updateLayoutPreview(){const cp=+$('#camPct').value,gp=+$('#gameX').value;$('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';$('#layoutCam').style.height=cp+'%';$('#layoutGame').style.height=(100-cp)+'%'}
+$('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;updateLayoutPreview();
+
+async function loadPreview(){
+ const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Вставь ссылку.');
+ $('#previewBtn').disabled=true;$('#previewStatus').textContent='⏳ Получаю кадр...';
+ const r=await fetch('/api/streamer/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,timestamp:$('#previewTime').value.trim()})});
+ const d=await r.json();if(!r.ok){$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+(d.error||'Ошибка');return}
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/preview/status')).json();if(!s.running){clearInterval(timer);$('#previewBtn').disabled=false;if(s.result&&s.result.ok){image=new Image();image.onload=()=>{const ar=image.naturalWidth/image.naturalHeight;const cw=Math.min(960,image.naturalWidth||960);canvas.width=cw;canvas.height=Math.round(cw/ar);if(templatePendingRect){applyTemplateWebcamRect(templatePendingRect);templatePendingRect=null}else{const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;queueRedraw()}}};image.src=s.result.image_url+'?t='+Date.now();$('#previewStatus').textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');$('#sourceState').textContent='Источник готов';$('#sourceState').className='badge text-[11px] text-emerald-300'}else $('#previewStatus').textContent='❌ '+((s.result&&s.result.error)||'Ошибка')}},900)
+}
+$('#previewBtn').onclick=()=>loadPreview().catch(e=>{$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+e.message});
+
+function durationValues(){const p=$('#durationPreset').value.split(',').map(Number);return{min:p[0],max:p[1]}}
+async function analyzeWholeVod(){
+ const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Шаг 1: вставь ссылку на VOD/ролик.');
+ if(!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
+ const dur=durationValues();$('#analyzeBtn').disabled=true;$('#analysisBox').classList.remove('hidden');$('#highlightsSection').classList.add('hidden');$('#analysisProgress').value=1;$('#analysisPct').textContent='1%';$('#analysisStatus').textContent='Запускаю анализ всего ролика...';
+ const r=await fetch('/api/streamer/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,min_duration:dur.min,max_duration:dur.max,num_clips:+$('#numClips').value})});
+ const d=await r.json();if(!r.ok){$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+(d.error||'Ошибка');return}
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?'OpenAI анализирует весь ролик...':(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){const top=s.result.highlights||[],extra=s.result.alternatives||[];topHighlightCount=top.length;analysisHighlights=[...top,...extra];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';const msg='TOP '+top.length+(extra.length?' + ещё '+extra.length:'')+' моментов';$('#analysisStatus').textContent=s.result.cached?('♻ '+msg+' • API не использовался'):('✅ '+msg)}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
+}
+$('#analyzeBtn').onclick=()=>analyzeWholeVod().catch(e=>{$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+e.message});
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function renderHighlights(){
+ const topBox=$('#highlightsList'),moreBox=$('#moreHighlightsList');
+ topBox.innerHTML='';moreBox.innerHTML='';
+
+ analysisHighlights.forEach((h,i)=>{
+   const isTop=i<topHighlightCount;
+   const div=document.createElement('div');div.className='hl-card';div.dataset.i=i;
+   const score=Number(h.virality_score||0),dur=Math.round(Number(h.duration_seconds||0));
+   const groupBadge=isTop
+     ?'<span class="badge text-[10px] font-black">TOP '+(i+1)+'</span>'
+     :'<span class="badge text-[10px]">Ещё</span>';
+   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" '+(isTop?'checked':'')+' data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap">'+groupBadge+'<span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="text-[10px] uppercase tracking-wide text-purple-300 mt-2">AI-заголовок</div><div class="font-black mt-1 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex gap-2 mt-3"><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
+   (isTop?topBox:moreBox).appendChild(div);
+ });
+
+ const extraCount=Math.max(0,analysisHighlights.length-topHighlightCount);
+ $('#moreHighlightsCount').textContent=extraCount;
+ $('#moreHighlightsSection').classList.toggle('hidden',extraCount===0);
+
+ document.querySelectorAll('.use-hl').forEach(b=>b.onclick=()=>useHighlight(+b.dataset.i));
+ document.querySelectorAll('.render-hl').forEach(b=>b.onclick=async()=>{useHighlight(+b.dataset.i);await renderCurrent()});
+ if(analysisHighlights.length)useHighlight(0);
+}
+
+$('#selectMoreBtn').onclick=()=>document.querySelectorAll('#moreHighlightsList .hl-check').forEach(x=>x.checked=true);
+$('#clearMoreBtn').onclick=()=>document.querySelectorAll('#moreHighlightsList .hl-check').forEach(x=>x.checked=false);
+
+function updateTitlePreview(){
+ const text=$('#titleText').value.trim()||'AI ЗАГОЛОВОК';
+ const words=text.split(/\s+/),cut=Math.ceil(words.length/2);
+ const top=words.slice(0,cut).join(' '),bottom=words.slice(cut).join(' ');
+ const el=$('#layoutTitle');
+ el.style.top=$('#titleY').value+'%';
+ el.style.left=$('#titleX').value+'%';
+ el.style.right='auto';
+ el.style.width='92%';
+ el.style.transform='translate(-50%,-50%)';
+ el.style.fontFamily='"'+$('#titleFont').value+'", sans-serif';
+ el.style.fontSize=Math.max(6,+$('#titleSize').value/9)+'px';
+ el.style.textShadow='0 0 2px '+$('#titleOutlineColor').value;
+ $('#layoutTitleText').innerHTML='<span style="color:'+$('#titleTopColor').value+'">'+esc(top)+'</span>'+(bottom?'<br><span style="color:'+$('#titleBottomColor').value+'">'+esc(bottom)+'</span>':'');
+ $('#titleSizeLabel').textContent=$('#titleSize').value;
+ $('#titleYLabel').textContent=$('#titleY').value+'%';
+ $('#titleXLabel').textContent=$('#titleX').value+'%';
+ $('#titleOutlineLabel').textContent=$('#titleOutline').value;
+}
+function titleSettings(){
+ return{
+   font_name:$('#titleFont').value,
+   font_size:+$('#titleSize').value,
+   x_pct:+$('#titleX').value/100,
+   y_pct:+$('#titleY').value/100,
+   outline:+$('#titleOutline').value,
+   shadow:1,
+   top_color:$('#titleTopColor').value,
+   bottom_color:$('#titleBottomColor').value,
+   outline_color:$('#titleOutlineColor').value,
+   uppercase:true,
+   scale_pct:96
+ };
+}
+['titleText','titleFont','titleSize','titleY','titleX','titleOutline','titleTopColor','titleBottomColor','titleOutlineColor'].forEach(id=>{
+ const el=$('#'+id);if(el){el.addEventListener('input',updateTitlePreview);el.addEventListener('change',updateTitlePreview)}
+});
+$('#titleReset').onclick=()=>{$('#titleX').value=50;$('#titleY').value=50;$('#titleSize').value=76;updateTitlePreview()};
+
+function setupOverlayMouseEditor({element,handle,xInput,yInput,sizeInput,minSize,maxSize,onUpdate}){
+ const editor=$('#overlayEditor');
+ let action=null;
+
+ function startDrag(e,kind){
+   e.preventDefault();e.stopPropagation();
+   const er=editor.getBoundingClientRect();
+   action={
+     kind,
+     pointerId:e.pointerId,
+     startX:e.clientX,startY:e.clientY,
+     x:+xInput.value,y:+yInput.value,size:+sizeInput.value,
+     width:er.width||1,height:er.height||1
+   };
+   try{element.setPointerCapture?.(e.pointerId)}catch{}
+ }
+ element.addEventListener('pointerdown',e=>{
+   if(e.target===handle)return;
+   startDrag(e,'move');
+ });
+ handle.addEventListener('pointerdown',e=>startDrag(e,'resize'));
+
+ element.addEventListener('pointermove',e=>{
+   if(!action||e.pointerId!==action.pointerId)return;
+   e.preventDefault();
+   const dx=e.clientX-action.startX,dy=e.clientY-action.startY;
+   if(action.kind==='move'){
+     const minX=+xInput.min||0,maxX=+xInput.max||100,minY=+yInput.min||0,maxY=+yInput.max||100;
+     xInput.value=Math.round(clamp(action.x+dx/action.width*100,minX,maxX));
+     yInput.value=Math.round(clamp(action.y+dy/action.height*100,minY,maxY));
+   }else{
+     const delta=(dx+dy)*0.55;
+     sizeInput.value=Math.round(clamp(action.size+delta,minSize,maxSize));
+   }
+   onUpdate();
+ });
+ function stop(e){
+   if(!action)return;
+   try{element.releasePointerCapture?.(action.pointerId)}catch{}
+   action=null;
+ }
+ element.addEventListener('pointerup',stop);
+ element.addEventListener('pointercancel',stop);
+}
+
+setupOverlayMouseEditor({
+ element:$('#layoutTitle'),handle:$('#titleMouseHandle'),
+ xInput:$('#titleX'),yInput:$('#titleY'),sizeInput:$('#titleSize'),
+ minSize:40,maxSize:110,onUpdate:updateTitlePreview
+});
+setupOverlayMouseEditor({
+ element:$('#layoutSubtitle'),handle:$('#subMouseHandle'),
+ xInput:$('#subX'),yInput:$('#subPos'),sizeInput:$('#subSize'),
+ minSize:30,maxSize:84,onUpdate:updateSubtitlePreview
+});
+
+let bannerAsset=null;
+const BANNER_KEY='streamer_banner_video_v3';
+try{bannerAsset=JSON.parse(localStorage.getItem(BANNER_KEY)||'null')}catch{}
+
+const bannerVideo=$('#bannerPreview');
+const bannerCanvas=$('#bannerEditor');
+const bannerCtx=bannerCanvas.getContext('2d',{willReadFrequently:true});
+const layoutBannerCanvas=$('#layoutBannerCanvas');
+const layoutBannerCtx=layoutBannerCanvas.getContext('2d',{willReadFrequently:true});
+let subtitlePreviewWord=0,lastSubtitlePreviewTick=0;
+const bannerOff=document.createElement('canvas');
+const bannerOffCtx=bannerOff.getContext('2d',{willReadFrequently:true});
+let bannerAnim=0,bannerDrag=null,bannerPreviewError=false,bannerCropNorm={x:0,y:0,w:1,h:1};
+
+function fmtAdDuration(sec){
+ if(!Number.isFinite(sec)||sec<=0)return '';
+ const m=Math.floor(sec/60),s=sec-m*60;
+ return (m?m+':':'')+s.toFixed(1).padStart(m?4:1,'0')+' сек';
+}
+
+function bannerRectFor(W,H){
+ const wp=+$('#bannerWidth').value/100,hp=+$('#bannerHeight').value/100;
+ const xp=+$('#bannerX').value/100,yp=+$('#bannerY').value/100;
+ const w=W*wp,h=H*hp;
+ return{x:W*xp-w/2,y:H*yp-h/2,w,h};
+}
+function bannerRect(){return bannerRectFor(bannerCanvas.width,bannerCanvas.height)}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function syncBannerSlidersFromRect(r){
+ const W=bannerCanvas.width,H=bannerCanvas.height;
+ r.w=clamp(r.w,W*.12,W);
+ r.h=clamp(r.h,H*.08,H);
+ const cx=clamp((r.x+r.w/2)/W,0,1);
+ const cy=clamp((r.y+r.h/2)/H,0,1);
+ $('#bannerWidth').value=Math.round(r.w/W*100);
+ $('#bannerHeight').value=Math.round(r.h/H*100);
+ $('#bannerX').value=Math.round(cx*100);
+ $('#bannerY').value=Math.round(cy*100);
+ updateBannerLabels();
+}
+function bannerPoint(e){
+ const b=bannerCanvas.getBoundingClientRect();
+ return{
+   x:clamp((e.clientX-b.left)*(bannerCanvas.width/(b.width||1)),0,bannerCanvas.width),
+   y:clamp((e.clientY-b.top)*(bannerCanvas.height/(b.height||1)),0,bannerCanvas.height)
+ };
+}
+function bannerHandleAt(p,r){
+ const s=34;
+ const pts={
+   nw:{x:r.x,y:r.y}, n:{x:r.x+r.w/2,y:r.y}, ne:{x:r.x+r.w,y:r.y},
+   e:{x:r.x+r.w,y:r.y+r.h/2},
+   se:{x:r.x+r.w,y:r.y+r.h}, s:{x:r.x+r.w/2,y:r.y+r.h},
+   sw:{x:r.x,y:r.y+r.h}, w:{x:r.x,y:r.y+r.h/2}
+ };
+ for(const [name,q] of Object.entries(pts)){
+   if(Math.abs(p.x-q.x)<=s&&Math.abs(p.y-q.y)<=s)return name;
+ }
+ if(p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)return 'move';
+ return null;
+}
+function updateBannerLabels(){
+ const w=+$('#bannerWidth').value,h=+$('#bannerHeight').value,x=+$('#bannerX').value,y=+$('#bannerY').value;
+ $('#bannerAtLabel').textContent=$('#bannerAt').value+'%';
+ $('#bannerWidthLabel').textContent=w+'%';
+ $('#bannerHeightLabel').textContent=h+'%';
+ $('#bannerXLabel').textContent=x+'%';
+ $('#bannerYLabel').textContent=y+'%';
+ $('#bannerBlurLabel').textContent=$('#bannerBlur').value;
+ $('#bannerSpeedLabel').textContent=(+$('#bannerSpeed').value).toFixed(1)+'x';
+ $('#bannerSimilarityLabel').textContent=(+$('#bannerSimilarity').value/100).toFixed(2);
+ $('#bannerBlendLabel').textContent=(+$('#bannerBlend').value/100).toFixed(2);
+}
+function hexRgb(hex){
+ const h=String(hex||'#00FF00').replace('#','');
+ return[parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||255,parseInt(h.slice(4,6),16)||0];
+}
+function detectBannerBlackBorderCrop(){
+ if(!$('#bannerAutoCrop').checked||bannerVideo.readyState<2||!bannerVideo.videoWidth||!bannerVideo.videoHeight){
+   bannerCropNorm={x:0,y:0,w:1,h:1};return bannerCropNorm;
+ }
+ const sw=160,sh=Math.max(90,Math.round(sw*bannerVideo.videoHeight/bannerVideo.videoWidth));
+ const tmp=document.createElement('canvas');tmp.width=sw;tmp.height=sh;
+ const t=tmp.getContext('2d',{willReadFrequently:true});
+ t.drawImage(bannerVideo,0,0,sw,sh);
+ const d=t.getImageData(0,0,sw,sh).data;
+ const isDark=(x,y)=>{
+   const i=(y*sw+x)*4,r=d[i],g=d[i+1],b=d[i+2];
+   const max=Math.max(r,g,b),min=Math.min(r,g,b);
+   return max<28 && (max-min)<18;
+ };
+ const colActive=x=>{
+   let non=0;
+   for(let y=0;y<sh;y+=2)if(!isDark(x,y))non++;
+   return non/Math.ceil(sh/2)>.10;
+ };
+ const rowActive=y=>{
+   let non=0;
+   for(let x=0;x<sw;x+=2)if(!isDark(x,y))non++;
+   return non/Math.ceil(sw/2)>.10;
+ };
+ let l=0,r=sw-1,t0=0,b0=sh-1;
+ while(l<sw-1&&!colActive(l))l++;
+ while(r>l&&!colActive(r))r--;
+ while(t0<sh-1&&!rowActive(t0))t0++;
+ while(b0>t0&&!rowActive(b0))b0--;
+ // Small safety margin keeps antialiased edge pixels.
+ l=Math.max(0,l-2);r=Math.min(sw-1,r+2);t0=Math.max(0,t0-2);b0=Math.min(sh-1,b0+2);
+ const w=Math.max(1,r-l+1),h=Math.max(1,b0-t0+1);
+ bannerCropNorm={x:l/sw,y:t0/sh,w:w/sw,h:h/sh};
+ return bannerCropNorm;
+}
+
+function drawChromaVideo(ctx,video,r){
+ const dw=Math.max(2,Math.round(r.w)),dh=Math.max(2,Math.round(r.h));
+ bannerOff.width=dw;bannerOff.height=dh;
+ bannerOffCtx.clearRect(0,0,dw,dh);
+
+ const crop=detectBannerBlackBorderCrop();
+ const sx=(video.videoWidth||1)*crop.x,sy=(video.videoHeight||1)*crop.y;
+ const sw=(video.videoWidth||1)*crop.w,sh=(video.videoHeight||1)*crop.h;
+ const keep=$('#bannerKeepAspect').checked;
+ if(keep&&video.videoWidth&&video.videoHeight){
+   const ar=sw/sh,boxAr=dw/dh;
+   let tw=dw,th=dh,tx=0,ty=0;
+   if(ar>boxAr){th=dw/ar;ty=(dh-th)/2}else{tw=dh*ar;tx=(dw-tw)/2}
+   bannerOffCtx.drawImage(video,sx,sy,sw,sh,tx,ty,tw,th);
+ }else{
+   bannerOffCtx.drawImage(video,sx,sy,sw,sh,0,0,dw,dh);
+ }
+
+ if($('#bannerChroma').checked&&!bannerPreviewError){
+   try{
+     const img=bannerOffCtx.getImageData(0,0,dw,dh),d=img.data;
+     const [kr,kg,kb]=hexRgb($('#bannerChromaColor').value);
+     const sim=+$('#bannerSimilarity').value/100;
+     const blend=Math.max(.005,+$('#bannerBlend').value/100);
+     const threshold=sim*441.67,soft=blend*441.67;
+     for(let i=0;i<d.length;i+=4){
+       const dr=d[i]-kr,dg=d[i+1]-kg,db=d[i+2]-kb;
+       const dist=Math.sqrt(dr*dr+dg*dg+db*db);
+       if(dist<=threshold){
+         d[i+3]=0;
+       }else if(dist<threshold+soft){
+         d[i+3]=Math.round(255*((dist-threshold)/soft));
+       }
+
+       if($('#bannerBlackKey').checked && d[i+3]>0){
+         const blackStrength=(+$('#bannerBlackKeyStrength').value||5)/100;
+         const blackThreshold=blackStrength*255;
+         const maxc=Math.max(d[i],d[i+1],d[i+2]);
+         const minc=Math.min(d[i],d[i+1],d[i+2]);
+         if(maxc<=blackThreshold && (maxc-minc)<18){
+           d[i+3]=0;
+         }else if(maxc<blackThreshold+10 && (maxc-minc)<20){
+           d[i+3]=Math.min(d[i+3],Math.round(255*((maxc-blackThreshold)/10)));
+         }
+       }
+
+       // Simple green-spill cleanup for edge pixels left by H.264 compression.
+       if(kg>kr&&kg>kb&&d[i+3]>0&&d[i+1]>d[i]&&d[i+1]>d[i+2]){
+         const neutral=Math.max(d[i],d[i+2]);
+         d[i+1]=Math.round(neutral+(d[i+1]-neutral)*0.35);
+       }
+     }
+     bannerOffCtx.putImageData(img,0,0);
+   }catch(e){bannerPreviewError=true}
+ }
+ ctx.drawImage(bannerOff,r.x,r.y,r.w,r.h);
+}
+function drawBannerEditor(){
+ const W=bannerCanvas.width,H=bannerCanvas.height;
+ bannerCtx.clearRect(0,0,W,H);
+
+ // Unified final-template preview.
+ layoutBannerCtx.clearRect(0,0,layoutBannerCanvas.width,layoutBannerCanvas.height);
+ const showMasterBanner=$('#bannerEnabled').checked&&bannerAsset&&bannerVideo.readyState>=2;
+ $('#layoutBannerBadge').classList.toggle('hidden',!showMasterBanner);
+ if(showMasterBanner){
+   const mr=bannerRectFor(layoutBannerCanvas.width,layoutBannerCanvas.height);
+   drawChromaVideo(layoutBannerCtx,bannerVideo,mr);
+ }
+
+ // Animate the sample subtitle word so the user sees how word highlighting behaves.
+ const now=performance.now();
+ if(now-lastSubtitlePreviewTick>620){
+   lastSubtitlePreviewTick=now;
+   subtitlePreviewWord=(subtitlePreviewWord+1)%3;
+   if(typeof updateSubtitlePreview==='function')updateSubtitlePreview();
+ }
+
+ // Neutral mock of the underlying 9:16 clip, just to judge placement.
+ const g=bannerCtx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,'#25272d');g.addColorStop(.36,'#1d2026');g.addColorStop(1,'#111318');
+ bannerCtx.fillStyle=g;bannerCtx.fillRect(0,0,W,H);
+ bannerCtx.fillStyle='rgba(255,255,255,.045)';
+ for(let y=0;y<H;y+=64)bannerCtx.fillRect(0,y,W,1);
+ bannerCtx.fillStyle='rgba(255,255,255,.15)';
+ bannerCtx.font='700 24px Arial';bannerCtx.textAlign='center';
+ bannerCtx.fillText($('#bannerContinue').checked?'ОСНОВНОЙ РОЛИК ИДЁТ':'ПАУЗА / BLUR',W/2,52);
+
+ const r=bannerRect();
+ if(bannerVideo.readyState>=2){
+   drawChromaVideo(bannerCtx,bannerVideo,r);
+ }else{
+   bannerCtx.fillStyle='rgba(0,0,0,.7)';bannerCtx.fillRect(r.x,r.y,r.w,r.h);
+   bannerCtx.fillStyle='#aaa';bannerCtx.font='700 20px Arial';
+   bannerCtx.fillText('РЕКЛАМНОЕ ВИДЕО',r.x+r.w/2,r.y+r.h/2);
+ }
+
+ // Editor border + resize handles.
+ bannerCtx.save();
+ bannerCtx.strokeStyle='#67e8f9';bannerCtx.lineWidth=4;
+ bannerCtx.setLineDash([12,8]);bannerCtx.strokeRect(r.x+2,r.y+2,r.w-4,r.h-4);
+ bannerCtx.setLineDash([]);
+ const handles=[
+   [r.x,r.y],[r.x+r.w/2,r.y],[r.x+r.w,r.y],
+   [r.x+r.w,r.y+r.h/2],
+   [r.x+r.w,r.y+r.h],[r.x+r.w/2,r.y+r.h],[r.x,r.y+r.h],
+   [r.x,r.y+r.h/2]
+ ];
+ for(const [x,y] of handles){
+   bannerCtx.fillStyle='#fff';bannerCtx.strokeStyle='#111';bannerCtx.lineWidth=3;
+   bannerCtx.beginPath();bannerCtx.arc(x,y,11,0,Math.PI*2);bannerCtx.fill();bannerCtx.stroke();
+ }
+ bannerCtx.restore();
+
+ bannerAnim=requestAnimationFrame(drawBannerEditor);
+}
+function ensureBannerAnimation(){
+ if(!bannerAnim)bannerAnim=requestAnimationFrame(drawBannerEditor);
+}
+
+bannerCanvas.addEventListener('pointerdown',e=>{
+ if(!bannerAsset)return;
+ const p=bannerPoint(e),r=bannerRect(),mode=bannerHandleAt(p,r);
+ if(!mode)return;
+ e.preventDefault();bannerCanvas.setPointerCapture?.(e.pointerId);
+ bannerDrag={mode,start:p,rect:{...r}};
+});
+bannerCanvas.addEventListener('pointermove',e=>{
+ if(!bannerDrag){
+   const mode=bannerHandleAt(bannerPoint(e),bannerRect());
+   bannerCanvas.style.cursor=mode==='move'?'move':
+     (mode==='n'||mode==='s')?'ns-resize':
+     (mode==='e'||mode==='w')?'ew-resize':
+     (mode==='nw'||mode==='se')?'nwse-resize':
+     (mode==='ne'||mode==='sw')?'nesw-resize':'default';
+   return;
+ }
+ e.preventDefault();
+ const p=bannerPoint(e),d=bannerDrag,dx=p.x-d.start.x,dy=p.y-d.start.y;
+ let r={...d.rect};
+ if(d.mode==='move'){r.x+=dx;r.y+=dy}
+ else{
+   let left=r.x,right=r.x+r.w,top=r.y,bottom=r.y+r.h;
+   if(d.mode.includes('w'))left+=dx;
+   if(d.mode.includes('e'))right+=dx;
+   if(d.mode.includes('n'))top+=dy;
+   if(d.mode.includes('s'))bottom+=dy;
+   // Edge handles n/s/e/w work independently, so you can pull only the
+   // bottom edge down without moving the top of the banner.
+   const minW=bannerCanvas.width*.12,minH=bannerCanvas.height*.08;
+   if(right-left<minW){if(d.mode.includes('w'))left=right-minW;else right=left+minW}
+   if(bottom-top<minH){if(d.mode.includes('n'))top=bottom-minH;else bottom=top+minH}
+   r={x:left,y:top,w:right-left,h:bottom-top};
+ }
+ syncBannerSlidersFromRect(r);
+});
+function stopBannerDrag(e){if(!bannerDrag)return;bannerDrag=null;try{bannerCanvas.releasePointerCapture?.(e.pointerId)}catch{}}
+bannerCanvas.addEventListener('pointerup',stopBannerDrag);
+bannerCanvas.addEventListener('pointercancel',stopBannerDrag);
+
+$('#bannerPlayBtn').onclick=async()=>{
+ if(!bannerAsset)return;
+ if(bannerVideo.paused){
+   bannerVideo.playbackRate=+$('#bannerSpeed').value||1;
+   try{await bannerVideo.play()}catch{}
+ }else bannerVideo.pause();
+ $('#bannerPlayBtn').textContent=bannerVideo.paused?'▶ Видео':'⏸ Пауза';
+};
+$('#bannerSoundBtn').onclick=()=>{
+ bannerVideo.muted=!bannerVideo.muted;
+ $('#bannerSoundBtn').textContent=bannerVideo.muted?'🔇 Звук':'🔊 Звук';
+};
+$('#bannerAutoChroma').onclick=()=>{
+ if(bannerVideo.readyState<2)return;
+ const w=96,h=96;
+ const tmp=document.createElement('canvas');tmp.width=w;tmp.height=h;
+ const t=tmp.getContext('2d',{willReadFrequently:true});
+ t.drawImage(bannerVideo,0,0,w,h);
+ const img=t.getImageData(0,0,w,h).data;
+ const samples=[];
+ const boxes=[[0,0,16,16],[w-16,0,16,16],[0,h-16,16,16],[w-16,h-16,16,16]];
+ for(const [bx,by,bw,bh] of boxes){
+   for(let y=by;y<by+bh;y+=2)for(let x=bx;x<bx+bw;x+=2){
+     const i=(y*w+x)*4;samples.push([img[i],img[i+1],img[i+2]]);
+   }
+ }
+ // Prefer green-dominant corner pixels, otherwise average all corners.
+ let use=samples.filter(p=>p[1]>p[0]*1.25&&p[1]>p[2]*1.25);
+ if(use.length<8)use=samples;
+ const avg=k=>Math.round(use.reduce((s,p)=>s+p[k],0)/Math.max(1,use.length));
+ const hex='#'+[avg(0),avg(1),avg(2)].map(v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+ $('#bannerChromaColor').value=hex;
+ $('#bannerSimilarity').value=28;
+ $('#bannerBlend').value=6;
+ bannerPreviewError=false;updateBannerUi();
+};
+$('#bannerCenterBtn').onclick=()=>{$('#bannerX').value=50;$('#bannerY').value=50;updateBannerUi()};
+
+function updateBannerUi(){
+ const on=$('#bannerEnabled').checked;
+ $('#bannerControls').style.opacity=on?'1':'.45';
+ updateBannerLabels();
+ $('#bannerChromaControls').classList.toggle('hidden',!$('#bannerChroma').checked);
+
+ const continueMode=$('#bannerContinue').checked;
+ bannerVideo.playbackRate=+$('#bannerSpeed').value||1;
+ $('#bannerBlur').disabled=continueMode;
+ $('#bannerBlur').closest('div').style.opacity=continueMode?'.35':'1';
+ $('#bannerModeHelp').textContent=continueMode
+   ?'Продолжение: основной ролик идёт без паузы и без размытия. Хромакей убирается, реклама появляется поверх.'
+   :'Пауза: основной ролик замрёт, фон размоется, рекламное видео проиграется целиком, затем ролик продолжится.';
+
+ if(bannerAsset&&bannerAsset.url){
+   const stage=$('#bannerStage');
+   if(!bannerVideo.src||!bannerVideo.src.includes(bannerAsset.file)){
+     bannerPreviewError=false;
+     bannerVideo.src=bannerAsset.url+'?t='+Date.now();
+     bannerVideo.load();
+   }
+   stage.classList.remove('hidden');
+   $('#bannerUploadStatus').textContent='✅ Рекламное видео загружено: '+(bannerAsset.original_name||bannerAsset.file);
+   const crop=bannerCropNorm;
+   const cropText=$('#bannerAutoCrop').checked&&((crop.x>.01)||(crop.y>.01)||(crop.w<.98)||(crop.h<.98))
+     ?(' • поля обрезаны: '+Math.round(crop.w*100)+'×'+Math.round(crop.h*100)+'%')
+     :'';
+   const speed=+$('#bannerSpeed').value||1;
+   const durationText=bannerAsset.duration
+     ?('Длительность: '+fmtAdDuration(bannerAsset.duration)+' → '+fmtAdDuration(bannerAsset.duration/speed)+' при '+speed.toFixed(1)+'x')
+     :'Длительность будет определена автоматически при рендере.';
+   $('#bannerDurationInfo').textContent=durationText+cropText;
+   ensureBannerAnimation();
+ }
+}
+$('#bannerEnabled').onchange=updateBannerUi;
+['bannerAt','bannerSpeed','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend','bannerBlackKeyStrength'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
+['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor','bannerAutoCrop','bannerBlackKey'].forEach(id=>$('#'+id).addEventListener('change',()=>{bannerPreviewError=false;detectBannerBlackBorderCrop();updateBannerUi()}));
+bannerVideo.addEventListener('loadeddata',()=>{detectBannerBlackBorderCrop();updateBannerUi()});
+bannerVideo.addEventListener('play',()=>{$('#bannerPlayBtn').textContent='⏸ Пауза'});
+bannerVideo.addEventListener('pause',()=>{$('#bannerPlayBtn').textContent='▶ Видео'});
+
+$('#bannerFileInput').onchange=async()=>{
+ const file=$('#bannerFileInput').files&&$('#bannerFileInput').files[0];
+ if(!file)return;
+ if(file.size>250*1024*1024){alert('Рекламное видео больше 250 МБ.');return;}
+
+ $('#bannerUploadStatus').textContent='⏳ Загружаю рекламное видео...';
+ let localDuration=0;
+ try{
+   localDuration=await new Promise(resolve=>{
+     const v=document.createElement('video');
+     const objectUrl=URL.createObjectURL(file);
+     v.preload='metadata';
+     v.onloadedmetadata=()=>{const d=Number(v.duration)||0;URL.revokeObjectURL(objectUrl);resolve(d)};
+     v.onerror=()=>{URL.revokeObjectURL(objectUrl);resolve(0)};
+     v.src=objectUrl;
+   });
+ }catch{}
+
+ const resp=await fetch('/api/streamer/banner-video',{
+   method:'POST',
+   headers:{
+     'Content-Type':file.type||'application/octet-stream',
+     'X-Filename':encodeURIComponent(file.name)
+   },
+   body:file
+ });
+ const data=await resp.json();
+ if(!resp.ok){$('#bannerUploadStatus').textContent='❌ '+(data.error||'Ошибка загрузки');return;}
+ data.duration=localDuration;
+ bannerAsset=data;
+ localStorage.setItem(BANNER_KEY,JSON.stringify(data));
+ $('#bannerEnabled').checked=true;
+ bannerPreviewError=false;
+ updateBannerUi();
+ try{await bannerVideo.play()}catch{}
+};
+updateBannerUi();
+
+function useHighlight(i){activeHighlight=i;const h=analysisHighlights[i];if(!h)return;$('#startTime').value=h.start_time;$('#endTime').value=h.end_time;$('#titleText').value=(h.timed_title&&h.timed_title.text)||h.title||'';document.querySelectorAll('.hl-card').forEach((el,j)=>el.classList.toggle('active',j===i));updateTitlePreview()}
+
+const SUB_PRESETS={
+ gaming:{style:'stable',font:'Arial Black',size:52,pos:77,words:4,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false},
+ tiktok:{style:'stable',font:'Arial Black',size:52,pos:76,words:4,text:'#FFFFFF',hi:'#25F4EE',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false},
+ neon:{style:'stable',font:'Impact',size:54,pos:75,words:4,text:'#FFFFFF',hi:'#FF3CAC',outline:'#000000',outlineSize:4,shadow:2,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false},
+ minimal:{style:'stable',font:'Segoe UI',size:44,pos:80,words:5,text:'#FFFFFF',hi:'#FFFFFF',outline:'#000000',outlineSize:2,shadow:0,box:false,bg:'#000000',bgOpacity:45,uppercase:false,boost:false},
+ karaoke:{style:'karaoke',font:'Arial Black',size:50,pos:78,words:4,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:3,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false}
+};
+let subtitleStyle='stable';
+function applySubtitlePreset(name){
+ const p=SUB_PRESETS[name]||SUB_PRESETS.gaming;
+ subtitleStyle=p.style;
+ $('#subFont').value=p.font;$('#subSize').value=p.size;$('#subPos').value=p.pos;$('#subWords').value=p.words;
+ $('#subTextColor').value=p.text;$('#subHighlightColor').value=p.hi;$('#subOutlineColor').value=p.outline;$('#subOutline').value=p.outlineSize;
+ $('#subShadow').value=p.shadow;$('#subBox').checked=p.box;$('#subBackgroundColor').value=p.bg;$('#subBgOpacity').value=p.bgOpacity;
+ $('#subUppercase').checked=p.uppercase;$('#subBoost').checked=false;
+ updateSubtitlePreview();
+}
+function updateSubtitlePreview(){
+ const size=+$('#subSize').value,pos=+$('#subPos').value,x=+$('#subX').value,outline=+$('#subOutline').value;
+ const text=$('#subTextColor').value,hi=$('#subHighlightColor').value,oc=$('#subOutlineColor').value,bg=$('#subBackgroundColor').value;
+ const box=$('#subBox').checked,opacity=+$('#subBgOpacity').value/100,font=$('#subFont').value;
+ $('#subSizeLabel').textContent=size;$('#subPosLabel').textContent=pos+'%';$('#subXLabel').textContent=x+'%';$('#subOutlineLabel').textContent=outline;$('#subBgOpacityLabel').textContent=Math.round(opacity*100)+'%';
+ $('#subBgControls').classList.toggle('hidden',!box);
+ const pv=$('#layoutSubtitle');
+ pv.style.left=x+'%';pv.style.top=pos+'%';pv.style.transform='translate(-50%,-50%)';
+ pv.style.fontFamily='"'+font+'", sans-serif';pv.style.fontSize=Math.max(9,size/4)+'px';pv.style.color=text;
+ pv.style.textTransform=$('#subUppercase').checked?'uppercase':'none';
+ const op=Math.max(1,outline/2);
+ pv.style.textShadow=[op+'px 0 '+oc,-op+'px 0 '+oc,'0 '+op+'px '+oc,'0 '+(-op)+'px '+oc].join(',');
+ pv.style.background=box?hexToRgba(bg,opacity):'transparent';pv.style.padding=box?'4px 7px':'4px 6px';pv.style.borderRadius=box?'8px':'6px';
+ for(let i=0;i<3;i++){$('#layoutSubWord'+i).style.color=text}
+ const active=$('#layoutSubWord'+(subtitlePreviewWord%3));if(active)active.style.color=hi;
+}
+function hexToRgba(hex,a){const h=hex.replace('#','');const n=parseInt(h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
+$('#subPreset').onchange=()=>applySubtitlePreset($('#subPreset').value);
+['subFont','subSize','subPos','subX','subWords','subOutline','subTextColor','subHighlightColor','subOutlineColor','subBackgroundColor','subUppercase','subBoost','subBox','subShadow','subBgOpacity'].forEach(id=>{
+ const el=$('#'+id);if(el){el.addEventListener('input',updateSubtitlePreview);el.addEventListener('change',updateSubtitlePreview)}
+});
+function syncMasterLayerVisibility(){
+ $('#layoutSubtitle').style.display=$('#captions').checked?'block':'none';
+ $('#layoutTitle').style.display=$('#titleEnabled').checked?'block':'none';
+}
+$('#captions').onchange=()=>{$('#subtitleStudio').style.opacity=$('#captions').checked?'1':'.45';syncMasterLayerVisibility()};
+$('#titleEnabled').onchange=syncMasterLayerVisibility;
+applySubtitlePreset('gaming');
+updateSubtitlePreview();
+updateTitlePreview();
+syncMasterLayerVisibility();
+
+function subtitleSettings(){
+ return{
+   font_name:$('#subFont').value,
+   font_size:+$('#subSize').value,
+   position_x_pct:+$('#subX').value/100,
+   position_y_pct:+$('#subPos').value/100,
+   max_words:+$('#subWords').value,
+   max_chars:28,
+   safe_margin:72,
+   outline:+$('#subOutline').value,
+   shadow:+$('#subShadow').value,
+   spacing:0,
+   text_color:$('#subTextColor').value,
+   highlight_color:$('#subHighlightColor').value,
+   outline_color:$('#subOutlineColor').value,
+   background_color:$('#subBackgroundColor').value,
+   background_opacity:+$('#subBgOpacity').value,
+   background_box:$('#subBox').checked,
+   uppercase:$('#subUppercase').checked,
+   active_boost:$('#subBoost').checked,
+   lead_seconds:0.04
+ };
+}
+
+const STREAMER_TEMPLATE_KEY='streamer_full_templates_v1';
+const STREAMER_TEMPLATE_LAST_KEY='streamer_full_template_last_v1';
+const STREAMER_TEMPLATE_AUTO_KEY='streamer_full_template_auto_v1';
+let templatePendingRect=null;
+
+function streamerTemplates(){
+ try{return JSON.parse(localStorage.getItem(STREAMER_TEMPLATE_KEY)||'{}')}catch{return{}}
+}
+function setVal(id,value){
+ const el=$('#'+id);if(!el||value===undefined||value===null)return;
+ if(el.type==='checkbox')el.checked=!!value;
+ else el.value=String(value);
+}
+function fullTemplateSnapshot(){
+ return{
+   version:1,
+   saved_at:new Date().toISOString(),
+   analysis:{
+     durationPreset:$('#durationPreset').value,
+     numClips:$('#numClips').value
+   },
+   webcam:{
+     rect:nrect(),
+     camPct:+$('#camPct').value,
+     gameX:+$('#gameX').value,
+     resolution:$('#resolution').value,
+     enhance:$('#webcamEnhance').value
+   },
+   title:{
+     enabled:$('#titleEnabled').checked,
+     duration:$('#titleDuration').value,
+     font:$('#titleFont').value,
+     size:+$('#titleSize').value,
+     x:+$('#titleX').value,
+     y:+$('#titleY').value,
+     outline:+$('#titleOutline').value,
+     topColor:$('#titleTopColor').value,
+     bottomColor:$('#titleBottomColor').value,
+     outlineColor:$('#titleOutlineColor').value
+   },
+   subtitles:{
+     enabled:$('#captions').checked,
+     preset:$('#subPreset').value,
+     style:subtitleStyle,
+     font:$('#subFont').value,
+     size:+$('#subSize').value,
+     x:+$('#subX').value,
+     y:+$('#subPos').value,
+     words:$('#subWords').value,
+     outline:+$('#subOutline').value,
+     textColor:$('#subTextColor').value,
+     highlightColor:$('#subHighlightColor').value,
+     outlineColor:$('#subOutlineColor').value,
+     backgroundColor:$('#subBackgroundColor').value,
+     uppercase:$('#subUppercase').checked,
+     box:$('#subBox').checked,
+     shadow:+$('#subShadow').value,
+     bgOpacity:+$('#subBgOpacity').value
+   },
+   render:{
+     gpu:$('#gpu').checked
+   },
+   banner:{
+     enabled:$('#bannerEnabled').checked,
+     asset:bannerAsset?{...bannerAsset}:null,
+     continueMode:$('#bannerContinue').checked,
+     at:+$('#bannerAt').value,
+     speed:+$('#bannerSpeed').value,
+     width:+$('#bannerWidth').value,
+     height:+$('#bannerHeight').value,
+     x:+$('#bannerX').value,
+     y:+$('#bannerY').value,
+     blur:+$('#bannerBlur').value,
+     keepAspect:$('#bannerKeepAspect').checked,
+     chroma:$('#bannerChroma').checked,
+     chromaColor:$('#bannerChromaColor').value,
+     similarity:+$('#bannerSimilarity').value,
+     blend:+$('#bannerBlend').value,
+     autoCrop:$('#bannerAutoCrop').checked,
+     blackKey:$('#bannerBlackKey').checked,
+     blackStrength:+$('#bannerBlackKeyStrength').value
+   }
+ };
+}
+function applyTemplateWebcamRect(r){
+ if(!r)return;
+ if(canvas.width>0&&canvas.height>0&&image){
+   rect={x:r.x*canvas.width,y:r.y*canvas.height,w:r.w*canvas.width,h:r.h*canvas.height};
+   queueRedraw();rectInfo();
+ }else{
+   templatePendingRect=r;
+ }
+}
+function applyFullTemplate(t,name=''){
+ if(!t)return;
+
+ setVal('durationPreset',t.analysis?.durationPreset);
+ setVal('numClips',t.analysis?.numClips);
+
+ setVal('camPct',t.webcam?.camPct);
+ setVal('gameX',t.webcam?.gameX);
+ setVal('resolution',t.webcam?.resolution);
+ setVal('webcamEnhance',t.webcam?.enhance);
+ if(t.webcam?.rect)applyTemplateWebcamRect(t.webcam.rect);
+
+ setVal('titleEnabled',t.title?.enabled);
+ setVal('titleDuration',t.title?.duration);
+ setVal('titleFont',t.title?.font);
+ setVal('titleSize',t.title?.size);
+ setVal('titleX',t.title?.x);
+ setVal('titleY',t.title?.y);
+ setVal('titleOutline',t.title?.outline);
+ setVal('titleTopColor',t.title?.topColor);
+ setVal('titleBottomColor',t.title?.bottomColor);
+ setVal('titleOutlineColor',t.title?.outlineColor);
+
+ setVal('captions',t.subtitles?.enabled);
+ setVal('subPreset',t.subtitles?.preset);
+ if(t.subtitles?.style)subtitleStyle=t.subtitles.style;
+ setVal('subFont',t.subtitles?.font);
+ setVal('subSize',t.subtitles?.size);
+ setVal('subX',t.subtitles?.x);
+ setVal('subPos',t.subtitles?.y);
+ setVal('subWords',t.subtitles?.words);
+ setVal('subOutline',t.subtitles?.outline);
+ setVal('subTextColor',t.subtitles?.textColor);
+ setVal('subHighlightColor',t.subtitles?.highlightColor);
+ setVal('subOutlineColor',t.subtitles?.outlineColor);
+ setVal('subBackgroundColor',t.subtitles?.backgroundColor);
+ setVal('subUppercase',t.subtitles?.uppercase);
+ setVal('subBox',t.subtitles?.box);
+ setVal('subShadow',t.subtitles?.shadow);
+ setVal('subBgOpacity',t.subtitles?.bgOpacity);
+
+ setVal('gpu',t.render?.gpu);
+
+ setVal('bannerEnabled',t.banner?.enabled);
+ setVal('bannerContinue',t.banner?.continueMode);
+ setVal('bannerAt',t.banner?.at);
+ setVal('bannerSpeed',t.banner?.speed);
+ setVal('bannerWidth',t.banner?.width);
+ setVal('bannerHeight',t.banner?.height);
+ setVal('bannerX',t.banner?.x);
+ setVal('bannerY',t.banner?.y);
+ setVal('bannerBlur',t.banner?.blur);
+ setVal('bannerKeepAspect',t.banner?.keepAspect);
+ setVal('bannerChroma',t.banner?.chroma);
+ setVal('bannerChromaColor',t.banner?.chromaColor);
+ setVal('bannerSimilarity',t.banner?.similarity);
+ setVal('bannerBlend',t.banner?.blend);
+ setVal('bannerAutoCrop',t.banner?.autoCrop);
+ setVal('bannerBlackKey',t.banner?.blackKey);
+ setVal('bannerBlackKeyStrength',t.banner?.blackStrength);
+
+ if(t.banner?.asset?.file){
+   bannerAsset={...t.banner.asset};
+   localStorage.setItem(BANNER_KEY,JSON.stringify(bannerAsset));
+   bannerPreviewError=false;
+ }
+
+ updateLayoutPreview();
+ updateTitlePreview();
+ updateSubtitlePreview();
+ syncMasterLayerVisibility();
+ detectBannerBlackBorderCrop();
+ updateBannerUi();
+
+ if(name){
+   $('#templateName').value=name;
+   $('#templateSelect').value=name;
+   $('#templateStatus').textContent='✅ '+name;
+   localStorage.setItem(STREAMER_TEMPLATE_LAST_KEY,name);
+ }
+}
+function refreshFullTemplates(){
+ const all=streamerTemplates(),sel=$('#templateSelect'),current=sel.value;
+ sel.innerHTML='<option value="">Сохранённые шаблоны...</option>';
+ Object.keys(all).sort((a,b)=>a.localeCompare(b,'ru')).forEach(name=>{
+   const o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o);
+ });
+ const last=localStorage.getItem(STREAMER_TEMPLATE_LAST_KEY)||'';
+ if(all[current])sel.value=current;
+ else if(all[last])sel.value=last;
+}
+function saveFullTemplate(){
+ const name=$('#templateName').value.trim();
+ if(!name)return alert('Введи название шаблона.');
+ const all=streamerTemplates();
+ all[name]=fullTemplateSnapshot();
+ localStorage.setItem(STREAMER_TEMPLATE_KEY,JSON.stringify(all));
+ localStorage.setItem(STREAMER_TEMPLATE_LAST_KEY,name);
+ refreshFullTemplates();$('#templateSelect').value=name;
+ $('#templateStatus').textContent='✅ '+name;
+}
+function loadFullTemplate(name){
+ const all=streamerTemplates(),t=all[name];
+ if(!t)return alert('Выбери сохранённый шаблон.');
+ applyFullTemplate(t,name);
+}
+function deleteFullTemplate(name){
+ if(!name)return alert('Выбери шаблон для удаления.');
+ const all=streamerTemplates();if(!all[name])return;
+ delete all[name];localStorage.setItem(STREAMER_TEMPLATE_KEY,JSON.stringify(all));
+ if(localStorage.getItem(STREAMER_TEMPLATE_LAST_KEY)===name)localStorage.removeItem(STREAMER_TEMPLATE_LAST_KEY);
+ $('#templateName').value='';$('#templateStatus').textContent='удалён';
+ refreshFullTemplates();
+}
+$('#templateSaveBtn').onclick=saveFullTemplate;
+$('#templateLoadBtn').onclick=()=>loadFullTemplate($('#templateSelect').value);
+$('#templateDeleteBtn').onclick=()=>deleteFullTemplate($('#templateSelect').value);
+$('#templateSelect').onchange=()=>{const name=$('#templateSelect').value;if(name)$('#templateName').value=name};
+$('#templateAutoLoad').checked=localStorage.getItem(STREAMER_TEMPLATE_AUTO_KEY)!=='0';
+$('#templateAutoLoad').onchange=()=>localStorage.setItem(STREAMER_TEMPLATE_AUTO_KEY,$('#templateAutoLoad').checked?'1':'0');
+refreshFullTemplates();
+
+const autoTemplateName=localStorage.getItem(STREAMER_TEMPLATE_LAST_KEY)||'';
+if($('#templateAutoLoad').checked&&autoTemplateName&&streamerTemplates()[autoTemplateName]){
+ applyFullTemplate(streamerTemplates()[autoTemplateName],autoTemplateName);
+}
+
+function renderPayload(h){
+ const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
+ const bannerOn=$('#bannerEnabled').checked;
+ if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
+}
+async function runRender(payload,label){
+ $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
+ const r=await fetch('/api/streamer/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Ошибка запуска');
+ return await new Promise((resolve,reject)=>{const timer=setInterval(async()=>{try{const s=await(await fetch('/api/streamer/render/status')).json();$('#renderLog').textContent=s.log||'';$('#renderLog').scrollTop=$('#renderLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#renderProgress').value=p;$('#renderStatus').textContent=s.running?('⏳ '+label+' • '+Math.round(p)+'%'):(s.code===0?'✅ Готово':'❌ Ошибка');if(!s.running){clearInterval(timer);if(s.result&&s.result.ok)resolve(s.result);else reject(new Error((s.result&&s.result.error)||'Рендер завершился с ошибкой'))}}catch(e){clearInterval(timer);reject(e)}},900)})
+}
+function addResult(r,title){renderedResults.unshift({r:r,title:title});$('#resultPanel').classList.remove('hidden');$('#resultCount').textContent=renderedResults.length;$('#resultVideo').src=r.video_url+'?t='+Date.now();const list=$('#resultList');list.innerHTML=renderedResults.map((x,i)=>'<div class="soft rounded-lg p-2 text-xs"><div class="font-bold truncate">'+esc(x.title||('Клип '+(i+1)))+'</div><div class="flex gap-2 mt-2"><a class="text-cyan-300" href="'+x.r.download_url+'">Готовый MP4</a><a class="text-zinc-400" href="'+x.r.source_download_url+'">16:9</a></div></div>').join('')}
+async function renderCurrent(){try{const p=renderPayload(null);const r=await runRender(p,'Рендер выбранного момента');addResult(r,p.title_text)}catch(e){$('#renderStatus').textContent='❌ '+e.message}finally{$('#renderBtn').disabled=false}}
+$('#renderBtn').onclick=renderCurrent;
+
+async function renderAllChecked(){
+ const selected=[...document.querySelectorAll('.hl-check:checked')].map(x=>analysisHighlights[+x.dataset.i]).filter(Boolean);if(!selected.length)return alert('Отметь хотя бы один момент.');if(!nrect())return alert('Сначала выдели веб-камеру.');
+ $('#renderAllBtn').disabled=true;
+ for(let i=0;i<selected.length;i++){
+   const h=selected[i];
+   try{const payload=renderPayload(h);const r=await runRender(payload,'Клип '+(i+1)+'/'+selected.length);addResult(r,payload.title_text)}catch(e){$('#renderStatus').textContent='❌ '+e.message;break}
+ }
+ $('#renderAllBtn').disabled=false;$('#renderBtn').disabled=false;
+}
+$('#renderAllBtn').onclick=renderAllChecked;
+</script>
+</body>
+</html>
