@@ -128,8 +128,12 @@ def _srt_ts_seconds(value: str) -> float:
     m = re.match(r"^(\d+):(\d+):(\d+)[,.](\d+)$", str(value or "").strip())
     if not m:
         return 0.0
-    h, minute, sec, ms = (int(x) for x in m.groups())
-    return h * 3600 + minute * 60 + sec + ms / (10 ** len(str(ms)))
+    h = int(m.group(1))
+    minute = int(m.group(2))
+    sec = int(m.group(3))
+    fraction_raw = m.group(4)
+    fraction = int(fraction_raw) / (10 ** len(fraction_raw))
+    return h * 3600 + minute * 60 + sec + fraction
 
 
 def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
