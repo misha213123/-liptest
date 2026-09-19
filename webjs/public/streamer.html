@@ -12,16 +12,16 @@ body{background:
   radial-gradient(circle at 18% -10%,rgba(34,211,238,.09),transparent 32%),
   radial-gradient(circle at 95% 15%,rgba(168,85,247,.08),transparent 30%),
   #08090b;color:#f4f4f5}
-.panel{background:rgba(17,18,22,.94);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 55px rgba(0,0,0,.18)}
+.panel{background:rgba(17,18,22,.94);border:1px solid var(--line);border-radius:13px;box-shadow:0 14px 40px rgba(0,0,0,.16)}
 .soft{background:#17181d;border:1px solid #30323a}
-.input{width:100%;background:#141519;border:1px solid #353740;border-radius:10px;padding:.68rem .8rem;color:#fff}
+.input{width:100%;background:#141519;border:1px solid #353740;border-radius:9px;padding:.52rem .68rem;color:#fff}
 .input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.08)}
-.btn{border-radius:10px;padding:.68rem .95rem;font-weight:800;transition:.15s;display:inline-flex;align-items:center;justify-content:center;gap:.45rem}
+.btn{border-radius:9px;padding:.52rem .78rem;font-weight:800;transition:.15s;display:inline-flex;align-items:center;justify-content:center;gap:.4rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}.btn-primary{background:linear-gradient(135deg,#22d3ee,#67e8f9);color:#061014}
 .btn-primary:hover{filter:brightness(1.06)}.btn-soft{background:#18191e;border:1px solid #353740;color:#e4e4e7}
 .btn-purple{background:linear-gradient(135deg,#8b5cf6,#c084fc);color:white}
 .badge{border:1px solid #30323a;background:#15161b;border-radius:999px;padding:.3rem .55rem}
-#previewCanvas{display:block;width:100%;height:auto;border-radius:12px;background:#050505;touch-action:none;cursor:crosshair}
+#previewCanvas{display:block;width:100%;height:auto;max-height:330px;object-fit:contain;border-radius:10px;background:#050505;touch-action:none;cursor:crosshair}
 progress::-webkit-progress-bar{background:#15161b;border-radius:999px}progress::-webkit-progress-value{background:linear-gradient(90deg,#22d3ee,#a855f7);border-radius:999px}
 .hl-card{background:#121318;border:1px solid #292b32;border-radius:13px;padding:12px;transition:.15s}
 .hl-card:hover{border-color:#3f4551;transform:translateY(-1px)}
@@ -31,14 +31,14 @@ pre{white-space:pre-wrap;word-break:break-word}
 </style>
 </head>
 <body class="min-h-screen">
-<div class="max-w-[1560px] mx-auto p-3 md:p-6">
+<div class="max-w-[1320px] mx-auto p-2 md:p-4">
 
-  <header class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
+  <header class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
     <div>
       <div class="flex items-center gap-2 text-[11px] uppercase tracking-[.18em] text-zinc-500 mb-1">
         <span class="w-2 h-2 rounded-full bg-cyan-400"></span> Auto Clipper Studio
       </div>
-      <h1 class="text-2xl md:text-4xl font-black tracking-tight">Streamer <span class="text-cyan-300">Clips</span></h1>
+      <h1 class="text-2xl md:text-3xl font-black tracking-tight">Streamer <span class="text-cyan-300">Clips</span></h1>
       <p class="text-sm text-zinc-400 mt-1">OpenAI ищет лучшие моменты → webcam сверху → gameplay снизу → готовый Short 9:16</p>
     </div>
     <div class="flex flex-wrap gap-2">
@@ -49,24 +49,24 @@ pre{white-space:pre-wrap;word-break:break-word}
     </div>
   </header>
 
-  <section class="panel p-3 md:p-4 mb-4">
+  <section class="panel p-2.5 md:p-3 mb-3">
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-      <div class="soft rounded-xl p-3">
+      <div class="soft rounded-lg p-2">
         <div class="text-[10px] text-cyan-300 font-black">1. ССЫЛКА</div>
         <div class="text-sm font-bold mt-1">Вставь VOD/ролик</div>
         <div class="text-[11px] text-zinc-500 mt-1">YouTube, Twitch или Kick.</div>
       </div>
-      <div class="soft rounded-xl p-3">
+      <div class="soft rounded-lg p-2">
         <div class="text-[10px] text-cyan-300 font-black">2. ВЕБКА</div>
         <div class="text-sm font-bold mt-1">Один раз выдели рамкой</div>
         <div class="text-[11px] text-zinc-500 mt-1">Можно сохранить профиль стримера и больше не выделять заново.</div>
       </div>
-      <div class="soft rounded-xl p-3">
+      <div class="soft rounded-lg p-2">
         <div class="text-[10px] text-purple-300 font-black">3. OPENAI</div>
         <div class="text-sm font-bold mt-1">Найдёт и сам назовёт</div>
         <div class="text-[11px] text-zinc-500 mt-1">Каждому лучшему моменту AI создаст короткий заголовок.</div>
       </div>
-      <div class="soft rounded-xl p-3">
+      <div class="soft rounded-lg p-2">
         <div class="text-[10px] text-emerald-300 font-black">4. РЕНДЕР</div>
         <div class="text-sm font-bold mt-1">Выбери моменты → готово</div>
         <div class="text-[11px] text-zinc-500 mt-1">Вебка сверху, gameplay снизу, заголовок ~2.3 сек, субтитры.</div>
@@ -74,10 +74,10 @@ pre{white-space:pre-wrap;word-break:break-word}
     </div>
   </section>
 
-  <div class="grid grid-cols-1 xl:grid-cols-[1.45fr_.75fr] gap-4">
+  <div class="grid grid-cols-1 xl:grid-cols-[1.55fr_.72fr] gap-3">
 
-    <main class="space-y-4 min-w-0">
-      <section class="panel p-4 md:p-5">
+    <main class="space-y-3 min-w-0">
+      <section class="panel p-3 md:p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 1</div>
@@ -95,7 +95,7 @@ pre{white-space:pre-wrap;word-break:break-word}
         </div>
       </section>
 
-      <section class="panel p-4 md:p-5">
+      <section class="panel p-3 md:p-4">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
           <div>
             <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 2</div>
@@ -129,7 +129,7 @@ pre{white-space:pre-wrap;word-break:break-word}
           <select id="profileSelect" class="input"><option value="">Сохранённые профили...</option></select>
         </div>
       </section>
-      <section class="panel p-4 md:p-5">
+      <section class="panel p-3 md:p-4">
         <div class="flex items-start justify-between gap-3 mb-4">
           <div>
             <div class="text-xs text-purple-300 font-bold mb-1">ШАГ 3</div>
@@ -192,8 +192,8 @@ pre{white-space:pre-wrap;word-break:break-word}
       </section>
     </main>
 
-    <aside class="space-y-4 xl:sticky xl:top-4 xl:self-start">
-      <section class="panel p-4">
+    <aside class="space-y-3 xl:sticky xl:top-3 xl:self-start">
+      <section class="panel p-3">
         <div class="text-xs text-emerald-300 font-bold mb-1">ШАГ 4</div>
         <h2 class="text-lg font-black">Финальный вид и рендер</h2>
         <p class="text-[11px] text-zinc-500 mt-1">Если выбрал AI-момент, таймкоды и заголовок справа подставятся автоматически.</p>
@@ -202,7 +202,7 @@ pre{white-space:pre-wrap;word-break:break-word}
           <div class="mx-auto w-[150px] aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 relative">
             <div id="layoutCam" class="absolute inset-x-0 top-0 bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300" style="height:36%">WEBCAM • HQ</div>
             <div id="layoutGame" class="absolute inset-x-0 bottom-0 bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300" style="height:64%">GAMEPLAY</div>
-            <div class="absolute inset-x-1 text-center font-black text-[8px] leading-tight drop-shadow" id="layoutTitle" style="top:37%"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></div>
+            <div class="absolute inset-x-1 text-center font-black text-[8px] leading-tight drop-shadow -translate-y-1/2" id="layoutTitle" style="top:50%"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></div>
           </div>
         </div>
 
@@ -231,7 +231,7 @@ pre{white-space:pre-wrap;word-break:break-word}
           <label class="flex items-center justify-between gap-3">
             <span>
               <b class="text-sm">AI-заголовок первые секунды</b>
-              <span class="block text-[10px] text-zinc-600">OpenAI создаёт его для каждого найденного момента. Можно отредактировать вручную. Потом он исчезает.</span>
+              <span class="block text-[10px] text-zinc-600">OpenAI создаёт его сам. Заголовок появляется строго по центру экрана и исчезает через пару секунд.</span>
             </span>
             <input id="titleEnabled" type="checkbox" checked>
           </label>
@@ -258,7 +258,7 @@ pre{white-space:pre-wrap;word-break:break-word}
             </div>
           </div>
           <div class="flex gap-4 mt-3 text-sm">
-            <label class="flex items-center gap-2"><input id="captions" type="checkbox" checked> Субтитры</label>
+            <label class="flex items-center gap-2 text-zinc-500"><input id="captions" type="checkbox"> Субтитры (опционально)</label>
             <label class="flex items-center gap-2"><input id="gpu" type="checkbox" checked> GPU</label>
           </div>
         </div>
@@ -322,7 +322,7 @@ function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileNam
 $('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
 
 $('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText()}catch{}};
-function updateLayoutPreview(){const cp=+$('#camPct').value,gp=+$('#gameX').value;$('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';$('#layoutCam').style.height=cp+'%';$('#layoutGame').style.height=(100-cp)+'%';$('#layoutTitle').style.top=(cp+1)+'%'}
+function updateLayoutPreview(){const cp=+$('#camPct').value,gp=+$('#gameX').value;$('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';$('#layoutCam').style.height=cp+'%';$('#layoutGame').style.height=(100-cp)+'%';$('#layoutTitle').style.top='50%'}
 $('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;updateLayoutPreview();
 
 async function loadPreview(){
