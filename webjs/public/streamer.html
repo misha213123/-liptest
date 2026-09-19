@@ -352,12 +352,11 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
             <div id="bannerDurationInfo" class="text-[10px] text-zinc-500 mt-1"></div>
 
             <div class="grid grid-cols-2 gap-2 mt-2">
-              <div>
-                <label class="text-[10px] text-zinc-500">Режим рекламы</label>
-                <select id="bannerMode" class="input mt-1">
-                  <option value="overlay" selected>Поверх видео — без паузы</option>
-                  <option value="pause">Пауза основного ролика</option>
-                </select>
+              <div class="flex items-end">
+                <label class="soft rounded-lg px-2 py-2 w-full flex items-center gap-2 text-[11px]">
+                  <input id="bannerContinue" type="checkbox" checked>
+                  <span><b>Продолжать ролик с баннером</b><span class="block text-[10px] text-zinc-500">Без паузы и без размытия</span></span>
+                </label>
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Когда в ролике <span id="bannerAtLabel">50%</span></label>
@@ -387,7 +386,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
             <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
               <label class="flex items-center gap-2"><input id="bannerKeepAspect" type="checkbox"> Сохранять пропорции</label>
-              <label class="flex items-center gap-2"><input id="bannerChroma" type="checkbox"> Хромакей</label>
+              <label class="flex items-center gap-2"><input id="bannerChroma" type="checkbox" checked> Убрать хромакей</label>
             </div>
 
             <div id="bannerChromaControls" class="hidden grid grid-cols-3 gap-2 mt-2">
@@ -727,10 +726,10 @@ function updateBannerUi(){
  $('#bannerSimilarityLabel').textContent=(+$('#bannerSimilarity').value/100).toFixed(2);
  $('#bannerBlendLabel').textContent=(+$('#bannerBlend').value/100).toFixed(2);
  $('#bannerChromaControls').classList.toggle('hidden',!$('#bannerChroma').checked);
- const mode=$('#bannerMode').value;
- $('#bannerModeHelp').textContent=mode==='overlay'
-   ?'Без паузы: основной ролик и его звук продолжаются, реклама идёт поверх размытого видео.'
-   :'С паузой: основной ролик замрёт, будет играть рекламное видео со своим звуком, затем ролик продолжится.';
+ const continueMode=$('#bannerContinue').checked;
+ $('#bannerModeHelp').textContent=continueMode
+   ?'Продолжение: основной ролик идёт как обычно БЕЗ размытия. Хромакей баннера убирается, и рекламное видео появляется поверх.'
+   :'Пауза: основной ролик замрёт, фон размоется, рекламное видео проиграется целиком, затем ролик продолжится.';
  const pv=$('#bannerPreview'),stage=$('#bannerStage');
  pv.style.width=w+'%';pv.style.height=h+'%';
  pv.style.left=((100-w)*(x/100))+'%';
@@ -745,7 +744,7 @@ function updateBannerUi(){
 }
 $('#bannerEnabled').onchange=updateBannerUi;
 ['bannerAt','bannerWidth','bannerHeight','bannerX','bannerY','bannerBlur','bannerSimilarity','bannerBlend'].forEach(id=>$('#'+id).addEventListener('input',updateBannerUi));
-['bannerMode','bannerChroma','bannerKeepAspect','bannerChromaColor'].forEach(id=>$('#'+id).addEventListener('change',updateBannerUi));
+['bannerContinue','bannerChroma','bannerKeepAspect','bannerChromaColor'].forEach(id=>$('#'+id).addEventListener('change',updateBannerUi));
 
 $('#bannerFileInput').onchange=async()=>{
  const file=$('#bannerFileInput').files&&$('#bannerFileInput').files[0];
@@ -851,7 +850,7 @@ function renderPayload(h){
  const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerMode').value,banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100}
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100}
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
