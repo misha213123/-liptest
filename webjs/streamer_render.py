@@ -184,8 +184,11 @@ def create_streamer_ass(
         effective_lead = 0.0 if abs(sync_offset) >= 0.15 else lead_seconds
         ass_offset = sync_offset - effective_lead
 
-        if getattr(core, "subtitle_style", "pop") == "karaoke":
+        subtitle_style = getattr(core, "subtitle_style", "stable")
+        if subtitle_style == "karaoke":
             core.create_ass_subtitle_karaoke(transcript, str(ass_file), ass_offset)
+        elif subtitle_style == "stable":
+            core.create_ass_subtitle_stable(transcript, str(ass_file), ass_offset)
         else:
             core.create_ass_subtitle_capcut(transcript, str(ass_file), ass_offset)
     else:
@@ -344,6 +347,7 @@ def insert_ad_banner(
     chroma_similarity: float = 0.16,
     chroma_blend: float = 0.08,
     keep_aspect: bool = True,
+    mode: str = "pause",
 ) -> float:
     """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
@@ -401,6 +405,76 @@ def insert_ad_banner(
         if blur_sigma > 0
         else "eq=brightness=-0.08:saturation=0.82"
     )
+
+    mode = str(mode or "pause").strip().lower()
+    if mode == "overlay":
+        # The main clip keeps running. During the ad interval we blur the moving
+        # background and overlay the ad video; final clip duration does not grow.
+        overlay_start = pause_at
+        if banner_duration < clip_duration:
+            overlay_start = min(overlay_start, max(0.0, clip_duration - banner_duration))
+        effective_ad = max(0.10, min(banner_duration, clip_duration - overlay_start))
+        overlay_end = overlay_start + effective_ad
+
+        overlay_ad_filters = [
+            f"trim=duration={effective_ad:.3f}",
+            "setpts=PTS-STARTPTS",
+            scale_expr,
+            "format=rgba",
+        ]
+        if chroma_key:
+            overlay_ad_filters.append(
+                f"chromakey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}"
+            )
+        overlay_fade = min(fade_duration, effective_ad / 3.0)
+        if overlay_fade > 0:
+            overlay_ad_filters.append(f"fade=t=in:st=0:d={overlay_fade:.3f}:alpha=1")
+            overlay_ad_filters.append(
+                f"fade=t=out:st={max(0.0, effective_ad-overlay_fade):.3f}:"
+                f"d={overlay_fade:.3f}:alpha=1"
+            )
+        overlay_ad_filters.append(f"setpts=PTS+{overlay_start:.3f}/TB")
+
+        filter_complex = ";".join([
+            "[0:v]split=2[vmain][vblur0]",
+            f"[vblur0]{blur_filter}[vblur]",
+            (
+                f"[vmain][vblur]overlay=0:0:"
+                f"enable='between(t,{overlay_start:.3f},{overlay_end:.3f})':"
+                f"eof_action=pass[vbg]"
+            ),
+            f"[1:v]{','.join(overlay_ad_filters)}[advid]",
+            (
+                f"[vbg][advid]overlay="
+                f"x='(W-w)*{x_pct:.4f}':y='(H-h)*{y_pct:.4f}':"
+                f"eof_action=pass[vout]"
+            ),
+        ])
+
+        cmd = [
+            get_ffmpeg_path(), "-y",
+            "-i", str(input_path),
+            "-i", str(banner_path),
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "0:a?",
+            *encoder_args,
+            "-pix_fmt", "yuv420p",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        debug_log(
+            f"[streamer] Реклама overlay: start={overlay_start:.1f}s, "
+            f"ad={effective_ad:.2f}s, size={width_pct*100:.0f}%x{height_pct*100:.0f}%, "
+            f"pos={x_pct*100:.0f}%/{y_pct*100:.0f}%, blur={blur_sigma:.0f}.",
+            flush=True,
+        )
+        result = core._run_ffmpeg_subprocess(cmd, timeout=1200)
+        if result.returncode != 0:
+            tail = "\n".join((result.stderr or "").splitlines()[-40:])
+            raise RuntimeError("Не удалось наложить рекламное видео:\n" + tail)
+        return effective_ad
 
     video_parts = [
         "[0:v]split=3[vpre0][vfreeze0][vpost0]",
@@ -521,7 +595,8 @@ def main():
     banner_chroma_color = str(job.get("banner_chroma_color") or "#00FF00")
     banner_chroma_similarity = float(job.get("banner_chroma_similarity", 0.16) or 0.16)
     banner_chroma_blend = float(job.get("banner_chroma_blend", 0.08) or 0.08)
-    banner_keep_aspect = bool(job.get("banner_keep_aspect", True))
+    banner_keep_aspect = bool(job.get("banner_keep_aspect", False))
+    banner_mode = str(job.get("banner_mode") or "pause").strip().lower()
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -534,7 +609,7 @@ def main():
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
-    if subtitle_style in ("pop", "karaoke"):
+    if subtitle_style in ("pop", "karaoke", "stable"):
         core.subtitle_style = subtitle_style
     if subtitle_settings:
         merged_subtitle_settings = dict(getattr(core, "subtitle_settings", {}) or {})
@@ -620,6 +695,7 @@ def main():
             chroma_similarity=banner_chroma_similarity,
             chroma_blend=banner_chroma_blend,
             keep_aspect=banner_keep_aspect,
+            mode=banner_mode,
         )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
@@ -667,6 +743,7 @@ def main():
         "banner_chroma_similarity": banner_chroma_similarity,
         "banner_chroma_blend": banner_chroma_blend,
         "banner_keep_aspect": banner_keep_aspect,
+        "banner_mode": banner_mode,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
