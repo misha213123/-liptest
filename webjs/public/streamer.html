@@ -355,7 +355,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                 <button id="bannerSoundBtn" type="button" class="btn btn-soft !px-2 !py-1.5">🔇 Звук</button>
                 <button id="bannerCenterBtn" type="button" class="btn btn-soft !px-2 !py-1.5">◎ Центр</button>
               </div>
-              <div class="text-[10px] text-zinc-500 mt-1 text-center">Перетаскивай баннер мышкой. Тяни за углы рамки, чтобы менять размер.</div>
+              <div class="text-[10px] text-zinc-500 mt-1 text-center">Таскай баннер мышкой. Теперь можно тянуть отдельно за верх, низ, левый/правый край и за углы.</div>
             </div>
             <div id="bannerDurationInfo" class="text-[10px] text-zinc-500 mt-1"></div>
 
@@ -380,7 +380,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Высота <span id="bannerHeightLabel">38%</span></label>
-                <input id="bannerHeight" type="range" min="12" max="90" value="38" class="w-full mt-2">
+                <input id="bannerHeight" type="range" min="8" max="100" value="38" class="w-full mt-2">
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">По горизонтали <span id="bannerXLabel">50%</span></label>
@@ -739,8 +739,8 @@ function bannerRect(){
 function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
 function syncBannerSlidersFromRect(r){
  const W=bannerCanvas.width,H=bannerCanvas.height;
- r.w=clamp(r.w,W*.20,W);
- r.h=clamp(r.h,H*.12,H*.90);
+ r.w=clamp(r.w,W*.12,W);
+ r.h=clamp(r.h,H*.08,H);
  r.x=clamp(r.x,0,W-r.w);
  r.y=clamp(r.y,0,H-r.h);
  $('#bannerWidth').value=Math.round(r.w/W*100);
@@ -759,8 +759,10 @@ function bannerPoint(e){
 function bannerHandleAt(p,r){
  const s=34;
  const pts={
-   nw:{x:r.x,y:r.y},ne:{x:r.x+r.w,y:r.y},
-   sw:{x:r.x,y:r.y+r.h},se:{x:r.x+r.w,y:r.y+r.h}
+   nw:{x:r.x,y:r.y}, n:{x:r.x+r.w/2,y:r.y}, ne:{x:r.x+r.w,y:r.y},
+   e:{x:r.x+r.w,y:r.y+r.h/2},
+   se:{x:r.x+r.w,y:r.y+r.h}, s:{x:r.x+r.w/2,y:r.y+r.h},
+   sw:{x:r.x,y:r.y+r.h}, w:{x:r.x,y:r.y+r.h/2}
  };
  for(const [name,q] of Object.entries(pts)){
    if(Math.abs(p.x-q.x)<=s&&Math.abs(p.y-q.y)<=s)return name;
@@ -844,7 +846,13 @@ function drawBannerEditor(){
  bannerCtx.strokeStyle='#67e8f9';bannerCtx.lineWidth=4;
  bannerCtx.setLineDash([12,8]);bannerCtx.strokeRect(r.x+2,r.y+2,r.w-4,r.h-4);
  bannerCtx.setLineDash([]);
- for(const [x,y] of [[r.x,r.y],[r.x+r.w,r.y],[r.x,r.y+r.h],[r.x+r.w,r.y+r.h]]){
+ const handles=[
+   [r.x,r.y],[r.x+r.w/2,r.y],[r.x+r.w,r.y],
+   [r.x+r.w,r.y+r.h/2],
+   [r.x+r.w,r.y+r.h],[r.x+r.w/2,r.y+r.h],[r.x,r.y+r.h],
+   [r.x,r.y+r.h/2]
+ ];
+ for(const [x,y] of handles){
    bannerCtx.fillStyle='#fff';bannerCtx.strokeStyle='#111';bannerCtx.lineWidth=3;
    bannerCtx.beginPath();bannerCtx.arc(x,y,11,0,Math.PI*2);bannerCtx.fill();bannerCtx.stroke();
  }
@@ -864,7 +872,15 @@ bannerCanvas.addEventListener('pointerdown',e=>{
  bannerDrag={mode,start:p,rect:{...r}};
 });
 bannerCanvas.addEventListener('pointermove',e=>{
- if(!bannerDrag)return;
+ if(!bannerDrag){
+   const mode=bannerHandleAt(bannerPoint(e),bannerRect());
+   bannerCanvas.style.cursor=mode==='move'?'move':
+     (mode==='n'||mode==='s')?'ns-resize':
+     (mode==='e'||mode==='w')?'ew-resize':
+     (mode==='nw'||mode==='se')?'nwse-resize':
+     (mode==='ne'||mode==='sw')?'nesw-resize':'default';
+   return;
+ }
  e.preventDefault();
  const p=bannerPoint(e),d=bannerDrag,dx=p.x-d.start.x,dy=p.y-d.start.y;
  let r={...d.rect};
@@ -875,7 +891,9 @@ bannerCanvas.addEventListener('pointermove',e=>{
    if(d.mode.includes('e'))right+=dx;
    if(d.mode.includes('n'))top+=dy;
    if(d.mode.includes('s'))bottom+=dy;
-   const minW=bannerCanvas.width*.20,minH=bannerCanvas.height*.12;
+   // Edge handles n/s/e/w work independently, so you can pull only the
+   // bottom edge down without moving the top of the banner.
+   const minW=bannerCanvas.width*.12,minH=bannerCanvas.height*.08;
    if(right-left<minW){if(d.mode.includes('w'))left=right-minW;else right=left+minW}
    if(bottom-top<minH){if(d.mode.includes('n'))top=bottom-minH;else bottom=top+minH}
    r={x:left,y:top,w:right-left,h:bottom-top};
