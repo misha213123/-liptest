@@ -349,13 +349,16 @@ def insert_ad_banner(
     keep_aspect: bool = True,
     mode: str = "pause",
     source_crop: dict | None = None,
+    speed: float = 1.0,
 ) -> float:
     """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
         raise RuntimeError(f"Файл рекламного видео не найден: {banner_path}")
 
     ad_info = probe_media_info(banner_path)
-    banner_duration = max(0.10, float(ad_info["duration"]))
+    banner_source_duration = max(0.10, float(ad_info["duration"]))
+    banner_speed = max(1.0, min(2.0, float(speed or 1.0)))
+    banner_duration = max(0.05, banner_source_duration / banner_speed)
     ad_has_audio = bool(ad_info["has_audio"])
 
     main_info = probe_media_info(input_path)
@@ -416,8 +419,9 @@ def insert_ad_banner(
         else crop_prefix + f"scale={target_w}:{target_h}"
     )
     ad_filters = [
+        f"trim=duration={banner_source_duration:.3f}",
+        f"setpts=(PTS-STARTPTS)/{banner_speed:.4f}",
         f"trim=duration={banner_duration:.3f}",
-        "setpts=PTS-STARTPTS",
         scale_expr,
         "format=rgba",
     ]
@@ -444,8 +448,9 @@ def insert_ad_banner(
         overlay_end = overlay_start + effective_ad
 
         overlay_ad_filters = [
+            f"trim=duration={banner_source_duration:.3f}",
+            f"setpts=(PTS-STARTPTS)/{banner_speed:.4f}",
             f"trim=duration={effective_ad:.3f}",
-            "setpts=PTS-STARTPTS",
             scale_expr,
             "format=rgba",
         ]
@@ -489,7 +494,8 @@ def insert_ad_banner(
         ]
         debug_log(
             f"[streamer] Реклама overlay: start={overlay_start:.1f}s, "
-            f"ad={effective_ad:.2f}s, size={width_pct*100:.0f}%x{height_pct*100:.0f}%, "
+            f"ad={effective_ad:.2f}s, speed={banner_speed:.1f}x, "
+            f"size={width_pct*100:.0f}%x{height_pct*100:.0f}%, "
             f"pos={x_pct*100:.0f}%/{y_pct*100:.0f}%, no-blur, "
             f"chroma={'on' if chroma_key else 'off'}.",
             flush=True,
@@ -539,7 +545,8 @@ def insert_ad_banner(
 
     if ad_has_audio:
         audio_parts.append(
-            f"[1:a]atrim=duration={banner_duration:.3f},asetpts=PTS-STARTPTS,"
+            f"[1:a]atrim=duration={banner_source_duration:.3f},asetpts=PTS-STARTPTS,"
+            f"atempo={banner_speed:.4f},"
             f"aformat=sample_rates=48000:channel_layouts=stereo,"
             f"apad=pad_dur={banner_duration:.3f},atrim=duration={banner_duration:.3f}[aad]"
         )
@@ -564,6 +571,7 @@ def insert_ad_banner(
 
     debug_log(
         f"[streamer] Рекламное видео: pause={pause_at:.1f}s, ad={banner_duration:.2f}s, "
+        f"speed={banner_speed:.1f}x, "
         f"size={width_pct*100:.0f}%x{height_pct*100:.0f}%, "
         f"pos={x_pct*100:.0f}%/{y_pct*100:.0f}%, chroma={'on' if chroma_key else 'off'}.",
         flush=True,
@@ -622,6 +630,7 @@ def main():
     banner_keep_aspect = bool(job.get("banner_keep_aspect", False))
     banner_mode = str(job.get("banner_mode") or "pause").strip().lower()
     banner_source_crop = dict(job.get("banner_source_crop") or {})
+    banner_speed = max(1.0, min(2.0, float(job.get("banner_speed", 1.0) or 1.0)))
 
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
@@ -722,6 +731,7 @@ def main():
             keep_aspect=banner_keep_aspect,
             mode=banner_mode,
             source_crop=banner_source_crop,
+            speed=banner_speed,
         )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
@@ -771,6 +781,7 @@ def main():
         "banner_keep_aspect": banner_keep_aspect,
         "banner_mode": banner_mode,
         "banner_source_crop": banner_source_crop,
+        "banner_speed": banner_speed,
         "source_file": source_path.name,
         "layout_file": layout_path.name,
         "final_file": final_path.name,
