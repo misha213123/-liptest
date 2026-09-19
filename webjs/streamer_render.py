@@ -365,7 +365,7 @@ def insert_ad_banner(
     pause_at = max(0.20, min(clip_duration - 0.20, clip_duration * at_pct))
 
     width_pct = max(0.15, min(1.00, float(width_pct or 0.78)))
-    height_pct = max(0.10, min(0.95, float(height_pct or 0.38)))
+    height_pct = max(0.08, min(1.00, float(height_pct or 0.38)))
     x_pct = max(0.0, min(1.0, float(x_pct or 0.50)))
     y_pct = max(0.0, min(1.0, float(y_pct or 0.50)))
     blur_sigma = max(0.0, min(45.0, float(blur_sigma or 18.0)))
