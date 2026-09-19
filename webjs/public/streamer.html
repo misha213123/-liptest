@@ -114,30 +114,22 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
   <div class="grid grid-cols-1 xl:grid-cols-[1.55fr_.72fr] gap-3">
 
     <main class="space-y-3 min-w-0">
-      <section class="panel p-3 md:p-4">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 1</div>
-            <h2 class="text-lg font-black">Вставь ссылку на полный ролик</h2>
-            <p class="text-xs text-zinc-500 mt-1">Сначала только источник. После этого ниже один раз укажешь, где находится веб-камера стримера.</p>
-          </div>
-          <span id="sourceState" class="badge text-[11px] text-zinc-500">Не загружен</span>
+      <section class="panel p-3">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="font-bold">1. Источник</div>
+          <span id="sourceState" class="badge text-[11px]">Не загружен</span>
         </div>
-
-        <div class="flex flex-col md:flex-row gap-2 mt-4">
-          <input id="sourceUrl" class="input flex-1" placeholder="https://youtube.com/...  •  https://twitch.tv/videos/...  •  https://kick.com/...">
-          <button id="pasteBtn" class="btn btn-soft" type="button">📋 Вставить</button>
-        </div>
-
+        <div class="flex gap-2">
+          <input id="sourceUrl" class="input flex-1" placeholder="YouTube / Twitch / Kick URL">
+          <button id="pasteBtn" class="btn btn-soft shrink-0" type="button">📋 Вставить</button>
         </div>
       </section>
 
       <section class="panel p-3 md:p-4">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
           <div>
-            <div class="text-xs text-cyan-300 font-bold mb-1">ШАГ 2</div>
-            <h2 class="text-lg font-black">Выдели веб-камеру</h2>
-            <p class="text-xs text-zinc-500 mt-1">Рамка статична — никаких трекеров и дрожания. Профиль можно сохранить для конкретного стримера.</p>
+            <div class="font-bold">2. Рамка веб-камеры</div>
+            <p class="text-[11px] text-zinc-500 mt-0.5">Выдели один раз и сохрани профиль стримера.</p>
           </div>
           <button id="clearBox" class="btn btn-soft text-xs" type="button">Сбросить рамку</button>
         </div>
@@ -151,13 +143,13 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
         </div>
         <div id="previewStatus" class="text-xs text-zinc-500 mb-2"></div>
 
-        <canvas id="previewCanvas" width="1280" height="720"></canvas>
+        <div id="previewStage"><canvas id="previewCanvas" width="960" height="540"></canvas></div>
 
-        <div class="grid grid-cols-4 gap-2 mt-3 text-[11px]">
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">X</span><div id="rx">—</div></div>
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">Y</span><div id="ry">—</div></div>
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">W</span><div id="rw">—</div></div>
-          <div class="soft rounded-lg p-2"><span class="text-zinc-600">H</span><div id="rh">—</div></div>
+        <div class="grid grid-cols-4 gap-1.5 mt-2 text-[10px]">
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">X</span><div id="rx">—</div></div>
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">Y</span><div id="ry">—</div></div>
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">W</span><div id="rw">—</div></div>
+          <div class="soft rounded-md px-2 py-1.5"><span class="text-zinc-600">H</span><div id="rh">—</div></div>
         </div>
 
         <div class="grid md:grid-cols-[1fr_auto_1fr] gap-2 mt-3">
@@ -169,11 +161,10 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
       <section class="panel p-3 md:p-4">
         <div class="flex items-start justify-between gap-3 mb-4">
           <div>
-            <div class="text-xs text-purple-300 font-bold mb-1">ШАГ 3</div>
-            <h2 class="text-lg font-black">OpenAI найдёт лучшие моменты и сам их назовёт</h2>
-            <p class="text-xs text-zinc-500 mt-1">Выбираешь желаемую длину и количество. AI анализирует весь ролик, отдаёт таймкоды и короткий заголовок для каждого момента.</p>
+            <div class="font-bold">3. Лучшие моменты</div>
+            <p class="text-[11px] text-zinc-500 mt-0.5">OpenAI найдёт таймкоды и создаст короткие заголовки.</p>
           </div>
-          <span class="badge text-[11px] text-purple-300">AI-заголовок → первые ~2.3 сек</span>
+          <span class="badge text-[11px]">AI-заголовок ~2.3 сек</span>
         </div>
         <div class="grid md:grid-cols-[1fr_auto] gap-3 p-3 soft rounded-xl">
           <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -231,19 +222,18 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
     <aside class="space-y-3 xl:sticky xl:top-3 xl:self-start">
       <section class="panel p-3">
-        <div class="text-xs text-emerald-300 font-bold mb-1">ШАГ 4</div>
-        <h2 class="text-lg font-black">Финальный вид и рендер</h2>
-        <p class="text-[11px] text-zinc-500 mt-1">Если выбрал AI-момент, таймкоды и заголовок справа подставятся автоматически.</p>
+        <div class="font-bold">4. Рендер</div>
+        <p class="text-[11px] text-zinc-500 mt-0.5">AI-момент подставляет таймкоды и заголовок автоматически.</p>
 
-        <div class="mt-4 p-3 rounded-xl bg-black/30 border border-zinc-800">
-          <div class="mx-auto w-[150px] aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 relative">
+        <div class="mt-3 p-2 rounded-lg bg-black/30 border border-zinc-800">
+          <div class="mx-auto w-[112px] aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 relative">
             <div id="layoutCam" class="absolute inset-x-0 top-0 bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300" style="height:36%">WEBCAM • HQ</div>
             <div id="layoutGame" class="absolute inset-x-0 bottom-0 bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300" style="height:64%">GAMEPLAY</div>
             <div class="absolute inset-x-1 text-center font-black text-[8px] leading-tight drop-shadow -translate-y-1/2" id="layoutTitle" style="top:50%"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></div>
           </div>
         </div>
 
-        <div class="mt-4 space-y-3">
+        <div class="mt-3 space-y-2.5">
           <div>
             <div class="flex justify-between text-xs"><label class="text-zinc-400">Высота webcam</label><span id="camPctLabel">36%</span></div>
             <input id="camPct" type="range" min="25" max="48" value="36" class="w-full mt-1">
@@ -315,7 +305,8 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <span id="resultCount" class="badge text-[11px]">0</span>
         </div>
         <video id="resultVideo" controls playsinline class="w-full rounded-xl bg-black aspect-[9/16] max-h-[560px]"></video>
-        <div id="resultList" class="space-y-2 mt-3"></div>
+        <div class="soft rounded-lg px-2 py-1.5 text-[11px] text-zinc-500 mt-2">📁 Все финальные MP4: <b>output\FINAL_STREAMER_CLIPS</b></div>
+        <div id="resultList" class="space-y-2 mt-2"></div>
       </section>
     </aside>
   </div>
@@ -323,8 +314,30 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
 <script>
 const $=s=>document.querySelector(s);
+
+const THEME_KEY='streamer_studio_theme_v1';
+function applyTheme(theme){
+  const t=theme==='light'?'light':'dark';
+  document.documentElement.dataset.theme=t;
+  localStorage.setItem(THEME_KEY,t);
+  const b=$('#themeToggle');
+  if(b) b.textContent=t==='light'?'☀ Светлая':'☾ Ночная';
+}
+applyTheme(localStorage.getItem(THEME_KEY)||'dark');
+$('#themeToggle').onclick=()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
+
 const canvas=$('#previewCanvas'),ctx=canvas.getContext('2d');
 let image=null,rect=null,dragging=false,startPt=null,analysisHighlights=[],activeHighlight=-1,renderedResults=[];
+let drawQueued=false;
+function queueRedraw(withInfo=true){
+  if(drawQueued)return;
+  drawQueued=true;
+  requestAnimationFrame(()=>{
+    drawQueued=false;
+    redraw();
+    if(withInfo) rectInfo();
+  });
+}
 
 function drawPlaceholder(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -343,10 +356,43 @@ function redraw(){
   }
 }
 drawPlaceholder();
-function point(e){const b=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(canvas.width,(e.clientX-b.left)*canvas.width/b.width)),y:Math.max(0,Math.min(canvas.height,(e.clientY-b.top)*canvas.height/b.height))}}
-canvas.onpointerdown=e=>{if(!image)return;dragging=true;startPt=point(e);rect={x:startPt.x,y:startPt.y,w:1,h:1};canvas.setPointerCapture(e.pointerId);redraw()};
-canvas.onpointermove=e=>{if(!dragging)return;const p=point(e);rect={x:Math.min(startPt.x,p.x),y:Math.min(startPt.y,p.y),w:Math.abs(p.x-startPt.x),h:Math.abs(p.y-startPt.y)};redraw();rectInfo()};
-canvas.onpointerup=()=>{dragging=false;if(rect&&(rect.w<25||rect.h<25))rect=null;redraw();rectInfo()};
+function point(e){
+  const b=canvas.getBoundingClientRect();
+  const sx=canvas.width/b.width, sy=canvas.height/b.height;
+  return{
+    x:Math.max(0,Math.min(canvas.width,(e.clientX-b.left)*sx)),
+    y:Math.max(0,Math.min(canvas.height,(e.clientY-b.top)*sy))
+  };
+}
+canvas.addEventListener('pointerdown',e=>{
+  if(!image)return;
+  e.preventDefault();
+  dragging=true;
+  startPt=point(e);
+  rect={x:startPt.x,y:startPt.y,w:1,h:1};
+  try{canvas.setPointerCapture(e.pointerId)}catch{}
+  queueRedraw();
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!dragging)return;
+  e.preventDefault();
+  const events=e.getCoalescedEvents?e.getCoalescedEvents():[e];
+  const p=point(events[events.length-1]||e);
+  rect={
+    x:Math.min(startPt.x,p.x),y:Math.min(startPt.y,p.y),
+    w:Math.abs(p.x-startPt.x),h:Math.abs(p.y-startPt.y)
+  };
+  queueRedraw();
+});
+function finishSelection(e){
+  if(!dragging)return;
+  dragging=false;
+  try{if(e&&canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId)}catch{}
+  if(rect&&(rect.w<12||rect.h<12))rect=null;
+  queueRedraw();
+}
+canvas.addEventListener('pointerup',finishSelection);
+canvas.addEventListener('pointercancel',finishSelection);
 $('#clearBox').onclick=()=>{rect=null;redraw();rectInfo()};
 function nrect(){return rect?{x:+(rect.x/canvas.width).toFixed(6),y:+(rect.y/canvas.height).toFixed(6),w:+(rect.w/canvas.width).toFixed(6),h:+(rect.h/canvas.height).toFixed(6)}:null}
 function rectInfo(){const r=nrect();$('#rx').textContent=r?(r.x*100).toFixed(1)+'%':'—';$('#ry').textContent=r?(r.y*100).toFixed(1)+'%':'—';$('#rw').textContent=r?(r.w*100).toFixed(1)+'%':'—';$('#rh').textContent=r?(r.h*100).toFixed(1)+'%':'—'}
@@ -367,7 +413,7 @@ async function loadPreview(){
  $('#previewBtn').disabled=true;$('#previewStatus').textContent='⏳ Получаю кадр...';
  const r=await fetch('/api/streamer/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,timestamp:$('#previewTime').value.trim()})});
  const d=await r.json();if(!r.ok){$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+(d.error||'Ошибка');return}
- const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/preview/status')).json();if(!s.running){clearInterval(timer);$('#previewBtn').disabled=false;if(s.result&&s.result.ok){image=new Image();image.onload=()=>{const ar=image.naturalWidth/image.naturalHeight;canvas.width=1280;canvas.height=Math.round(1280/ar);const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;redraw();rectInfo()}};image.src=s.result.image_url+'?t='+Date.now();$('#previewStatus').textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');$('#sourceState').textContent='Источник готов';$('#sourceState').className='badge text-[11px] text-emerald-300'}else $('#previewStatus').textContent='❌ '+((s.result&&s.result.error)||'Ошибка')}},900)
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/preview/status')).json();if(!s.running){clearInterval(timer);$('#previewBtn').disabled=false;if(s.result&&s.result.ok){image=new Image();image.onload=()=>{const ar=image.naturalWidth/image.naturalHeight;const cw=Math.min(960,image.naturalWidth||960);canvas.width=cw;canvas.height=Math.round(cw/ar);const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;queueRedraw()}};image.src=s.result.image_url+'?t='+Date.now();$('#previewStatus').textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');$('#sourceState').textContent='Источник готов';$('#sourceState').className='badge text-[11px] text-emerald-300'}else $('#previewStatus').textContent='❌ '+((s.result&&s.result.error)||'Ошибка')}},900)
 }
 $('#previewBtn').onclick=()=>loadPreview().catch(e=>{$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+e.message});
 
@@ -406,7 +452,7 @@ async function runRender(payload,label){
  const r=await fetch('/api/streamer/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Ошибка запуска');
  return await new Promise((resolve,reject)=>{const timer=setInterval(async()=>{try{const s=await(await fetch('/api/streamer/render/status')).json();$('#renderLog').textContent=s.log||'';$('#renderLog').scrollTop=$('#renderLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#renderProgress').value=p;$('#renderStatus').textContent=s.running?('⏳ '+label+' • '+Math.round(p)+'%'):(s.code===0?'✅ Готово':'❌ Ошибка');if(!s.running){clearInterval(timer);if(s.result&&s.result.ok)resolve(s.result);else reject(new Error((s.result&&s.result.error)||'Рендер завершился с ошибкой'))}}catch(e){clearInterval(timer);reject(e)}},900)})
 }
-function addResult(r,title){renderedResults.unshift({r:r,title:title});$('#resultPanel').classList.remove('hidden');$('#resultCount').textContent=renderedResults.length;$('#resultVideo').src=r.video_url+'?t='+Date.now();const list=$('#resultList');list.innerHTML=renderedResults.map((x,i)=>'<div class="soft rounded-lg p-2 text-xs"><div class="font-bold truncate">'+esc(x.title||('Клип '+(i+1)))+'</div><div class="flex gap-2 mt-2"><a class="text-cyan-300" href="'+x.r.download_url+'">Скачать 9:16</a><a class="text-zinc-400" href="'+x.r.source_download_url+'">16:9</a></div></div>').join('')}
+function addResult(r,title){renderedResults.unshift({r:r,title:title});$('#resultPanel').classList.remove('hidden');$('#resultCount').textContent=renderedResults.length;$('#resultVideo').src=r.video_url+'?t='+Date.now();const list=$('#resultList');list.innerHTML=renderedResults.map((x,i)=>'<div class="soft rounded-lg p-2 text-xs"><div class="font-bold truncate">'+esc(x.title||('Клип '+(i+1)))+'</div><div class="flex gap-2 mt-2"><a class="text-cyan-300" href="'+x.r.download_url+'">Готовый MP4</a><a class="text-zinc-400" href="'+x.r.source_download_url+'">16:9</a></div></div>').join('')}
 async function renderCurrent(){try{const p=renderPayload(null);const r=await runRender(p,'Рендер выбранного момента');addResult(r,p.title_text)}catch(e){$('#renderStatus').textContent='❌ '+e.message}finally{$('#renderBtn').disabled=false}}
 $('#renderBtn').onclick=renderCurrent;
 
