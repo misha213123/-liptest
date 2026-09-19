@@ -983,7 +983,12 @@ except Exception as e:
         child.stderr.pipe(out);
         const job = { proc: child, code: undefined, startedAt: Date.now() };
         RENDER_JOBS.set(key, job);
-        child.on('close', code => { job.code = code; job.finishedAt = Date.now(); out.end(); });
+        child.on('close', code => {
+          job.code = code;
+          job.finishedAt = Date.now();
+          invalidateSessions();
+          out.end();
+        });
         json(res, 200, { ok: true, started: true });
       });
       return;
