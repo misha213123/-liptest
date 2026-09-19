@@ -191,7 +191,7 @@ class TranscribeMixin:
         
             return transcript
 
-        def _transcribe_full_faster_whisper(self, video_path: str) -> str:
+        def _transcribe_full_faster_whisper(self, video_path: str, allow_cpu_fallback: bool = True, progress_callback=None) -> str:
             """Transcribe a full video locally with Faster-Whisper (no API needed).
 
             Used as a fallback when the Whisper API / Caption Maker endpoint is
@@ -231,9 +231,25 @@ class TranscribeMixin:
                     segments_gen, info = self.faster_whisper_model.transcribe(
                         audio_file, word_timestamps=False, vad_filter=False, language=lang
                     )
-                    raw_segments = list(segments_gen)
+                    raw_segments = []
+                    total_duration = float(getattr(info, "duration", 0) or 0)
+                    last_logged_pct = -10
+                    for seg in segments_gen:
+                        raw_segments.append(seg)
+                        if total_duration > 0:
+                            pct = int(min(100, max(0, (float(seg.end) / total_duration) * 100)))
+                            if pct >= last_logged_pct + 10:
+                                last_logged_pct = pct
+                                self.log(f"  Faster-Whisper progress: {pct}%")
+                            if progress_callback is not None:
+                                try:
+                                    progress_callback(pct / 100.0)
+                                except Exception:
+                                    pass
                 except RuntimeError as e:
                     if not self._is_faster_whisper_cuda_runtime_error(e):
+                        raise
+                    if not allow_cpu_fallback:
                         raise
                     self.log(
                         "  ⚠ CUDA для Faster-Whisper неполная "
@@ -243,7 +259,21 @@ class TranscribeMixin:
                     segments_gen, info = self.faster_whisper_model.transcribe(
                         audio_file, word_timestamps=False, vad_filter=False, language=lang
                     )
-                    raw_segments = list(segments_gen)
+                    raw_segments = []
+                    total_duration = float(getattr(info, "duration", 0) or 0)
+                    last_logged_pct = -10
+                    for seg in segments_gen:
+                        raw_segments.append(seg)
+                        if total_duration > 0:
+                            pct = int(min(100, max(0, (float(seg.end) / total_duration) * 100)))
+                            if pct >= last_logged_pct + 10:
+                                last_logged_pct = pct
+                                self.log(f"  Faster-Whisper CPU progress: {pct}%")
+                            if progress_callback is not None:
+                                try:
+                                    progress_callback(pct / 100.0)
+                                except Exception:
+                                    pass
                     self.log("  ✓ Faster-Whisper продолжил на CPU — CUDA устанавливать прямо сейчас не нужно.")
             finally:
                 try:
