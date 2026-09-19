@@ -74,6 +74,7 @@ class StreamerLayoutRenderer:
         webcam_height_pct: float = 0.365,
         gameplay_center_x: float = 0.50,
         webcam_padding: int = 0,
+        webcam_enhance: str = "hq",
         progress_callback: Callable[[float], None] | None = None,
     ) -> str:
         input_path = str(Path(input_path).resolve())
@@ -86,6 +87,7 @@ class StreamerLayoutRenderer:
         webcam_height_pct = clamp(webcam_height_pct, 0.22, 0.50)
         gameplay_center_x = clamp(gameplay_center_x, 0.0, 1.0)
         webcam_padding = max(0, min(int(webcam_padding), 80))
+        webcam_enhance = str(webcam_enhance or "hq").strip().lower()
 
         top_h = int(round(output_height * webcam_height_pct))
         top_h -= top_h % 2
@@ -115,14 +117,34 @@ class StreamerLayoutRenderer:
         inner_w = max(2, output_width - pad * 2)
         inner_h = max(2, top_h - pad * 2)
 
+        if webcam_enhance in ("off", "none", "0"):
+            webcam_filters = (
+                f"scale={inner_w}:{inner_h}:force_original_aspect_ratio=increase:"
+                f"flags=lanczos+accurate_rnd+full_chroma_int,"
+                f"crop={inner_w}:{inner_h}"
+            )
+        elif webcam_enhance in ("max", "hq+", "strong"):
+            webcam_filters = (
+                f"scale={inner_w}:{inner_h}:force_original_aspect_ratio=increase:"
+                f"flags=lanczos+accurate_rnd+full_chroma_int,"
+                f"crop={inner_w}:{inner_h},"
+                f"eq=contrast=1.035:saturation=1.025:brightness=0.005,"
+                f"unsharp=7:7:0.70:5:5:0.12"
+            )
+        else:
+            webcam_filters = (
+                f"scale={inner_w}:{inner_h}:force_original_aspect_ratio=increase:"
+                f"flags=lanczos+accurate_rnd+full_chroma_int,"
+                f"crop={inner_w}:{inner_h},"
+                f"unsharp=5:5:0.50:5:5:0.05"
+            )
+
         filter_complex = (
             f"[0:v]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},"
-            f"scale={inner_w}:{inner_h}:force_original_aspect_ratio=increase:flags=lanczos,"
-            f"crop={inner_w}:{inner_h},"
-            f"unsharp=5:5:0.45:5:5:0.0,"
+            f"{webcam_filters},"
             f"pad={output_width}:{top_h}:{pad}:{pad}:black[cam];"
             f"[0:v]crop={game_crop_w}:{source_h}:{game_x}:0,"
-            f"scale={output_width}:{game_h}:flags=lanczos[game];"
+            f"scale={output_width}:{game_h}:flags=lanczos+accurate_rnd+full_chroma_int[game];"
             f"[cam][game]vstack=inputs=2[v]"
         )
 
@@ -152,7 +174,8 @@ class StreamerLayoutRenderer:
         self.log(
             "  Streamer layout: "
             f"webcam=({cam_x},{cam_y},{cam_w},{cam_h}), "
-            f"game_x={game_x}, top={top_h}px, bottom={game_h}px"
+            f"game_x={game_x}, top={top_h}px, bottom={game_h}px, "
+            f"enhance={webcam_enhance}, webcam_upscale={max(inner_w/max(cam_w,1), inner_h/max(cam_h,1)):.2f}x"
         )
         self.log("  FFmpeg: " + " ".join(cmd))
 
@@ -179,7 +202,7 @@ class StreamerLayoutRenderer:
             for enc in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf")
         ):
             self.log("  ⚠ GPU encoder не принял фильтр — повторяю Streamer Layout на CPU.")
-            cpu_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+            cpu_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
             gpu_start = 0
             gpu_end = 0
             # Encoder args are inserted immediately after '-map 0:a?'. Rebuild
