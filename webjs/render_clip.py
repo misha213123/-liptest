@@ -79,6 +79,7 @@ def main():
         face_tracking_mode=str(opts.get("face_tracking_mode", cfg.get("face_tracking_mode", "opencv"))),
         portrait_mode=str(opts.get("portrait_mode", cfg.get("portrait_mode", "crop"))),
         subtitle_style=str(opts.get("subtitle_style", cfg.get("subtitle_style", "pop"))),
+        subtitle_settings=dict(cfg.get("subtitle_settings") or {}),
         aspect_ratio=str(opts.get("aspect_ratio", cfg.get("aspect_ratio", "9:16"))),
         mediapipe_settings=mp,
         ai_providers=prov or None,
