@@ -166,6 +166,7 @@ const PROCESS_JOBS = new Map();
 const REFIND_JOBS = new Map();
 let TRANS_JOB = null;
 let STREAMER_PREVIEW_JOB = null;
+let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
 // job story clip & facebook upload
 let STORY_JOBS = new Map(); // key "run" -> job (biar /api/tasks legible)
@@ -1141,6 +1142,88 @@ except Exception as e:
       return json(res, 200, {
         running: !!(job && job.code === undefined),
         code: job ? job.code : null,
+        log,
+        progress: parseOverall(log),
+        result
+      });
+    }
+
+    // POST /api/streamer/analyze — transcribe the whole VOD and let OpenAI rank the best moments.
+    if (p === '/api/streamer/analyze' && req.method === 'POST') {
+      if (STREAMER_ANALYZE_JOB && STREAMER_ANALYZE_JOB.code === undefined) {
+        return json(res, 409, { error: 'AI уже анализирует ролик' });
+      }
+
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+
+        const url = String(o.url || '').trim();
+        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+
+        const minDuration = Math.max(10, Math.min(180, parseInt(o.min_duration) || 25));
+        const maxDuration = Math.max(minDuration, Math.min(240, parseInt(o.max_duration) || 55));
+        const numClips = Math.max(1, Math.min(12, parseInt(o.num_clips) || 5));
+
+        const id = crypto.randomBytes(6).toString('hex');
+        const stamp = Date.now();
+        const logPath = path.join(ROOT, 'output', 'streamer_analyze_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.streamer_analyze_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.streamer_analyze_job_' + stamp + '.json');
+        fs.writeFileSync(jobFile, JSON.stringify({
+          id,
+          url,
+          min_duration: minDuration,
+          max_duration: maxDuration,
+          num_clips: numClips
+        }, null, 2), 'utf8');
+
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+        const child = spawn(
+          PY,
+          [path.join(__dirname, 'streamer_analyze.py'), jobFile, resultFile],
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+        );
+        child.stdout.pipe(out);
+        child.stderr.pipe(out);
+
+        STREAMER_ANALYZE_JOB = {
+          proc: child,
+          code: undefined,
+          startedAt: Date.now(),
+          logPath,
+          resultFile,
+          jobFile,
+          id,
+          url
+        };
+        child.on('close', code => {
+          STREAMER_ANALYZE_JOB.code = code;
+          STREAMER_ANALYZE_JOB.finishedAt = Date.now();
+          out.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+
+        return json(res, 200, { ok: true, started: true, id });
+      });
+      return;
+    }
+
+    if (p === '/api/streamer/analyze/status' && req.method === 'GET') {
+      const job = STREAMER_ANALYZE_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+        }
+      } catch {}
+      const log = job && job.logPath ? tailFile(job.logPath, 30000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
         log,
         progress: parseOverall(log),
         result
