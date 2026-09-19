@@ -202,7 +202,7 @@ class StreamerLayoutRenderer:
             for enc in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf")
         ):
             self.log("  ⚠ GPU encoder не принял фильтр — повторяю Streamer Layout на CPU.")
-            cpu_args = ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
+            cpu_args = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0"]
             gpu_start = 0
             gpu_end = 0
             # Encoder args are inserted immediately after '-map 0:a?'. Rebuild
