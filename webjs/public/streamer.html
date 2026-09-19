@@ -179,13 +179,16 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               </select>
             </div>
             <div>
-              <label class="text-[11px] text-zinc-500">Сколько лучших</label>
+              <label class="text-[11px] text-zinc-500">Сколько показать в TOP</label>
               <select id="numClips" class="input mt-1">
-                <option value="3">3 клипа</option>
-                <option value="5" selected>5 клипов</option>
-                <option value="8">8 клипов</option>
-                <option value="10">10 клипов</option>
+                <option value="3">TOP 3</option>
+                <option value="5" selected>TOP 5</option>
+                <option value="10">TOP 10</option>
+                <option value="15">TOP 15</option>
+                <option value="20">TOP 20</option>
+                <option value="30">TOP 30</option>
               </select>
+              <div class="text-[10px] text-zinc-500 mt-1">Остальные сильные моменты не пропадут — AI покажет их ниже отдельно.</div>
             </div>
             <div class="col-span-2 md:col-span-1">
               <label class="text-[11px] text-zinc-500">AI</label>
@@ -216,6 +219,19 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
             <button id="renderAllBtn" class="btn btn-primary text-sm" type="button">⚡ Сделать все отмеченные</button>
           </div>
           <div id="highlightsList" class="grid md:grid-cols-2 gap-2"></div>
+
+          <details id="moreHighlightsSection" class="hidden soft rounded-xl p-3 mt-3">
+            <summary class="cursor-pointer flex items-center justify-between gap-2">
+              <span class="font-bold">Ещё подходящие моменты</span>
+              <span id="moreHighlightsCount" class="badge text-[11px]">0</span>
+            </summary>
+            <p class="text-[11px] text-zinc-500 mt-2">Это сильные кандидаты со всего VOD, которые не вошли в основной TOP. Они по умолчанию не отмечены для рендера.</p>
+            <div class="flex gap-2 mt-2">
+              <button id="selectMoreBtn" class="btn btn-soft !py-1.5 text-xs" type="button">Отметить все дополнительные</button>
+              <button id="clearMoreBtn" class="btn btn-soft !py-1.5 text-xs" type="button">Снять дополнительные</button>
+            </div>
+            <div id="moreHighlightsList" class="grid md:grid-cols-2 gap-2 mt-3"></div>
+          </details>
 
       </section>
     </main>
@@ -564,7 +580,7 @@ applyTheme(localStorage.getItem(THEME_KEY)||'dark');
 $('#themeToggle').onclick=()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
 
 const canvas=$('#previewCanvas'),ctx=canvas.getContext('2d');
-let image=null,rect=null,dragging=false,startPt=null,analysisHighlights=[],activeHighlight=-1,renderedResults=[];
+let image=null,rect=null,dragging=false,startPt=null,analysisHighlights=[],topHighlightCount=0,activeHighlight=-1,renderedResults=[];
 let drawQueued=false;
 function queueRedraw(withInfo=true){
   if(drawQueued)return;
@@ -669,23 +685,38 @@ async function analyzeWholeVod(){
  const dur=durationValues();$('#analyzeBtn').disabled=true;$('#analysisBox').classList.remove('hidden');$('#highlightsSection').classList.add('hidden');$('#analysisProgress').value=1;$('#analysisPct').textContent='1%';$('#analysisStatus').textContent='Запускаю анализ всего ролика...';
  const r=await fetch('/api/streamer/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,min_duration:dur.min,max_duration:dur.max,num_clips:+$('#numClips').value})});
  const d=await r.json();if(!r.ok){$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+(d.error||'Ошибка');return}
- const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?'OpenAI анализирует весь ролик...':(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){analysisHighlights=s.result.highlights||[];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';$('#analysisStatus').textContent=s.result.cached?('♻ Сохранённый анализ: '+analysisHighlights.length+' моментов • API не использовался'):('✅ OpenAI выбрал '+analysisHighlights.length+' лучших моментов')}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?'OpenAI анализирует весь ролик...':(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){const top=s.result.highlights||[],extra=s.result.alternatives||[];topHighlightCount=top.length;analysisHighlights=[...top,...extra];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';const msg='TOP '+top.length+(extra.length?' + ещё '+extra.length:'')+' моментов';$('#analysisStatus').textContent=s.result.cached?('♻ '+msg+' • API не использовался'):('✅ '+msg)}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
 }
 $('#analyzeBtn').onclick=()=>analyzeWholeVod().catch(e=>{$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+e.message});
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function renderHighlights(){
- const box=$('#highlightsList');box.innerHTML='';
+ const topBox=$('#highlightsList'),moreBox=$('#moreHighlightsList');
+ topBox.innerHTML='';moreBox.innerHTML='';
+
  analysisHighlights.forEach((h,i)=>{
+   const isTop=i<topHighlightCount;
    const div=document.createElement('div');div.className='hl-card';div.dataset.i=i;
    const score=Number(h.virality_score||0),dur=Math.round(Number(h.duration_seconds||0));
-   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" checked data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="text-[10px] uppercase tracking-wide text-purple-300 mt-2">AI-заголовок</div><div class="font-black mt-1 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex gap-2 mt-3"><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
-   box.appendChild(div);
+   const groupBadge=isTop
+     ?'<span class="badge text-[10px] font-black">TOP '+(i+1)+'</span>'
+     :'<span class="badge text-[10px]">Ещё</span>';
+   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" '+(isTop?'checked':'')+' data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap">'+groupBadge+'<span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="text-[10px] uppercase tracking-wide text-purple-300 mt-2">AI-заголовок</div><div class="font-black mt-1 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex gap-2 mt-3"><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
+   (isTop?topBox:moreBox).appendChild(div);
  });
- box.querySelectorAll('.use-hl').forEach(b=>b.onclick=()=>useHighlight(+b.dataset.i));
- box.querySelectorAll('.render-hl').forEach(b=>b.onclick=async()=>{useHighlight(+b.dataset.i);await renderCurrent()});
+
+ const extraCount=Math.max(0,analysisHighlights.length-topHighlightCount);
+ $('#moreHighlightsCount').textContent=extraCount;
+ $('#moreHighlightsSection').classList.toggle('hidden',extraCount===0);
+
+ document.querySelectorAll('.use-hl').forEach(b=>b.onclick=()=>useHighlight(+b.dataset.i));
+ document.querySelectorAll('.render-hl').forEach(b=>b.onclick=async()=>{useHighlight(+b.dataset.i);await renderCurrent()});
  if(analysisHighlights.length)useHighlight(0);
 }
+
+$('#selectMoreBtn').onclick=()=>document.querySelectorAll('#moreHighlightsList .hl-check').forEach(x=>x.checked=true);
+$('#clearMoreBtn').onclick=()=>document.querySelectorAll('#moreHighlightsList .hl-check').forEach(x=>x.checked=false);
+
 function updateTitlePreview(){
  const text=$('#titleText').value.trim()||'AI ЗАГОЛОВОК';
  const words=text.split(/\s+/),cut=Math.ceil(words.length/2);
