@@ -304,7 +304,7 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
         <div class="card-head flex items-center justify-between p-4 cursor-pointer" onclick="toggleCard(this)">
           <span class="chev text-zinc-400">▾</span>
           <h3 class="text-xs font-semibold text-zinc-400 uppercase tracking-wider">💬 Subtitle Style</h3>
-          <label class="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer" onclick="event.stopPropagation()"><input type="checkbox" id="s_captions" class="w-3.5 h-3.5 accent-[#facc15]"> Bakar Sub</label>
+          <label class="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer" onclick="event.stopPropagation()"><input type="checkbox" id="s_captions" class="w-3.5 h-3.5 accent-[#facc15]"> Прожигать субтитры</label>
         </div>
         <div class="card-body p-4 pt-0 space-y-3">
           <div class="grid grid-cols-2 gap-3">
@@ -547,20 +547,65 @@ function updateThumbnailPreview() {
   }
 }
 
-function updateSubPreview() {
-  const style = $('#s_subtitle_style').value;
-  const hi = $('#subHighlight');
+const SUBTITLE_PRESETS = {
+  default: { font_size: 48, position: 76, max_words: 3, safe_margin: 72, outline: 3, text: '#ffffff', highlight: '#00e5ff', font_name: 'Arial' },
+  bold:    { font_size: 52, position: 75, max_words: 3, safe_margin: 76, outline: 4, text: '#ffffff', highlight: '#ffd400', font_name: 'Arial Black' },
+  pop:     { font_size: 56, position: 73, max_words: 3, safe_margin: 82, outline: 4, text: '#ffffff', highlight: '#25f4ee', font_name: 'Arial Black' },
+  minimal: { font_size: 42, position: 80, max_words: 4, safe_margin: 68, outline: 2, text: '#ffffff', highlight: '#ffffff', font_name: 'Arial' },
+};
 
-  hi.style.animation = 'none';
-  hi.offsetHeight;
-
-  if (style === 'karaoke') {
-    hi.className = 'text-yellow-400 underline font-black transition-all duration-300';
-    hi.style.animation = 'subKaraoke 1s infinite alternate';
-  } else {
-    hi.className = 'text-teal-400 font-bold';
-  }
+function applySubtitlePreset(name) {
+  const p = SUBTITLE_PRESETS[name] || SUBTITLE_PRESETS.default;
+  const setv = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setv('s_sub_font_size', p.font_size);
+  setv('s_sub_position', p.position);
+  setv('s_sub_max_words', p.max_words);
+  setv('s_sub_safe_margin', p.safe_margin);
+  setv('s_sub_outline', p.outline);
+  setv('s_sub_text_color', p.text);
+  setv('s_sub_highlight_color', p.highlight);
+  updateSubPreview();
 }
+
+function updateSubPreview() {
+  const box = $('#subPreviewBox');
+  const hi = $('#subHighlight');
+  if (!box || !hi) return;
+
+  const style = $('#s_subtitle_style')?.value || 'pop';
+  const size = Math.max(28, Math.min(90, parseInt($('#s_sub_font_size')?.value || 48)));
+  const pos = Math.max(45, Math.min(90, parseInt($('#s_sub_position')?.value || 76)));
+  const margin = Math.max(30, Math.min(180, parseInt($('#s_sub_safe_margin')?.value || 72)));
+  const outline = Math.max(0, Math.min(8, parseInt($('#s_sub_outline')?.value || 3)));
+  const textColor = $('#s_sub_text_color')?.value || '#ffffff';
+  const hiColor = $('#s_sub_highlight_color')?.value || '#00e5ff';
+
+  // Preview is 128px wide ~= 720 render px.
+  const scale = 128 / 720;
+  box.style.fontSize = Math.max(8, size * scale) + 'px';
+  box.style.top = pos + '%';
+  box.style.transform = 'translateY(-50%)';
+  box.style.left = Math.max(6, margin * scale) + 'px';
+  box.style.right = Math.max(6, margin * scale) + 'px';
+  box.style.color = textColor;
+  box.style.fontFamily = (($('#s_font_preset')?.value || 'default') === 'bold' || ($('#s_font_preset')?.value || '') === 'pop')
+    ? 'Arial Black, Arial, sans-serif'
+    : 'Arial, sans-serif';
+  box.style.fontWeight = '900';
+  box.style.textShadow = [
+    (outline * scale) + 'px 0 #000',
+    (-outline * scale) + 'px 0 #000',
+    '0 ' + (outline * scale) + 'px #000',
+    '0 ' + (-outline * scale) + 'px #000'
+  ].join(',');
+
+  hi.style.color = hiColor;
+  hi.style.animation = 'none';
+  hi.style.textDecoration = 'none';
+  hi.offsetHeight;
+  if (style === 'karaoke') {
+    hi.style.animation = 'subKaraoke 1s infinite alternate';
+  }
 }
 
 function updateWmPreview() {
