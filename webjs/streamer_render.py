@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -10,6 +11,7 @@ import sys
 import traceback
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
@@ -122,6 +124,76 @@ def ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
+def _srt_ts_seconds(value: str) -> float:
+    m = re.match(r"^(\d+):(\d+):(\d+)[,.](\d+)$", str(value or "").strip())
+    if not m:
+        return 0.0
+    h, minute, sec, ms = (int(x) for x in m.groups())
+    return h * 3600 + minute * 60 + sec + ms / (10 ** len(str(ms)))
+
+
+def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
+    """Build caption words from the transcript already paid for during VOD analysis.
+
+    The analysis cache stores timestamped segments for the whole VOD.  For a
+    rendered clip we slice only the overlapping segments and distribute their
+    words across each segment.  This avoids a second Whisper/OpenAI request.
+    """
+    url_key = hashlib.sha256(str(url or "").strip().encode("utf-8")).hexdigest()[:24]
+    transcript_path = APP_DIR / "output" / "streamer_cache" / url_key / "transcript.txt"
+    if not transcript_path.exists() or transcript_path.stat().st_size < 20:
+        return None
+
+    raw = transcript_path.read_text(encoding="utf-8", errors="replace")
+    pattern = re.compile(
+        r"^\[(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-\s*"
+        r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\]\s*(.+?)\s*$"
+    )
+
+    words = []
+    segments = []
+    text_parts = []
+    for line in raw.splitlines():
+        m = pattern.match(line.strip())
+        if not m:
+            continue
+        seg_start = _srt_ts_seconds(m.group(1))
+        seg_end = _srt_ts_seconds(m.group(2))
+        text = re.sub(r"\s+", " ", m.group(3).strip())
+        if not text or seg_end <= clip_start or seg_start >= clip_end:
+            continue
+
+        local_start = max(seg_start, clip_start) - clip_start
+        local_end = min(seg_end, clip_end) - clip_start
+        if local_end <= local_start:
+            continue
+
+        # Keep only a sensible duration for words that partially overlap a clip
+        # boundary. Stable captions will additionally collapse duplicate tokens.
+        tokens = text.split()
+        if not tokens:
+            continue
+        step = max(0.045, (local_end - local_start) / len(tokens))
+        for idx, token in enumerate(tokens):
+            w_start = min(local_end, local_start + idx * step)
+            w_end = min(local_end, max(w_start + 0.045, local_start + (idx + 1) * step))
+            if w_end > w_start:
+                words.append(SimpleNamespace(word=token + " ", start=w_start, end=w_end))
+
+        segments.append({"start": local_start, "end": local_end, "text": text})
+        text_parts.append(text)
+
+    if not words:
+        return None
+
+    debug_log(
+        f"[streamer] ♻ Субтитры из сохранённой транскрипции VOD: "
+        f"{len(words)} слов, Whisper API не вызывается.",
+        flush=True,
+    )
+    return SimpleNamespace(words=words, segments=segments, text=" ".join(text_parts))
+
+
 def create_streamer_ass(
     core: AutoClipperCore,
     source_path: Path,
@@ -133,6 +205,9 @@ def create_streamer_ass(
     title_duration: float,
     title_settings: dict | None,
     webcam_height_pct: float,
+    source_url: str = "",
+    clip_start_sec: float = 0.0,
+    clip_end_sec: float = 0.0,
 ) -> Path | None:
     if not captions and not title_enabled:
         return None
@@ -140,42 +215,71 @@ def create_streamer_ass(
     ass_file = out_dir / "streamer_text.ass"
 
     if captions:
-        audio_file = out_dir / "captions_audio.wav"
-        cmd = [
-            get_ffmpeg_path(), "-y",
-            "-i", str(source_path),
-            "-vn", "-acodec", "pcm_s16le",
-            "-ar", "16000", "-ac", "1",
-            str(audio_file),
-        ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=SUBPROCESS_FLAGS,
-        )
-        if result.returncode != 0 or not audio_file.exists():
-            raise RuntimeError("Не удалось извлечь аудио для субтитров.")
+        transcript = None
 
-        debug_log("[streamer] Субтитры: пробую Faster-Whisper на GPU...", flush=True)
-        try:
-            transcript = core.transcribe_words(
+        # First choice: reuse the full-VOD transcript created by AI analysis.
+        # This makes repeated renders instant for captions and costs no extra API.
+        if source_url and clip_end_sec > clip_start_sec:
+            try:
+                transcript = load_cached_clip_transcript(
+                    source_url, clip_start_sec, clip_end_sec
+                )
+            except Exception as exc:
+                debug_log(f"[streamer] Кэш транскрипции не прочитан: {exc}", flush=True)
+
+        if transcript is None:
+            audio_file = out_dir / "captions_audio.wav"
+            cmd = [
+                get_ffmpeg_path(), "-y",
+                "-i", str(source_path),
+                "-vn", "-acodec", "pcm_s16le",
+                "-ar", "16000", "-ac", "1",
                 str(audio_file),
-                allow_cpu_fallback=False,
+            ]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=SUBPROCESS_FLAGS,
             )
-        except Exception as exc:
-            debug_log(
-                f"[streamer] GPU Faster-Whisper недоступен: {exc}",
-                flush=True,
-            )
-            debug_log(
-                "[streamer] CPU medium пропускаю — использую OpenAI Whisper API "
-                "с word timestamps для быстрого рендера.",
-                flush=True,
-            )
-            transcript = core._whisper_transcribe_words_api(str(audio_file))
+            if result.returncode != 0 or not audio_file.exists():
+                raise RuntimeError("Не удалось извлечь аудио для субтитров.")
+
+            debug_log("[streamer] Субтитры: пробую Faster-Whisper на GPU...", flush=True)
+            try:
+                transcript = core.transcribe_words(
+                    str(audio_file),
+                    allow_cpu_fallback=False,
+                )
+            except Exception as exc:
+                debug_log(
+                    f"[streamer] GPU Faster-Whisper недоступен: {exc}",
+                    flush=True,
+                )
+                debug_log(
+                    "[streamer] Кэша нет — пробую OpenAI Whisper API для word timestamps.",
+                    flush=True,
+                )
+                try:
+                    transcript = core._whisper_transcribe_words_api(str(audio_file))
+                except Exception as api_exc:
+                    # Never throw away a finished layout because the network API
+                    # timed out. For a short clip CPU/int8 is the last-resort path.
+                    debug_log(
+                        f"[streamer] Whisper API недоступен/timeout: {api_exc}",
+                        flush=True,
+                    )
+                    debug_log(
+                        "[streamer] Переключаю только этот короткий клип на "
+                        "Faster-Whisper CPU int8, чтобы рендер не пропал.",
+                        flush=True,
+                    )
+                    transcript = core.transcribe_words(
+                        str(audio_file),
+                        allow_cpu_fallback=True,
+                    )
 
         sync_offset = float(getattr(core, "subtitle_sync_offset", 0.0) or 0.0)
         sync_offset = max(-1.0, min(1.0, sync_offset))
@@ -750,6 +854,9 @@ def main():
             title_duration=title_duration,
             title_settings=title_settings,
             webcam_height_pct=top_pct,
+            source_url=url,
+            clip_start_sec=start_sec,
+            clip_end_sec=end_sec,
         )
 
     banner_duration_actual = 0.0
