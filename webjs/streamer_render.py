@@ -224,8 +224,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 rr, gg, bb = raw[0:2], raw[2:4], raw[4:6]
                 return f"&H{bb}{gg}{rr}&".upper()
 
-            x_pct = max(0.10, min(0.90, float(title_cfg.get("x_pct", 0.50) or 0.50)))
-            y_pct = max(0.12, min(0.88, float(title_cfg.get("y_pct", 0.50) or 0.50)))
+            x_pct = max(0.05, min(0.95, float(title_cfg.get("x_pct", 0.50) or 0.50)))
+            y_pct = max(0.08, min(0.92, float(title_cfg.get("y_pct", 0.50) or 0.50)))
             center_x = int(round(canvas_w * x_pct))
             center_y = int(round(canvas_h * y_pct))
             font_name = str(title_cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
