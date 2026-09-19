@@ -374,7 +374,13 @@ def main():
             flush=True,
         )
         try:
-            found = core.find_highlights(chunk, dict(info), per_chunk)
+            found = core.find_highlights(
+                chunk,
+                dict(info),
+                per_chunk,
+                min_duration=min_duration,
+                max_duration=max_duration,
+            )
             all_candidates.extend(found or [])
         except Exception as exc:
             debug_log(f"[streamer-ai] Часть {i}: {exc}", flush=True)
