@@ -202,6 +202,7 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
             "text_color": "#FFFFFF",
             "highlight_color": "#00E5FF",
             "font_name": "Arial",
+            "lead_seconds": 0.22,
         }
         self.aspect_ratio = aspect_ratio
         self.mediapipe_settings = mediapipe_settings or {
@@ -211,7 +212,10 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
             "center_weight": 0.15,
             "smooth_follow": False,
             "pan_speed_limit": 1.8,
-            "speaker_dead_zone": 0.16
+            "speaker_dead_zone": 0.18,
+            "speaker_switch_confirm": 4,
+            "speaker_score_ratio": 1.65,
+            "speaker_switch_cooldown": 0.80
         }
         
         # Professional video editing features (loaded from config)
