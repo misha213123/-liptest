@@ -226,10 +226,22 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
         <p class="text-[11px] text-zinc-500 mt-0.5">AI-момент подставляет таймкоды и заголовок автоматически.</p>
 
         <div class="mt-3 p-2 rounded-lg bg-black/30 border border-zinc-800">
-          <div class="mx-auto w-[112px] aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-800 relative">
-            <div id="layoutCam" class="absolute inset-x-0 top-0 bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300" style="height:36%">WEBCAM • HQ</div>
-            <div id="layoutGame" class="absolute inset-x-0 bottom-0 bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300" style="height:64%">GAMEPLAY</div>
-            <div class="absolute inset-x-1 text-center font-black text-[8px] leading-tight drop-shadow -translate-y-1/2" id="layoutTitle" style="top:50%"><span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span></div>
+          <div class="text-[10px] text-zinc-500 text-center mb-2">🖱 Перетаскивай AI-заголовок и субтитры прямо на макете. Белая точка меняет размер.</div>
+          <div id="overlayEditor" class="mx-auto w-[230px] max-w-full aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-700 relative touch-none select-none">
+            <div id="layoutCam" class="absolute inset-x-0 top-0 bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300 pointer-events-none" style="height:36%">WEBCAM • HQ</div>
+            <div id="layoutGame" class="absolute inset-x-0 bottom-0 bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300 pointer-events-none" style="height:64%">GAMEPLAY</div>
+
+            <div id="layoutTitle" class="absolute text-center font-black leading-tight drop-shadow cursor-move border border-dashed border-cyan-300/70 rounded-md px-1 py-0.5"
+                 style="left:50%;top:50%;transform:translate(-50%,-50%);width:92%;font-size:16px;touch-action:none">
+              <span class="text-red-500">AI</span><br><span class="text-white">ЗАГОЛОВОК</span>
+              <span id="titleMouseHandle" class="absolute -right-2 -bottom-2 w-4 h-4 rounded-full bg-white border-2 border-zinc-900 cursor-nwse-resize"></span>
+            </div>
+
+            <div id="layoutSubtitle" class="absolute text-center font-black leading-tight cursor-move border border-dashed border-yellow-300/70 rounded-md px-1.5 py-1"
+                 style="left:50%;top:77%;transform:translate(-50%,-50%);font-family:'Arial Black';font-size:14px;color:#fff;touch-action:none">
+              ЭТО <span id="layoutSubtitleActive" style="color:#FFD400">ЛУЧШИЙ</span> МОМЕНТ
+              <span id="subMouseHandle" class="absolute -right-2 -bottom-2 w-4 h-4 rounded-full bg-white border-2 border-zinc-900 cursor-nwse-resize"></span>
+            </div>
           </div>
         </div>
 
@@ -304,11 +316,11 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Высота <span id="titleYLabel">50%</span></label>
-                <input id="titleY" type="range" min="18" max="82" value="50" class="w-full mt-2">
+                <input id="titleY" type="range" min="8" max="92" value="50" class="w-full mt-2">
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Горизонталь <span id="titleXLabel">50%</span></label>
-                <input id="titleX" type="range" min="20" max="80" value="50" class="w-full mt-2">
+                <input id="titleX" type="range" min="5" max="95" value="50" class="w-full mt-2">
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Обводка <span id="titleOutlineLabel">6</span></label>
@@ -460,8 +472,12 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                 <input id="subSize" type="range" min="30" max="84" value="52" class="w-full mt-2">
               </div>
               <div>
-                <label class="text-[10px] text-zinc-500">Высота <span id="subPosLabel">77%</span></label>
-                <input id="subPos" type="range" min="45" max="90" value="77" class="w-full mt-2">
+                <label class="text-[10px] text-zinc-500">Позиция Y <span id="subPosLabel">77%</span></label>
+                <input id="subPos" type="range" min="8" max="94" value="77" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Позиция X <span id="subXLabel">50%</span></label>
+                <input id="subX" type="range" min="5" max="95" value="50" class="w-full mt-2">
               </div>
               <div>
                 <label class="text-[10px] text-zinc-500">Слов одновременно</label>
@@ -506,11 +522,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               <input id="subBgOpacity" type="range" min="15" max="90" value="55" class="w-full">
             </div>
 
-            <div class="mt-2 rounded-lg bg-black/70 border border-zinc-800 h-20 relative overflow-hidden">
-              <div id="subPreview" class="absolute inset-x-3 text-center font-black leading-tight" style="top:77%;transform:translateY(-50%);font-family:'Arial Black';font-size:18px;color:#fff;text-shadow:2px 2px 0 #000,-2px 2px 0 #000,2px -2px 0 #000,-2px -2px 0 #000">
-                ЭТО <span id="subPreviewActive" style="color:#FFD400">ЛУЧШИЙ</span> МОМЕНТ
-              </div>
-            </div>
+            <div class="text-[10px] text-zinc-500 mt-2">Положение и размер можно менять мышкой в общем 9:16 макете выше.</div>
           </details>
         </div>
 
