@@ -380,8 +380,8 @@ def insert_ad_banner(
     raw_chroma = str(chroma_color or "#00FF00").strip().lstrip("#")
     if not re.fullmatch(r"[0-9A-Fa-f]{6}", raw_chroma):
         raw_chroma = "00FF00"
-    chroma_similarity = max(0.01, min(0.60, float(chroma_similarity or 0.16)))
-    chroma_blend = max(0.0, min(0.50, float(chroma_blend or 0.08)))
+    chroma_similarity = max(0.01, min(0.80, float(chroma_similarity or 0.28)))
+    chroma_blend = max(0.0, min(0.35, float(chroma_blend or 0.06)))
 
     scale_expr = (
         (
@@ -398,7 +398,7 @@ def insert_ad_banner(
         "format=rgba",
     ]
     if chroma_key:
-        ad_filters.append(f"chromakey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}")
+        ad_filters.append(f"colorkey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}")
     if fade_duration > 0:
         ad_filters.append(f"fade=t=in:st=0:d={fade_duration:.3f}:alpha=1")
         ad_filters.append(f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}:alpha=1")
@@ -427,7 +427,7 @@ def insert_ad_banner(
         ]
         if chroma_key:
             overlay_ad_filters.append(
-                f"chromakey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}"
+                f"colorkey=0x{raw_chroma}:{chroma_similarity:.3f}:{chroma_blend:.3f}"
             )
         overlay_fade = min(fade_duration, effective_ad / 3.0)
         if overlay_fade > 0:
@@ -593,8 +593,8 @@ def main():
     banner_fade = float(job.get("banner_fade", 0.20) or 0.20)
     banner_chroma_key = bool(job.get("banner_chroma_key", False))
     banner_chroma_color = str(job.get("banner_chroma_color") or "#00FF00")
-    banner_chroma_similarity = float(job.get("banner_chroma_similarity", 0.16) or 0.16)
-    banner_chroma_blend = float(job.get("banner_chroma_blend", 0.08) or 0.08)
+    banner_chroma_similarity = float(job.get("banner_chroma_similarity", 0.28) or 0.28)
+    banner_chroma_blend = float(job.get("banner_chroma_blend", 0.06) or 0.06)
     banner_keep_aspect = bool(job.get("banner_keep_aspect", False))
     banner_mode = str(job.get("banner_mode") or "pause").strip().lower()
 
