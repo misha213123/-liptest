@@ -1574,12 +1574,13 @@ class CaptionMixin:
             if (self.metadata_settings or {}).get("save_preview", True):
                 try:
                     from core.metadata import normalize_and_validate, klasifikasikan_akun
-                    normalized = normalize_and_validate(highlight)
+                    normalized_items = normalize_and_validate([dict(highlight)])
+                    normalized = normalized_items[0] if normalized_items else {}
                     metadata["metadata_final"] = {
                         k: v for k, v in normalized.items()
                         if k not in ("title", "hook_text", "start_time", "end_time", "duration_seconds")
                     }
-                    klas = klasifikasikan_akun(normalized)
+                    klas = klasifikasikan_akun(normalized_items)
                     metadata["akun_tujuan"] = klas.get("akun_tujuan")
                     metadata["tipe_akun"] = klas.get("tipe_akun")
                 except Exception as e:
