@@ -224,10 +224,27 @@ class TranscribeMixin:
                 lang = getattr(self, "subtitle_language", None)
                 if lang in (None, "none"):
                     lang = None
-                segments_gen, info = self.faster_whisper_model.transcribe(
-                    audio_file, word_timestamps=False, vad_filter=False, language=lang
-                )
-                raw_segments = list(segments_gen)
+                elif lang:
+                    lang = str(lang).split("-", 1)[0].strip().lower() or None
+
+                try:
+                    segments_gen, info = self.faster_whisper_model.transcribe(
+                        audio_file, word_timestamps=False, vad_filter=False, language=lang
+                    )
+                    raw_segments = list(segments_gen)
+                except RuntimeError as e:
+                    if not self._is_faster_whisper_cuda_runtime_error(e):
+                        raise
+                    self.log(
+                        "  ⚠ CUDA для Faster-Whisper неполная "
+                        "(не найден cuBLAS/cuDNN). Автоматически переключаюсь на CPU int8..."
+                    )
+                    self._force_faster_whisper_cpu(model_size)
+                    segments_gen, info = self.faster_whisper_model.transcribe(
+                        audio_file, word_timestamps=False, vad_filter=False, language=lang
+                    )
+                    raw_segments = list(segments_gen)
+                    self.log("  ✓ Faster-Whisper продолжил на CPU — CUDA устанавливать прямо сейчас не нужно.")
             finally:
                 try:
                     os.unlink(audio_file)
@@ -247,6 +264,44 @@ class TranscribeMixin:
                 raise Exception("Faster-Whisper mengembalikan transkrip kosong.")
             self.log(f"  ✓ Transkripsi lokal selesai: {len(lines)} segmen (lang={info.language})")
             return transcript
+
+        @staticmethod
+        def _is_faster_whisper_cuda_runtime_error(exc: Exception) -> bool:
+            """True when CTranslate2 sees the GPU but required CUDA DLLs are missing."""
+            msg = str(exc or "").lower()
+            signatures = (
+                "cublas64_",
+                "cudnn64_",
+                "cublaslt64_",
+                "library cublas",
+                "library cudnn",
+                "cannot be loaded",
+                "cuda driver",
+            )
+            return any(sig in msg for sig in signatures)
+
+        def _force_faster_whisper_cpu(self, model_size: str):
+            """Reload the same local Faster-Whisper model on CPU/int8."""
+            app_dir = get_app_dir()
+            model_dir = get_faster_whisper_model_dir(app_dir, model_size)
+
+            try:
+                if self.faster_whisper_model is not None:
+                    del self.faster_whisper_model
+            except Exception:
+                pass
+
+            self.faster_whisper_model = None
+            self.faster_whisper_model_size = model_size
+            self.faster_whisper_compute_type = "int8"
+            self.log(f"  Loading Faster-Whisper '{model_size}' on CPU (int8)...")
+            self.faster_whisper_model = WhisperModel(
+                str(model_dir),
+                device="cpu",
+                compute_type="int8",
+                local_files_only=True,
+            )
+            self.log(f"  ✓ Faster-Whisper '{model_size}' loaded on CPU.")
 
         def _whisper_transcribe_file(self, audio_path: str, time_offset: float = 0) -> list:
             """Transcribe a single audio file with Whisper API.
@@ -392,25 +447,47 @@ class TranscribeMixin:
                 # YouTube subtitles but Faster-Whisper expects ISO language codes.
                 lang = str(lang).split("-", 1)[0].strip().lower() or None
             
-            # Run transcription with VAD and word timestamps
-            segments_gen, info = self.faster_whisper_model.transcribe(
-                audio_path,
-                word_timestamps=True,
-                vad_filter=False, # Matikan VAD default biar kita bisa potong manual
-                language=lang,
-                log_progress=False,
-            )
+            # Run transcription with VAD and word timestamps.
+            # CTranslate2 can detect an NVIDIA GPU even when Windows is missing
+            # the cuBLAS/cuDNN runtime DLLs; in that case retry on CPU automatically.
+            def _start_transcription():
+                return self.faster_whisper_model.transcribe(
+                    audio_path,
+                    word_timestamps=True,
+                    vad_filter=False,
+                    language=lang,
+                    log_progress=False,
+                )
 
-            # Consume generator, reporting progress from segment timestamps.
+            segments_gen, info = _start_transcription()
             total_dur = float(getattr(info, "duration", 0) or 0)
             raw_segments = []
-            for seg in segments_gen:
-                raw_segments.append(seg)
-                if progress_callback is not None and total_dur > 0:
-                    try:
-                        progress_callback(min(1.0, float(seg.end) / total_dur))
-                    except Exception:
-                        pass
+            try:
+                for seg in segments_gen:
+                    raw_segments.append(seg)
+                    if progress_callback is not None and total_dur > 0:
+                        try:
+                            progress_callback(min(1.0, float(seg.end) / total_dur))
+                        except Exception:
+                            pass
+            except RuntimeError as e:
+                if not self._is_faster_whisper_cuda_runtime_error(e):
+                    raise
+                self.log(
+                    "  [Caption] ⚠ CUDA runtime неполная — "
+                    "переключаю Faster-Whisper на CPU int8..."
+                )
+                self._force_faster_whisper_cpu(model_size)
+                segments_gen, info = _start_transcription()
+                total_dur = float(getattr(info, "duration", 0) or 0)
+                raw_segments = []
+                for seg in segments_gen:
+                    raw_segments.append(seg)
+                    if progress_callback is not None and total_dur > 0:
+                        try:
+                            progress_callback(min(1.0, float(seg.end) / total_dur))
+                        except Exception:
+                            pass
         
             elapsed = _time.time() - start_time
             self.log(f"  [Caption] Faster-Whisper transcription finished in {elapsed:.1f}s. Language: {info.language} (prob: {info.language_probability:.2f})")
