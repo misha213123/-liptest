@@ -145,10 +145,15 @@ class CaptionMixin:
         
             # Create ASS subtitle file with time offset for hook
             ass_file = tempfile.NamedTemporaryFile(mode='w', suffix='.ass', delete=False, encoding='utf-8').name
-            # Whisper word timestamps are systematically late -> compensate
+            # Faster-Whisper word timestamps tend to appear slightly after
+            # the perceived spoken word. Apply a configurable global lead, then
+            # let Sync Offset do fine manual correction.
             sync_offset = float(getattr(self, "subtitle_sync_offset", 0.0) or 0.0)
-            sync_offset = max(-0.15, min(0.15, sync_offset))
-            ass_offset = time_offset + sync_offset
+            sync_offset = max(-1.0, min(1.0, sync_offset))
+            subtitle_cfg = dict(getattr(self, "subtitle_settings", {}) or {})
+            lead_seconds = float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)
+            lead_seconds = max(0.0, min(0.60, lead_seconds))
+            ass_offset = time_offset + sync_offset - lead_seconds
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
             else:
@@ -730,10 +735,15 @@ class CaptionMixin:
         
             # Create ASS subtitle file - kept in the clip folder (no deletion)
             ass_file = str(clip_folder / "captions.ass")
-            # Whisper word timestamps are systematically late -> compensate
+            # Faster-Whisper word timestamps tend to appear slightly after
+            # the perceived spoken word. Apply a configurable global lead, then
+            # let Sync Offset do fine manual correction.
             sync_offset = float(getattr(self, "subtitle_sync_offset", 0.0) or 0.0)
-            sync_offset = max(-0.15, min(0.15, sync_offset))
-            ass_offset = time_offset + sync_offset
+            sync_offset = max(-1.0, min(1.0, sync_offset))
+            subtitle_cfg = dict(getattr(self, "subtitle_settings", {}) or {})
+            lead_seconds = float(subtitle_cfg.get("lead_seconds", 0.22) or 0.0)
+            lead_seconds = max(0.0, min(0.60, lead_seconds))
+            ass_offset = time_offset + sync_offset - lead_seconds
             if getattr(self, "subtitle_style", "pop") == "karaoke":
                 self.create_ass_subtitle_karaoke(transcript, ass_file, ass_offset)
             else:
