@@ -493,6 +493,27 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    // Streamer advertising banner assets (authenticated).
+    const mStreamerAsset = p.match(/^\/streamer-asset\/([^/]+\.(?:png|jpe?g|webp))$/i);
+    if (mStreamerAsset && req.method === 'GET') {
+      const name = path.basename(mStreamerAsset[1]);
+      const base = path.join(ROOT, 'output', 'streamer_assets');
+      const fp = path.join(base, name);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'streamer asset not found' });
+      }
+      const ext = path.extname(fp).toLowerCase();
+      const type = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      const st = fs.statSync(fp);
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Length': st.size,
+        'Cache-Control': 'no-store'
+      });
+      fs.createReadStream(fp).pipe(res);
+      return;
+    }
+
     // Flat folder with finished Streamer Clips only.
     const mStreamerReady = p.match(/^\/download\/streamer-ready\/([^/]+)$/);
     if (mStreamerReady) {
@@ -1093,6 +1114,46 @@ except Exception as e:
         progress: parseOverall(log),
       });
     }
+    // POST /api/streamer/banner — save one PNG/JPG/WEBP banner for reuse in every rendered clip.
+    if (p === '/api/streamer/banner' && req.method === 'POST') {
+      let body = '';
+      let tooLarge = false;
+      req.on('data', chunk => {
+        if (tooLarge) return;
+        body += chunk;
+        if (body.length > 16 * 1024 * 1024) tooLarge = true;
+      });
+      req.on('end', () => {
+        if (tooLarge) return json(res, 413, { error: 'Баннер слишком большой. Максимум около 10 МБ.' });
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+        const dataUrl = String(o.data_url || '');
+        const match = dataUrl.match(/^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i);
+        if (!match) return json(res, 400, { error: 'Нужен PNG, JPG или WEBP.' });
+
+        let ext = match[1].toLowerCase();
+        if (ext === 'jpeg') ext = 'jpg';
+        let buf;
+        try { buf = Buffer.from(match[2].replace(/\s/g, ''), 'base64'); }
+        catch { return json(res, 400, { error: 'Не удалось прочитать изображение.' }); }
+        if (!buf.length || buf.length > 10 * 1024 * 1024) {
+          return json(res, 413, { error: 'Баннер должен быть не больше 10 МБ.' });
+        }
+
+        const dir = path.join(ROOT, 'output', 'streamer_assets');
+        fs.mkdirSync(dir, { recursive: true });
+        const name = 'banner_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + '.' + ext;
+        fs.writeFileSync(path.join(dir, name), buf);
+        return json(res, 200, {
+          ok: true,
+          file: name,
+          url: '/streamer-asset/' + encodeURIComponent(name),
+          size_bytes: buf.length
+        });
+      });
+      return;
+    }
+
     // POST /api/streamer/preview — download a tiny range and extract one frame.
     if (p === '/api/streamer/preview' && req.method === 'POST') {
       if (STREAMER_PREVIEW_JOB && STREAMER_PREVIEW_JOB.code === undefined) {
