@@ -21,6 +21,7 @@ class GPUDetector:
         self.ffmpeg_path = ffmpeg_path
         self._gpu_info = None
         self._ffmpeg_encoders = None
+        self._encoder_probe_cache = {}
     
     def detect_gpu(self) -> dict:
         """
@@ -388,6 +389,40 @@ class GPUDetector:
         self._ffmpeg_encoders = []
         return []
     
+    def _probe_encoder_usable(self, encoder: str) -> bool:
+        """Return True only if FFmpeg can actually open the hardware encoder.
+
+        Listing encoders only proves that the binary was compiled with support.
+        The current GPU/container can still reject NVENC at runtime.
+        """
+        if encoder in self._encoder_probe_cache:
+            return self._encoder_probe_cache[encoder]
+
+        cmd = [
+            self.ffmpeg_path,
+            '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi',
+            '-i', 'color=c=black:s=128x128:r=30',
+            '-frames:v', '1',
+            '-c:v', encoder,
+            '-f', 'null',
+            '-',
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=SUBPROCESS_FLAGS,
+            )
+            ok = result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            ok = False
+
+        self._encoder_probe_cache[encoder] = ok
+        return ok
+
     def get_recommended_encoder(self) -> dict:
         """
         Get recommended encoder based on detected GPU
@@ -427,12 +462,22 @@ class GPUDetector:
         
         recommended_encoder = encoder_map.get(gpu['type'])
         
-        if recommended_encoder in encoders:
+        if recommended_encoder in encoders and self._probe_encoder_usable(recommended_encoder):
             return {
                 'encoder': recommended_encoder,
                 'preset': preset_map.get(gpu['type']),
                 'available': True,
                 'reason': f"Using {gpu['name']}"
+            }
+        elif recommended_encoder in encoders:
+            return {
+                'encoder': None,
+                'preset': None,
+                'available': False,
+                'reason': (
+                    f"GPU detected ({gpu['name']}) and FFmpeg exposes "
+                    f"{recommended_encoder}, but the encoder cannot open on this device"
+                )
             }
         else:
             return {
