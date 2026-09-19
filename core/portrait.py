@@ -1234,8 +1234,10 @@ class PortraitMixin:
             fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
-            # Zoom-in: use 75% of height to allow vertical movement
-            zoom_factor = 0.75
+            # Safe 9:16 framing: keep the full source height and track only X.
+            # The old 0.75 zoom followed the face on both axes and could cut off
+            # the forehead/head when the detector jumped between landmarks.
+            zoom_factor = 1.0
             crop_w, crop_h = self._get_crop_window(orig_w, orig_h, zoom_factor=zoom_factor)
             out_w, out_h = self._get_ratio_dimensions()
             
@@ -1282,8 +1284,12 @@ class PortraitMixin:
                     sorted_faces = sorted(results.face_landmarks, key=lambda lm: lm[1].x)
                     for face_id, face_landmarks in enumerate(sorted_faces):
                         activity = self._calculate_lip_activity(face_landmarks, orig_w, orig_h, prev_lip_distances.get(face_id))
-                        face_x = face_landmarks[1].x * orig_w
-                        face_y = face_landmarks[1].y * orig_h
+                        xs = [lm.x for lm in face_landmarks]
+                        ys = [lm.y for lm in face_landmarks]
+                        # Bounding-box center is much more stable than a single
+                        # nose landmark, especially during head turns.
+                        face_x = ((min(xs) + max(xs)) * 0.5) * orig_w
+                        face_y = ((min(ys) + max(ys)) * 0.5) * orig_h
                         center_score = 1.0 - abs(face_x - orig_w / 2) / (orig_w / 2)
                         combined_score = (activity * (1 - center_weight)) + (center_score * center_weight)
                         
@@ -1301,10 +1307,11 @@ class PortraitMixin:
                     max_activity = best_face['activity']
                 
                 crop_x = int(best_face_x - crop_w / 2)
-                crop_y = int(best_face_y - crop_h / 2)
                 analyzed_indices.append(frames_read)
                 analyzed_positions_x.append(max(0, min(crop_x, orig_w - crop_w)))
-                analyzed_positions_y.append(max(0, min(crop_y, orig_h - crop_h)))
+                # Full-height crop: never pan vertically, so the head cannot
+                # drift out of frame.
+                analyzed_positions_y.append(0)
                 analyzed_activities.append(max_activity)
                 frames_read += 1
 
@@ -1313,13 +1320,12 @@ class PortraitMixin:
                     last_log_time = time.time()
 
             crop_positions = self._interpolate_sampled(analyzed_positions_x, analyzed_indices, frames_read)
-            crop_ys = self._interpolate_sampled(analyzed_positions_y, analyzed_indices, frames_read)
+            crop_ys = [0] * max(0, frames_read)
             face_activities = self._interpolate_sampled(analyzed_activities, analyzed_indices, frames_read)
             
             if self.mediapipe_settings.get("smooth_follow", True):
                 pan_limit = self.mediapipe_settings.get("pan_speed_limit", 1.8)
                 crop_positions = self._smooth_follow_positions(crop_positions, pan_limit)
-                crop_ys = self._smooth_follow_positions(crop_ys, pan_limit * 0.8)
             
             self._encode_portrait_single_pass(
                 input_path, output_path, crop_positions, crop_w, crop_h, out_w, out_h,
