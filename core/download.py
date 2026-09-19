@@ -1670,7 +1670,17 @@ class DownloadMixin:
             """
             self.log(f"  Downloading section {start_time} → {end_time} ({resolution})...")
 
-            target_h = self._resolve_target_height(url, resolution)
+            # Avoid a separate metadata extraction before every clip. On Streamer
+            # Studio this used to call _server_available_heights() and then launch
+            # yt-dlp again, effectively doubling YouTube extraction requests per
+            # clip and making RunPod hit anti-bot protection much sooner.
+            res = str(resolution or "1080p").strip().lower()
+            res_map = {
+                "2160p": 2160, "1440p": 1440, "1080p": 1080,
+                "720p": 720, "480p": 480, "360p": 360,
+                "240p": 240, "144p": 144,
+            }
+            target_h = 2160 if res in ("auto", "auto (best)", "best", "otomatis") else res_map.get(res, 1080)
             # Force a sensible minimum (clips/shorts look bad below 720p) while
             # still respecting the requested max resolution.
             min_h = 720 if target_h >= 720 else target_h
@@ -1730,8 +1740,20 @@ class DownloadMixin:
                 # token). Use clients that don't require one.
                 cmd.extend([
                     "--extractor-args",
-                                    "youtube:player_client=web,web_embedded,web_safari,mweb"
+                    "youtube:player_client=web,web_embedded,web_safari,mweb"
                 ])
+
+                # Streamer Studio downloads sections through the yt-dlp subprocess.
+                # Explicitly pass the same Deno/EJS runtime that metadata extraction
+                # uses, otherwise YouTube's n-challenge can fail even though manual
+                # yt-dlp tests work.
+                deno_path = get_deno_path()
+                if deno_path and Path(deno_path).exists():
+                    cmd.extend([
+                        "--js-runtimes", f"deno:{deno_path}",
+                        "--remote-components", "ejs:github",
+                    ])
+
                 cmd.append(url)
 
                 self.log(f"  Running (attempt {attempt}/{MAX_ATTEMPTS}):")
