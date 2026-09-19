@@ -76,6 +76,11 @@
           <div class="bg-zinc-950 rounded p-2"><span class="text-zinc-500">Ширина</span><div id="rw">—</div></div>
           <div class="bg-zinc-950 rounded p-2"><span class="text-zinc-500">Высота</span><div id="rh">—</div></div>
         </div>
+        <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-2 mt-3">
+          <input id="profileName" class="input" placeholder="Имя профиля, например: Sasavot">
+          <button id="saveProfile" class="btn btn-soft" type="button">💾 Сохранить рамку</button>
+          <select id="profileSelect" class="input"><option value="">Профили стримеров...</option></select>
+        </div>
       </section>
     </div>
 
@@ -241,6 +246,42 @@ function updateRectInfo(){
 $('#pasteBtn').onclick=async()=>{ try{$('#sourceUrl').value=await navigator.clipboard.readText();}catch{} };
 $('#camPct').oninput=()=>$('#camPctLabel').textContent=$('#camPct').value+'%';
 $('#gameX').oninput=()=>$('#gameXLabel').textContent=$('#gameX').value+'%';
+
+const PROFILE_KEY='streamer_webcam_profiles_v1';
+function getProfiles(){ try{return JSON.parse(localStorage.getItem(PROFILE_KEY)||'{}')}catch{return {}} }
+function refreshProfiles(){
+  const all=getProfiles(); const sel=$('#profileSelect'); const current=sel.value;
+  sel.innerHTML='<option value="">Профили стримеров...</option>';
+  Object.keys(all).sort().forEach(name=>{
+    const opt=document.createElement('option'); opt.value=name; opt.textContent=name; sel.appendChild(opt);
+  });
+  if(all[current]) sel.value=current;
+}
+$('#saveProfile').onclick=()=>{
+  const name=$('#profileName').value.trim();
+  const r=normalizedRect();
+  if(!name){alert('Введи имя профиля стримера.');return;}
+  if(!r){alert('Сначала выдели веб-камеру рамкой.');return;}
+  const all=getProfiles();
+  all[name]={rect:r,camPct:+$('#camPct').value,gameX:+$('#gameX').value};
+  localStorage.setItem(PROFILE_KEY,JSON.stringify(all));
+  refreshProfiles(); $('#profileSelect').value=name;
+};
+$('#profileSelect').onchange=()=>{
+  const p=getProfiles()[$('#profileSelect').value];
+  if(!p) return;
+  $('#profileName').value=$('#profileSelect').value;
+  $('#camPct').value=p.camPct||36; $('#camPct').oninput();
+  $('#gameX').value=p.gameX==null?50:p.gameX; $('#gameX').oninput();
+  if(p.rect){
+    rect={
+      x:p.rect.x*canvas.width, y:p.rect.y*canvas.height,
+      w:p.rect.w*canvas.width, h:p.rect.h*canvas.height
+    };
+    redraw(); updateRectInfo();
+  }
+};
+refreshProfiles();
 
 async function loadPreview(){
   const url=$('#sourceUrl').value.trim();
