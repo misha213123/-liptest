@@ -99,6 +99,15 @@ def tune_encoder_args(args: list[str]) -> list[str]:
     return out
 
 
+def _is_hw_encoder_args(args: list[str]) -> bool:
+    joined = " ".join(args or [])
+    return any(enc in joined for enc in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf"))
+
+
+def _cpu_encoder_args() -> list[str]:
+    return ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
+
+
 def split_title(text: str) -> tuple[str, str]:
     """Split a short hook into two visually balanced lines."""
     clean = re.sub(r"\s+", " ", str(text or "").strip()).upper()
@@ -418,18 +427,41 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_file: Path, encoder_args: list[str]) -> None:
     escaped = str(ass_file).replace("\\", "/").replace(":", "\\:")
-    cmd = [
-        get_ffmpeg_path(), "-y",
-        "-i", str(input_path),
-        "-vf", f"ass='{escaped}'",
-        *encoder_args,
-        "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
-        str(output_path),
-    ]
+
+    def make_cmd(enc_args: list[str]) -> list[str]:
+        return [
+            get_ffmpeg_path(), "-y",
+            "-i", str(input_path),
+            "-vf", f"ass='{escaped}'",
+            *enc_args,
+            "-pix_fmt", "yuv420p",
+            "-c:a", "copy",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+
     debug_log("[streamer] Burn subtitles + 2s title in one pass.", flush=True)
-    result = core._run_ffmpeg_subprocess(cmd, timeout=900)
+    result = core._run_ffmpeg_subprocess(make_cmd(encoder_args), timeout=900)
+
+    if result.returncode != 0 and _is_hw_encoder_args(encoder_args):
+        tail_lower = (result.stderr or "").lower()
+        if (
+            "unsupported device" in tail_lower
+            or "no capable devices found" in tail_lower
+            or "openencodesessionex failed" in tail_lower
+            or "error while opening encoder" in tail_lower
+        ):
+            debug_log(
+                "[streamer] ⚠ NVENC недоступен для прожига текста — повторяю на CPU/libx264.",
+                flush=True,
+            )
+            try:
+                if output_path.exists():
+                    output_path.unlink()
+            except OSError:
+                pass
+            result = core._run_ffmpeg_subprocess(make_cmd(_cpu_encoder_args()), timeout=900)
+
     if result.returncode != 0:
         tail = "\n".join((result.stderr or "").splitlines()[-30:])
         raise RuntimeError("Не удалось прожечь текст:\n" + tail)
@@ -691,6 +723,30 @@ def insert_ad_banner(
             flush=True,
         )
         result = core._run_ffmpeg_subprocess(cmd, timeout=1200)
+        if result.returncode != 0 and _is_hw_encoder_args(encoder_args):
+            debug_log(
+                "[streamer] ⚠ GPU encoder не смог наложить рекламу — повторяю на CPU/libx264.",
+                flush=True,
+            )
+            cpu_cmd = [
+                get_ffmpeg_path(), "-y",
+                "-i", str(input_path),
+                "-i", str(banner_path),
+                "-filter_complex", filter_complex,
+                "-map", "[vout]",
+                "-map", "0:a?",
+                *_cpu_encoder_args(),
+                "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                str(output_path),
+            ]
+            try:
+                if output_path.exists():
+                    output_path.unlink()
+            except OSError:
+                pass
+            result = core._run_ffmpeg_subprocess(cpu_cmd, timeout=1200)
         if result.returncode != 0:
             tail = "\n".join((result.stderr or "").splitlines()[-40:])
             raise RuntimeError("Не удалось наложить рекламное видео:\n" + tail)
@@ -772,6 +828,29 @@ def insert_ad_banner(
         flush=True,
     )
     result = core._run_ffmpeg_subprocess(cmd, timeout=1200)
+    if result.returncode != 0 and _is_hw_encoder_args(encoder_args):
+        debug_log(
+            "[streamer] ⚠ GPU encoder не смог вставить рекламу — повторяю на CPU/libx264.",
+            flush=True,
+        )
+        cpu_cmd = [
+            get_ffmpeg_path(), "-y",
+            "-i", str(input_path),
+            "-i", str(banner_path),
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "[aout]",
+            *_cpu_encoder_args(),
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        try:
+            if output_path.exists():
+                output_path.unlink()
+        except OSError:
+            pass
+        result = core._run_ffmpeg_subprocess(cpu_cmd, timeout=1200)
     if result.returncode != 0:
         tail = "\n".join((result.stderr or "").splitlines()[-40:])
         raise RuntimeError("Не удалось вставить рекламное видео:\n" + tail)
