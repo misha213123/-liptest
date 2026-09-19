@@ -94,8 +94,11 @@ def tune_encoder_args(args: list[str]) -> list[str]:
         replace_value("-bufsize", "24M")
         replace_value("-preset", "p4")
     elif "libx264" in joined:
-        replace_value("-crf", "16")
-        replace_value("-preset", "medium")
+        # Fast fallback: on RunPod NVENC may be unavailable even with a 4090.
+        # Keep CPU encoding quick instead of silently switching to the very slow
+        # "medium" preset for every clip.
+        replace_value("-crf", "23")
+        replace_value("-preset", "ultrafast")
     return out
 
 
@@ -105,7 +108,12 @@ def _is_hw_encoder_args(args: list[str]) -> bool:
 
 
 def _cpu_encoder_args() -> list[str]:
-    return ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
+    return [
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-threads", "0",
+    ]
 
 
 def split_title(text: str) -> tuple[str, str]:
