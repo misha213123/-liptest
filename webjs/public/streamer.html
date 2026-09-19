@@ -245,12 +245,23 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <div>
             <label class="text-[11px] text-zinc-500">Качество источника</label>
             <select id="resolution" class="input mt-1">
-              <option value="auto" selected>Максимальное доступное — лучше для вебки</option>
-              <option value="2160p">до 2160p</option>
+              <option value="best" selected>Лучшее доступное — без ограничения</option>
+              <option value="4320p">до 8K / 4320p</option>
+              <option value="2160p">до 4K / 2160p</option>
               <option value="1440p">до 1440p</option>
               <option value="1080p">до 1080p</option>
               <option value="720p">до 720p</option>
             </select>
+            <div class="text-[10px] text-zinc-500 mt-1">Для маленькой вебки лучше брать максимальный исходник.</div>
+          </div>
+          <div>
+            <label class="text-[11px] text-zinc-500">Улучшение вебки</label>
+            <select id="webcamEnhance" class="input mt-1">
+              <option value="hq">HQ — Lanczos + резкость</option>
+              <option value="max" selected>HQ+ — максимум чёткости</option>
+              <option value="off">Без улучшения</option>
+            </select>
+            <div class="text-[10px] text-zinc-500 mt-1">HQ+ не создаёт детали из воздуха, но уменьшает ощущение мыла после увеличения.</div>
           </div>
         </div>
 
@@ -284,10 +295,91 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
               <input id="endTime" class="input mt-1" value="00:00:45">
             </div>
           </div>
-          <div class="flex gap-4 mt-3 text-sm">
-            <label class="flex items-center gap-2 text-zinc-500"><input id="captions" type="checkbox"> Субтитры (опционально)</label>
+          <div class="flex gap-4 mt-3 text-sm items-center">
+            <label class="flex items-center gap-2"><input id="captions" type="checkbox" checked> Субтитры</label>
             <label class="flex items-center gap-2"><input id="gpu" type="checkbox" checked> GPU</label>
           </div>
+
+          <details id="subtitleStudio" class="soft rounded-lg p-2 mt-2" open>
+            <summary class="cursor-pointer font-bold text-xs">🎨 Стиль субтитров</summary>
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <div>
+                <label class="text-[10px] text-zinc-500">Пресет</label>
+                <select id="subPreset" class="input mt-1">
+                  <option value="gaming" selected>Gaming — белый + жёлтый</option>
+                  <option value="tiktok">TikTok — белый + бирюзовый</option>
+                  <option value="neon">Neon — белый + розовый</option>
+                  <option value="minimal">Minimal — чистый белый</option>
+                  <option value="karaoke">Karaoke</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Шрифт</label>
+                <select id="subFont" class="input mt-1">
+                  <option>Arial Black</option>
+                  <option>Impact</option>
+                  <option>Segoe UI</option>
+                  <option>Trebuchet MS</option>
+                  <option>Tahoma</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Размер <span id="subSizeLabel">52</span></label>
+                <input id="subSize" type="range" min="30" max="84" value="52" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Высота <span id="subPosLabel">77%</span></label>
+                <input id="subPos" type="range" min="45" max="90" value="77" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Слов одновременно</label>
+                <select id="subWords" class="input mt-1">
+                  <option value="2">2</option>
+                  <option value="3" selected>3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Обводка <span id="subOutlineLabel">4</span></label>
+                <input id="subOutline" type="range" min="0" max="8" value="4" class="w-full mt-2">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Текст</label>
+                <input id="subTextColor" type="color" value="#FFFFFF" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Активное слово</label>
+                <input id="subHighlightColor" type="color" value="#FFD400" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Обводка</label>
+                <input id="subOutlineColor" type="color" value="#000000" class="input h-9 p-1 mt-1">
+              </div>
+              <div>
+                <label class="text-[10px] text-zinc-500">Фон</label>
+                <input id="subBackgroundColor" type="color" value="#000000" class="input h-9 p-1 mt-1">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 mt-2 text-[11px]">
+              <label class="flex items-center gap-2"><input id="subUppercase" type="checkbox" checked> CAPS</label>
+              <label class="flex items-center gap-2"><input id="subBoost" type="checkbox" checked> Увеличивать активное слово</label>
+              <label class="flex items-center gap-2"><input id="subBox" type="checkbox"> Подложка под текст</label>
+              <label class="flex items-center gap-2">Тень <input id="subShadow" type="range" min="0" max="5" value="1" class="w-20"></label>
+            </div>
+
+            <div id="subBgControls" class="hidden mt-2">
+              <div class="flex justify-between text-[10px] text-zinc-500"><span>Прозрачность подложки</span><span id="subBgOpacityLabel">55%</span></div>
+              <input id="subBgOpacity" type="range" min="15" max="90" value="55" class="w-full">
+            </div>
+
+            <div class="mt-2 rounded-lg bg-black/70 border border-zinc-800 h-20 relative overflow-hidden">
+              <div id="subPreview" class="absolute inset-x-3 text-center font-black leading-tight" style="top:77%;transform:translateY(-50%);font-family:'Arial Black';font-size:18px;color:#fff;text-shadow:2px 2px 0 #000,-2px 2px 0 #000,2px -2px 0 #000,-2px -2px 0 #000">
+                ЭТО <span id="subPreviewActive" style="color:#FFD400">ЛУЧШИЙ</span> МОМЕНТ
+              </div>
+            </div>
+          </details>
         </div>
 
         <button id="renderBtn" class="btn btn-primary w-full mt-4" type="button">🎬 Сделать выбранный момент</button>
@@ -443,9 +535,70 @@ function renderHighlights(){
 }
 function useHighlight(i){activeHighlight=i;const h=analysisHighlights[i];if(!h)return;$('#startTime').value=h.start_time;$('#endTime').value=h.end_time;$('#titleText').value=(h.timed_title&&h.timed_title.text)||h.title||'';document.querySelectorAll('.hl-card').forEach((el,j)=>el.classList.toggle('active',j===i));const words=$('#titleText').value.trim().split(/\s+/);const cut=Math.ceil(words.length/2);$('#layoutTitle').innerHTML='<span class="text-red-500">'+esc(words.slice(0,cut).join(' '))+'</span><br><span class="text-white">'+esc(words.slice(cut).join(' '))+'</span>'}
 
+const SUB_PRESETS={
+ gaming:{style:'pop',font:'Arial Black',size:52,pos:77,words:3,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:true},
+ tiktok:{style:'pop',font:'Arial Black',size:52,pos:76,words:3,text:'#FFFFFF',hi:'#25F4EE',outline:'#000000',outlineSize:4,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:true},
+ neon:{style:'pop',font:'Impact',size:54,pos:75,words:3,text:'#FFFFFF',hi:'#FF3CAC',outline:'#000000',outlineSize:4,shadow:2,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:true},
+ minimal:{style:'pop',font:'Segoe UI',size:44,pos:80,words:4,text:'#FFFFFF',hi:'#FFFFFF',outline:'#000000',outlineSize:2,shadow:0,box:false,bg:'#000000',bgOpacity:45,uppercase:false,boost:false},
+ karaoke:{style:'karaoke',font:'Arial Black',size:50,pos:78,words:4,text:'#FFFFFF',hi:'#FFD400',outline:'#000000',outlineSize:3,shadow:1,box:false,bg:'#000000',bgOpacity:55,uppercase:true,boost:false}
+};
+let subtitleStyle='pop';
+function applySubtitlePreset(name){
+ const p=SUB_PRESETS[name]||SUB_PRESETS.gaming;
+ subtitleStyle=p.style;
+ $('#subFont').value=p.font;$('#subSize').value=p.size;$('#subPos').value=p.pos;$('#subWords').value=p.words;
+ $('#subTextColor').value=p.text;$('#subHighlightColor').value=p.hi;$('#subOutlineColor').value=p.outline;$('#subOutline').value=p.outlineSize;
+ $('#subShadow').value=p.shadow;$('#subBox').checked=p.box;$('#subBackgroundColor').value=p.bg;$('#subBgOpacity').value=p.bgOpacity;
+ $('#subUppercase').checked=p.uppercase;$('#subBoost').checked=p.boost;
+ updateSubtitlePreview();
+}
+function updateSubtitlePreview(){
+ const size=+$('#subSize').value,pos=+$('#subPos').value,outline=+$('#subOutline').value;
+ const text=$('#subTextColor').value,hi=$('#subHighlightColor').value,oc=$('#subOutlineColor').value,bg=$('#subBackgroundColor').value;
+ const box=$('#subBox').checked,opacity=+$('#subBgOpacity').value/100,font=$('#subFont').value;
+ $('#subSizeLabel').textContent=size;$('#subPosLabel').textContent=pos+'%';$('#subOutlineLabel').textContent=outline;$('#subBgOpacityLabel').textContent=Math.round(opacity*100)+'%';
+ $('#subBgControls').classList.toggle('hidden',!box);
+ const pv=$('#subPreview'),active=$('#subPreviewActive');
+ pv.style.top=pos+'%';pv.style.fontFamily='"'+font+'", sans-serif';pv.style.fontSize=Math.max(12,size*.36)+'px';pv.style.color=text;
+ pv.style.textTransform=$('#subUppercase').checked?'uppercase':'none';
+ pv.style.textShadow=[outline+'px 0 '+oc,-outline+'px 0 '+oc,'0 '+outline+'px '+oc,'0 '+(-outline)+'px '+oc].join(',');
+ pv.style.background=box?hexToRgba(bg,opacity):'transparent';pv.style.padding=box?'4px 8px':'0';pv.style.borderRadius=box?'8px':'0';
+ active.style.color=hi;active.style.fontSize=$('#subBoost').checked?'112%':'100%';
+}
+function hexToRgba(hex,a){const h=hex.replace('#','');const n=parseInt(h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
+$('#subPreset').onchange=()=>applySubtitlePreset($('#subPreset').value);
+['subFont','subSize','subPos','subWords','subOutline','subTextColor','subHighlightColor','subOutlineColor','subBackgroundColor','subUppercase','subBoost','subBox','subShadow','subBgOpacity'].forEach(id=>{
+ const el=$('#'+id);if(el){el.addEventListener('input',updateSubtitlePreview);el.addEventListener('change',updateSubtitlePreview)}
+});
+$('#captions').onchange=()=>{$('#subtitleStudio').style.opacity=$('#captions').checked?'1':'.45'};
+applySubtitlePreset('gaming');
+
+function subtitleSettings(){
+ return{
+   font_name:$('#subFont').value,
+   font_size:+$('#subSize').value,
+   position_y_pct:+$('#subPos').value/100,
+   max_words:+$('#subWords').value,
+   max_chars:28,
+   safe_margin:72,
+   outline:+$('#subOutline').value,
+   shadow:+$('#subShadow').value,
+   spacing:0,
+   text_color:$('#subTextColor').value,
+   highlight_color:$('#subHighlightColor').value,
+   outline_color:$('#subOutlineColor').value,
+   background_color:$('#subBackgroundColor').value,
+   background_opacity:+$('#subBgOpacity').value,
+   background_box:$('#subBox').checked,
+   uppercase:$('#subUppercase').checked,
+   active_boost:$('#subBoost').checked,
+   lead_seconds:0.22
+ };
+}
+
 function renderPayload(h){
  const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,captions:$('#captions').checked,gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value}
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value}
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
