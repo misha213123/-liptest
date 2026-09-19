@@ -699,6 +699,23 @@ function collectFormData() {
     lip_activity: parseFloat($('#s_lip_activity').value) || 0.08,
     captions: $('#s_captions').checked,
     subtitle_style: $('#s_subtitle_style').value,
+    subtitle_settings: {
+      font_size: parseInt($('#s_sub_font_size')?.value || 48),
+      position_y_pct: (parseFloat($('#s_sub_position')?.value || 76) / 100),
+      safe_margin: parseInt($('#s_sub_safe_margin')?.value || 72),
+      max_words: parseInt($('#s_sub_max_words')?.value || 3),
+      max_chars: 24,
+      outline: parseInt($('#s_sub_outline')?.value || 3),
+      shadow: 1,
+      text_color: $('#s_sub_text_color')?.value || '#ffffff',
+      highlight_color: $('#s_sub_highlight_color')?.value || '#00e5ff',
+      font_name: ({
+        default: 'Arial',
+        bold: 'Arial Black',
+        pop: 'Arial Black',
+        minimal: 'Arial'
+      })[$('#s_font_preset')?.value || 'default'] || 'Arial',
+    },
     sync_offset: parseFloat($('#s_sync_offset').value) || 0,
     hook: $('#s_hook').checked,
     hook_style: {
@@ -762,6 +779,14 @@ function populateForm(d) {
   set('s_lip_activity', d.lip_activity ?? 0.08);
   chk('s_captions', d.captions !== false);
   set('s_subtitle_style', d.subtitle_style || 'pop');
+  const ss = d.subtitle_settings || {};
+  set('s_sub_font_size', ss.font_size ?? 48);
+  set('s_sub_position', Math.round((ss.position_y_pct ?? 0.76) * 100));
+  set('s_sub_safe_margin', ss.safe_margin ?? 72);
+  set('s_sub_max_words', ss.max_words ?? 3);
+  set('s_sub_outline', ss.outline ?? 3);
+  const stc=document.getElementById('s_sub_text_color'); if(stc) stc.value = ss.text_color || '#ffffff';
+  const shc=document.getElementById('s_sub_highlight_color'); if(shc) shc.value = ss.highlight_color || '#00e5ff';
   set('s_sync_offset', d.sync_offset ?? 0);
   chk('s_hook', !!d.hook);
 
