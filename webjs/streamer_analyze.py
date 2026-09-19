@@ -335,7 +335,18 @@ def main():
     audio_path = download_audio(url, analysis_dir)
 
     debug_log("[progress] Распознаю весь стрим Faster-Whisper... (overall: 28.0%)", flush=True)
-    transcript = core._transcribe_full_faster_whisper(str(audio_path))
+    try:
+        transcript = core._transcribe_full_faster_whisper(str(audio_path))
+    except Exception as exc:
+        debug_log(
+            f"[streamer-ai] Локальный Faster-Whisper не сработал: {exc}",
+            flush=True,
+        )
+        debug_log(
+            "[progress] Переключаюсь на OpenAI Whisper API... (overall: 30.0%)",
+            flush=True,
+        )
+        transcript = core.transcribe_full_video(str(audio_path))
     (analysis_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
 
     chunks = split_transcript(transcript)
