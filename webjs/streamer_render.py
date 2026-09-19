@@ -92,6 +92,7 @@ def tune_encoder_args(args: list[str]) -> list[str]:
 
 
 def split_title(text: str) -> tuple[str, str]:
+    """Split a short hook into two visually balanced lines."""
     clean = re.sub(r"\s+", " ", str(text or "").strip()).upper()
     clean = clean.replace("{", "").replace("}", "").replace("\\", "")
     words = clean.split()[:6]
@@ -99,8 +100,18 @@ def split_title(text: str) -> tuple[str, str]:
         return "", ""
     if len(words) == 1:
         return words[0], ""
-    pivot = max(1, (len(words) + 1) // 2)
-    return " ".join(words[:pivot]), " ".join(words[pivot:])
+
+    # Choose the split with the smallest difference in character width.
+    best_idx = 1
+    best_score = None
+    for i in range(1, len(words)):
+        a = " ".join(words[:i])
+        b = " ".join(words[i:])
+        score = abs(len(a) - len(b))
+        if best_score is None or score < best_score:
+            best_score = score
+            best_idx = i
+    return " ".join(words[:best_idx]), " ".join(words[best_idx:])
 
 
 def ass_time(seconds: float) -> str:
@@ -199,24 +210,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if title_enabled and title_text.strip():
         top, bottom = split_title(title_text)
         if top:
-            # Keep the title just below the webcam/game boundary, like short-form
-            # gaming edits. Red top line + white second line with thick black outline.
-            # Captions use a 720x1280 ASS canvas; keep title coordinates in
-            # that same space so it stays exactly at the webcam/game boundary.
-            y = int(round(1280 * max(0.25, min(0.48, webcam_height_pct)))) + 24
-            y = max(340, min(700, y))
+            # IMPORTANT: when captions are enabled the ASS canvas is 720x1280,
+            # otherwise this title-only file is 1080x1920. Use the matching
+            # coordinate system so the hook is always truly centered.
+            canvas_w, canvas_h = ((720, 1280) if captions else (1080, 1920))
+            center_x = canvas_w // 2
+            center_y = canvas_h // 2
+
+            longest = max(len(top), len(bottom or ""))
+            if canvas_w == 720:
+                font_size = 54 if longest <= 13 else 48 if longest <= 17 else 42
+                outline = 4
+            else:
+                font_size = 82 if longest <= 13 else 72 if longest <= 17 else 62
+                outline = 6
+
             duration = max(1.2, min(3.5, float(title_duration or 2.3)))
+            base = (
+                r"{\an5\pos(" + str(center_x) + "," + str(center_y) + r")"
+                r"\fnArial Black\b1\fs" + str(font_size)
+                + r"\bord" + str(outline) + r"\shad1\fscx96\fscy96"
+            )
             if bottom:
                 title_ass = (
-                    r"{\an8\pos(540," + str(y) + r")\fs76\fnArial Black\b1\bord6\shad1"
-                    r"\c&H0000FF&}" + top
+                    base
+                    + r"\c&H0000FF&}" + top
                     + r"\N{\c&HFFFFFF&}" + bottom
                 )
             else:
-                title_ass = (
-                    r"{\an8\pos(540," + str(y) + r")\fs76\fnArial Black\b1\bord6\shad1"
-                    r"\c&H0000FF&}" + top
-                )
+                title_ass = base + r"\c&H0000FF&}" + top
+
             with ass_file.open("a", encoding="utf-8") as fh:
                 fh.write(
                     f"Dialogue: 10,{ass_time(0)},{ass_time(duration)},Default,,0,0,0,,{title_ass}\n"
