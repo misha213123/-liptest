@@ -359,8 +359,13 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
               <input type="number" min="0" max="8" step="1" id="s_sub_outline" oninput="updateSubPreview()" class="w-full bg-surface-2 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[var(--accent)]">
             </div>
             <div>
-              <label class="text-[10px] text-zinc-400 block mb-0.5">Sync Offset (сек.)</label>
-              <input type="number" step="0.05" id="s_sync_offset" class="w-full bg-surface-2 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[var(--accent)]">
+              <label class="text-[10px] text-zinc-400 block mb-0.5">Опережение субтитров (сек.)</label>
+              <input type="number" min="0" max="0.60" step="0.02" id="s_sub_lead" class="w-full bg-surface-2 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[var(--accent)]">
+              <p class="mt-1 text-[9px] text-zinc-500">Показывает текст чуть раньше речи. Старт: 0.22.</p>
+            </div>
+            <div>
+              <label class="text-[10px] text-zinc-400 block mb-0.5">Точная коррекция Sync (сек.)</label>
+              <input type="number" min="-1" max="1" step="0.05" id="s_sync_offset" class="w-full bg-surface-2 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-[var(--accent)]">
             </div>
 
             <div class="col-span-2">
@@ -713,6 +718,7 @@ function collectFormData() {
       max_chars: 24,
       outline: parseInt($('#s_sub_outline')?.value || 3),
       shadow: 1,
+      lead_seconds: parseFloat($('#s_sub_lead')?.value || 0.22),
       text_color: $('#s_sub_text_color')?.value || '#ffffff',
       highlight_color: $('#s_sub_highlight_color')?.value || '#00e5ff',
       font_name: ({
@@ -792,6 +798,7 @@ function populateForm(d) {
   set('s_sub_safe_margin', ss.safe_margin ?? 72);
   set('s_sub_max_words', ss.max_words ?? 3);
   set('s_sub_outline', ss.outline ?? 3);
+  set('s_sub_lead', ss.lead_seconds ?? 0.22);
   const stc=document.getElementById('s_sub_text_color'); if(stc) stc.value = ss.text_color || '#ffffff';
   const shc=document.getElementById('s_sub_highlight_color'); if(shc) shc.value = ss.highlight_color || '#00e5ff';
   set('s_sync_offset', d.sync_offset ?? 0);
