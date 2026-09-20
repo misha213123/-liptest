@@ -142,10 +142,10 @@ class StreamerLayoutRenderer:
         filter_complex = (
             f"[0:v]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},"
             f"{webcam_filters},"
-            f"pad={output_width}:{top_h}:{pad}:{pad}:black[cam];"
+            f"pad={output_width}:{top_h}:{pad}:{pad}:black,setsar=1[cam];"
             f"[0:v]crop={game_crop_w}:{source_h}:{game_x}:0,"
-            f"scale={output_width}:{game_h}:flags=lanczos+accurate_rnd+full_chroma_int[game];"
-            f"[cam][game]vstack=inputs=2[v]"
+            f"scale={output_width}:{game_h}:flags=lanczos+accurate_rnd+full_chroma_int,setsar=1[game];"
+            f"[cam][game]vstack=inputs=2,setsar=1,format=yuv420p[v]"
         )
 
         cmd = [
@@ -202,7 +202,14 @@ class StreamerLayoutRenderer:
             for enc in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf")
         ):
             self.log("  ⚠ GPU encoder не принял фильтр — повторяю Streamer Layout на CPU.")
-            cpu_args = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0"]
+            cpu_args = [
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "20",
+                "-maxrate", "12M",
+                "-bufsize", "24M",
+                "-threads", "0",
+            ]
             gpu_start = 0
             gpu_end = 0
             # Encoder args are inserted immediately after '-map 0:a?'. Rebuild
