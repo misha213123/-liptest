@@ -13,6 +13,7 @@ import numpy as np
 import tempfile
 import sys
 import time
+import shutil
 
 # MediaPipe Tasks API (used only when face_tracking_mode == "mediapipe").
 # Imported lazily-guarded here so startup stays fast when MediaPipe is unused.
