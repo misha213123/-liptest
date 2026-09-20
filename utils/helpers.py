@@ -105,30 +105,37 @@ def is_ytdlp_module_available():
 
 
 def get_deno_path():
-    """Get Deno executable path (required for yt-dlp --remote-components)
-    
-    Checks in order:
-    1. Bundled deno in app_dir/bin/ folder (downloaded via Library page)
-    2. deno in system PATH
-    3. None if not found
+    """Get a persistent Deno executable for yt-dlp's YouTube JS challenges.
+
+    RunPod shells frequently do not restore the installer-added PATH entries
+    after a pod restart, even though Deno still exists on the network volume.
+    Check those persistent locations explicitly before giving up.
     """
     app_dir = get_app_dir()
-    
-    # Check bundled deno (works for both frozen and development)
+
     if sys.platform.startswith('win'):
-        bundled = app_dir / "bin" / "deno.exe"
+        candidates = [
+            app_dir / "bin" / "deno.exe",
+            Path.home() / ".deno" / "bin" / "deno.exe",
+        ]
     else:
-        bundled = app_dir / "bin" / "deno"
-    
-    if bundled.exists():
-        return str(bundled)
-    
-    # Try to find deno in PATH
+        candidates = [
+            app_dir / "bin" / "deno",
+            Path("/workspace/.deno/bin/deno"),
+            Path.home() / ".deno" / "bin" / "deno",
+        ]
+
+    for candidate in candidates:
+        try:
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
+        except OSError:
+            pass
+
     deno_path = shutil.which("deno")
     if deno_path:
         return deno_path
-    
-    # Not found
+
     return None
 
 
