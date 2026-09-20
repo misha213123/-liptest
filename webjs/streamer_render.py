@@ -469,6 +469,8 @@ def create_streamer_ass(
     title_duration: float,
     title_settings: dict | None,
     webcam_height_pct: float,
+    canvas_width: int = VERTICAL_WIDTH,
+    canvas_height: int = VERTICAL_HEIGHT,
     source_url: str = "",
     clip_start_sec: float = 0.0,
     clip_end_sec: float = 0.0,
@@ -477,6 +479,11 @@ def create_streamer_ass(
         return None
 
     ass_file = out_dir / "streamer_text.ass"
+    canvas_width = max(320, min(4320, int(canvas_width or VERTICAL_WIDTH)))
+    canvas_height = max(320, min(4320, int(canvas_height or VERTICAL_HEIGHT)))
+    core.subtitle_settings = dict(getattr(core, "subtitle_settings", {}) or {})
+    core.subtitle_settings["canvas_width"] = canvas_width
+    core.subtitle_settings["canvas_height"] = canvas_height
 
     if captions:
         precise_mode = str(
@@ -593,12 +600,12 @@ def create_streamer_ass(
             core.create_ass_subtitle_capcut(transcript, str(ass_file), ass_offset)
     else:
         ass_file.write_text(
-            """[Script Info]
+            f"""[Script Info]
 Title: Streamer title
 ScriptType: v4.00+
 WrapStyle: 2
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: {canvas_width}
+PlayResY: {canvas_height}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
@@ -615,7 +622,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         title_cfg = dict(title_settings or {})
         top, bottom = split_title(title_text)
         if top:
-            canvas_w, canvas_h = (VERTICAL_WIDTH, VERTICAL_HEIGHT)
+            canvas_w, canvas_h = (canvas_width, canvas_height)
 
             def _inline_ass_color(value: str, fallback: str) -> str:
                 raw = str(value or fallback).strip().lstrip("#")
@@ -768,6 +775,8 @@ def insert_ad_banner(
     black_key: bool = True,
     black_similarity: float = 0.05,
     black_blend: float = 0.02,
+    canvas_width: int = VERTICAL_WIDTH,
+    canvas_height: int = VERTICAL_HEIGHT,
 ) -> float:
     """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
@@ -795,8 +804,10 @@ def insert_ad_banner(
     fade_duration = min(fade_duration, banner_duration / 3.0)
     fade_out_start = max(0.0, banner_duration - fade_duration)
 
-    target_w = max(64, int(round(VERTICAL_WIDTH * width_pct)))
-    target_h = max(64, int(round(VERTICAL_HEIGHT * height_pct)))
+    canvas_width = max(320, min(4320, int(canvas_width or VERTICAL_WIDTH)))
+    canvas_height = max(320, min(4320, int(canvas_height or VERTICAL_HEIGHT)))
+    target_w = max(64, int(round(canvas_width * width_pct)))
+    target_h = max(64, int(round(canvas_height * height_pct)))
     post_duration = max(0.0, clip_duration - pause_at)
 
     # Optional normalized crop from the browser editor. This removes black
@@ -1129,11 +1140,23 @@ def main():
     if end_sec - start_sec > 15 * 60:
         raise ValueError("Один клип пока ограничен 15 минутами")
 
+    output_format = str(job.get("output_format") or "vertical_9_16").strip().lower()
+    if output_format in ("square", "square_blur", "1:1", "1x1"):
+        output_format = "square_blur"
+        output_width = 1080
+        output_height = 1080
+    else:
+        output_format = "vertical_9_16"
+        output_width = VERTICAL_WIDTH
+        output_height = VERTICAL_HEIGHT
+
     layout_mode = str(job.get("layout_mode") or "stream").strip().lower()
     if layout_mode in ("irl", "irl_blur", "irl_vertical"):
         layout_mode = "irl"
     else:
         layout_mode = "stream"
+    if output_format == "square_blur":
+        layout_mode = "irl"
 
     layout_state = str(job.get("layout_state") or "NORMAL").strip().upper()
     if layout_state not in VALID_LAYOUT_STATES:
@@ -1362,6 +1385,8 @@ def main():
         ),
         captions=captions,
         face_tracking=layout_mode == "stream",
+        output_width=output_width,
+        output_height=output_height,
     ):
         debug_log(f"[streamer] {line}", flush=True)
     debug_log(f"[streamer] Output FPS target: {output_fps:.3f}", flush=True)
@@ -1379,6 +1404,8 @@ def main():
             title_duration=title_duration,
             title_settings=title_settings,
             webcam_height_pct=top_pct,
+            canvas_width=output_width,
+            canvas_height=output_height,
             source_url=url,
             clip_start_sec=start_sec,
             clip_end_sec=end_sec,
@@ -1390,7 +1417,7 @@ def main():
 
     if layout_mode == "stream" and (layout_events or layout_state != "NORMAL"):
         debug_log(
-            "[progress] Собираю динамический layout 1080x1920... (overall: 55.0%)",
+            f"[progress] Собираю динамический layout {output_width}x{output_height}... (overall: 55.0%)",
             flush=True,
         )
         render_dynamic_streamer_layout(
@@ -1402,8 +1429,8 @@ def main():
             ass_file=ass_file,
             layout_events=layout_events,
             layout_state=layout_state,
-            output_width=VERTICAL_WIDTH,
-            output_height=VERTICAL_HEIGHT,
+            output_width=output_width,
+            output_height=output_height,
             webcam_height_pct=top_pct,
             gameplay_center_x=game_center_x,
             webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1429,8 +1456,8 @@ def main():
                     output_path=str(target_before_banner),
                     encoder_args=encoder_args,
                     ass_file=ass_file,
-                    output_width=VERTICAL_WIDTH,
-                    output_height=VERTICAL_HEIGHT,
+                    output_width=output_width,
+                    output_height=output_height,
                     foreground_y_pct=float(
                         job.get("irl_foreground_y_pct", 0.48) or 0.48
                     ),
@@ -1478,8 +1505,8 @@ def main():
                     webcam_rect=webcam_rect,
                     encoder_args=encoder_args,
                     ass_file=ass_file,
-                    output_width=VERTICAL_WIDTH,
-                    output_height=VERTICAL_HEIGHT,
+                    output_width=output_width,
+                    output_height=output_height,
                     webcam_height_pct=top_pct,
                     gameplay_center_x=game_center_x,
                     webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1508,8 +1535,8 @@ def main():
     if not turbo_done:
         if layout_mode == "irl":
             debug_log(
-                "[progress] Собираю IRL 9:16: оригинал + blurred background... "
-                "(overall: 35.0%)",
+                f"[progress] Собираю blur layout {output_width}x{output_height}: "
+                "оригинал + blurred background... (overall: 35.0%)",
                 flush=True,
             )
             renderer = IRLLayoutRenderer(
@@ -1520,8 +1547,8 @@ def main():
             renderer.render(
                 str(source_path),
                 str(layout_path),
-                output_width=VERTICAL_WIDTH,
-                output_height=VERTICAL_HEIGHT,
+                output_width=output_width,
+                output_height=output_height,
                 foreground_y_pct=float(job.get("irl_foreground_y_pct", 0.48) or 0.48),
                 background_blur=float(job.get("irl_background_blur", 18.0) or 18.0),
                 background_brightness=float(
@@ -1542,8 +1569,8 @@ def main():
                 str(source_path),
                 str(layout_path),
                 webcam_rect,
-                output_width=VERTICAL_WIDTH,
-                output_height=VERTICAL_HEIGHT,
+                output_width=output_width,
+                output_height=output_height,
                 webcam_height_pct=top_pct,
                 gameplay_center_x=game_center_x,
                 webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1589,16 +1616,18 @@ def main():
             black_key=banner_black_key,
             black_similarity=banner_black_similarity,
             black_blend=0.02,
+            canvas_width=output_width,
+            canvas_height=output_height,
         )
 
     if not final_path.exists() or final_path.stat().st_size < 10_000:
-        raise RuntimeError("Итоговый 9:16 файл не создан")
+        raise RuntimeError("Итоговый short-form файл не создан")
 
     final_validation = validate_vertical_output(
         final_path,
         ffprobe_path=ffprobe_path,
-        expected_width=VERTICAL_WIDTH,
-        expected_height=VERTICAL_HEIGHT,
+        expected_width=output_width,
+        expected_height=output_height,
         require_audio=True,
         expected_fps=output_fps,
         log=lambda line: debug_log(f"[streamer] {line}", flush=True),
@@ -1630,6 +1659,9 @@ def main():
         "start_time": start_sec,
         "end_time": end_sec,
         "layout_mode": layout_mode,
+        "output_format": output_format,
+        "output_width": output_width,
+        "output_height": output_height,
         "layout_state": layout_state,
         "layout_events": layout_events,
         "output_validation": final_validation,
@@ -1688,6 +1720,9 @@ def main():
         "export_path": str(export_path),
         "title_text": title_text,
         "layout_mode": layout_mode,
+        "output_format": output_format,
+        "output_width": output_width,
+        "output_height": output_height,
         "layout_state": layout_state,
         "layout_events": layout_events,
         "output_validation": final_validation,
