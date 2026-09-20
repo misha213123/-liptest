@@ -1134,11 +1134,18 @@ class DownloadMixin:
             return str(srt_path) if srt_path else None, video_info
 
         def download_video_sections_batch(self, url: str, sections: list, output_dir, resolution: str = "1080p") -> list:
-            """Download many YouTube time ranges in one yt-dlp extraction/run.
+            """Download many clip ranges with a single remote extraction.
 
-            This reduces repeated YouTube metadata/player requests on RunPod and
-            lowers the chance of triggering YouTube's anti-bot challenge after a
-            handful of clips.
+            yt-dlp accepts multiple --download-sections flags, but they are not
+            guaranteed to produce one physical output file per range when the
+            same URL/output template is used. On RunPod that previously caused
+            29 requested clips to collapse into a single file.
+
+            Reliable strategy:
+            1) download one continuous envelope covering all requested clips;
+            2) split that local file into batch_001, batch_002, ... with FFmpeg
+               stream-copy, so there are no extra YouTube requests and almost
+               no CPU/GPU cost for the split itself.
             """
             if not sections:
                 return []
@@ -1153,157 +1160,160 @@ class DownloadMixin:
                 except OSError:
                     pass
 
-            res = str(resolution or "1080p").strip().lower()
-            res_map = {
-                "2160p": 2160, "1440p": 1440, "1080p": 1080,
-                "720p": 720, "480p": 480, "360p": 360,
-                "240p": 240, "144p": 144,
-            }
-            target_h = 2160 if res in ("auto", "auto (best)", "best", "otomatis") else res_map.get(res, 1080)
-            min_h = 720 if target_h >= 720 else target_h
-            format_selector = (
-                f"bestvideo[height>={min_h}][height<={target_h}]+bestaudio/"
-                f"best[height>={min_h}][height<={target_h}]/"
-                f"bestvideo[height<={target_h}]+bestaudio/"
-                f"best[height<={target_h}]/best"
-            )
-
-            output_template = str(output_dir / "batch_%(section_number)03d.%(ext)s")
-            cmd = self._ytdlp_command_prefix() + [
-                "-f", format_selector,
-                "--format-sort", "res,br",
-                "--newline",
-                "--no-playlist",
-                "--merge-output-format", "mp4",
-                "-o", output_template,
-            ]
-
-            for section in sections:
-                start = str(section.get("start_time", "")).replace(",", ".")
-                end = str(section.get("end_time", "")).replace(",", ".")
-                if not start or not end:
-                    raise Exception("Batch section is missing start_time/end_time")
-                cmd.extend(["--download-sections", f"*{start}-{end}"])
-
-            ffmpeg_path = get_ffmpeg_path()
-            if ffmpeg_path and Path(ffmpeg_path).exists():
-                cmd.extend(["--ffmpeg-location", str(Path(ffmpeg_path).parent)])
-
-            from utils.helpers import get_app_dir
-            app_dir = get_app_dir()
-            cookies_path = None
-            for loc in [Path("cookies.txt"), app_dir / "cookies.txt"]:
-                if loc.exists() and loc.stat().st_size > 0:
-                    cookies_path = str(loc)
-                    break
-            if cookies_path:
-                cmd.extend(["--cookies", cookies_path])
-                self.log(f"  Using cookies: {cookies_path}")
-            else:
-                self.log("  ⚠ cookies.txt not found; YouTube may require authentication")
-
-            cmd.extend([
-                "--extractor-args",
-                "youtube:player_client=web,web_embedded,web_safari,mweb",
-            ])
-
-            deno_path = get_deno_path()
-            if deno_path and Path(deno_path).exists():
-                cmd.extend([
-                    "--js-runtimes", f"deno:{deno_path}",
-                    "--remote-components", "ejs:github",
-                ])
-
-            cmd.append(url)
-
-            self.log(f"  Batch downloading {len(sections)} YouTube sections in ONE yt-dlp run...")
-            self.log("  Running: " + " ".join(cmd))
-
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=SUBPROCESS_FLAGS,
-            )
-
-            stdout_buf = []
-            stderr_buf = []
-
-            def _drain_batch_stream(stream, store):
-                try:
-                    for raw in stream:
-                        line = raw.strip()
-                        store.append(line)
-                        if "[download]" in line and "%" in line:
-                            percent, total, speed, eta = self._parse_ytdlp_progress_line(line)
-                            if percent is not None:
-                                self.set_progress(
-                                    self._format_ytdlp_download_status(
-                                        f"Downloading {len(sections)} clips...",
-                                        percent, total, speed, eta
-                                    ),
-                                    0.03 + (percent / 100.0) * 0.12
-                                )
-                except Exception:
-                    pass
-
-            threads = [
-                threading.Thread(target=_drain_batch_stream, args=(process.stdout, stdout_buf), daemon=True),
-                threading.Thread(target=_drain_batch_stream, args=(process.stderr, stderr_buf), daemon=True),
-            ]
-            for t in threads:
-                t.start()
-
-            started = time.time()
-            timeout = max(900, len(sections) * 180)
-            while process.poll() is None:
-                if self.is_cancelled():
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except Exception:
-                        process.kill()
-                    raise Exception("Cancelled by user")
-                if time.time() - started > timeout:
-                    try:
-                        process.terminate()
-                        process.wait(timeout=5)
-                    except Exception:
-                        try:
-                            process.kill()
-                        except Exception:
-                            pass
-                    raise Exception(f"Batch section download timed out after {timeout}s")
-                time.sleep(0.5)
-
-            for t in threads:
-                t.join(timeout=5)
-
-            if process.returncode != 0:
-                err = "\n".join(stderr_buf[-40:]).strip() or "\n".join(stdout_buf[-40:]).strip()
-                low = err.lower()
-                if "confirm you're not a bot" in low or "sign in to confirm" in low:
-                    raise Exception(
-                        "YouTube anti-bot challenge. Refresh cookies.txt and retry. "
-                        "The batch downloader now avoids one yt-dlp extraction per clip."
+            def _ts_seconds(value) -> float:
+                raw = str(value or "").strip().replace(",", ".")
+                if not raw:
+                    raise ValueError("empty timestamp")
+                parts = raw.split(":")
+                if len(parts) == 1:
+                    return float(parts[0])
+                if len(parts) == 2:
+                    return float(parts[0]) * 60 + float(parts[1])
+                if len(parts) == 3:
+                    return (
+                        float(parts[0]) * 3600
+                        + float(parts[1]) * 60
+                        + float(parts[2])
                     )
-                raise Exception(f"Batch section download failed!\n\n{err[:1200]}")
+                raise ValueError(f"invalid timestamp: {value}")
 
-            allowed = {".mp4", ".mkv", ".webm", ".mov"}
-            files = sorted(
-                p for p in output_dir.glob("batch_*")
-                if p.is_file() and p.suffix.lower() in allowed and ".part" not in p.name
-            )
-
-            if len(files) != len(sections):
-                raise Exception(
-                    f"Batch downloader expected {len(sections)} section files, "
-                    f"but found {len(files)} in {output_dir}"
+            normalized = []
+            for idx, section in enumerate(sections, 1):
+                start_raw = str(section.get("start_time", "")).replace(",", ".")
+                end_raw = str(section.get("end_time", "")).replace(",", ".")
+                if not start_raw or not end_raw:
+                    raise Exception(
+                        f"Batch section {idx} is missing start_time/end_time"
+                    )
+                start_sec = _ts_seconds(start_raw)
+                end_sec = _ts_seconds(end_raw)
+                if end_sec <= start_sec:
+                    raise Exception(
+                        f"Batch section {idx} has invalid range: "
+                        f"{start_raw} -> {end_raw}"
+                    )
+                normalized.append(
+                    {
+                        "start": start_sec,
+                        "end": end_sec,
+                        "start_raw": start_raw,
+                        "end_raw": end_raw,
+                    }
                 )
 
-            self.log(f"  ✓ Batch download complete: {len(files)} sections from one yt-dlp run")
-            return [str(p) for p in files]
+            envelope_start = min(x["start"] for x in normalized)
+            envelope_end = max(x["end"] for x in normalized)
+            envelope_duration = envelope_end - envelope_start
+
+            def _fmt(seconds: float) -> str:
+                seconds = max(0.0, float(seconds))
+                h = int(seconds // 3600)
+                m = int((seconds % 3600) // 60)
+                s = seconds % 60
+                return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+            self.log(
+                f"  Batch source: one remote download for {len(sections)} clips, "
+                f"envelope {_fmt(envelope_start)} -> {_fmt(envelope_end)} "
+                f"({envelope_duration / 60:.1f} min)"
+            )
+
+            # A single selected clip does not need the envelope+split round trip.
+            if len(normalized) == 1:
+                out = output_dir / "batch_001.mp4"
+                downloaded = self.download_video_section(
+                    url,
+                    normalized[0]["start_raw"],
+                    normalized[0]["end_raw"],
+                    str(out),
+                    resolution=resolution,
+                )
+                p = Path(downloaded)
+                if not p.exists() or p.stat().st_size < 10_000:
+                    raise Exception("Single batch section download produced no valid file")
+                if p.resolve() != out.resolve():
+                    try:
+                        shutil.copy2(p, out)
+                        p = out
+                    except Exception:
+                        pass
+                self.log("  ✓ Batch download complete: 1 section")
+                return [str(p)]
+
+            envelope_target = output_dir / "batch_source.mp4"
+            downloaded = self.download_video_section(
+                url,
+                _fmt(envelope_start),
+                _fmt(envelope_end),
+                str(envelope_target),
+                resolution=resolution,
+            )
+            envelope_path = Path(downloaded)
+            if not envelope_path.exists() or envelope_path.stat().st_size < 10_000:
+                raise Exception("Batch envelope download produced no valid file")
+
+            ffmpeg_path = get_ffmpeg_path()
+            created = []
+            total = len(normalized)
+
+            for idx, item in enumerate(normalized, 1):
+                local_start = max(0.0, item["start"] - envelope_start)
+                duration = item["end"] - item["start"]
+                out = output_dir / f"batch_{idx:03d}.mp4"
+
+                # Stream-copy is intentionally used here. The actual 9:16 render
+                # happens later on CUDA/NVENC, so re-encoding 20-30 source clips
+                # during preparation would waste compute.
+                cmd = [
+                    ffmpeg_path,
+                    "-y",
+                    "-ss", f"{local_start:.3f}",
+                    "-i", str(envelope_path),
+                    "-t", f"{duration:.3f}",
+                    "-map", "0:v:0",
+                    "-map", "0:a?",
+                    "-c", "copy",
+                    "-avoid_negative_ts", "make_zero",
+                    "-movflags", "+faststart",
+                    str(out),
+                ]
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=SUBPROCESS_FLAGS,
+                )
+                if proc.returncode != 0 or not out.exists() or out.stat().st_size < 10_000:
+                    tail = "\n".join((proc.stderr or "").splitlines()[-25:])
+                    raise Exception(
+                        f"Local batch split failed for section {idx}/{total}: "
+                        f"{item['start_raw']} -> {item['end_raw']}\n{tail}"
+                    )
+
+                created.append(out)
+                self.set_progress(
+                    f"Preparing {idx}/{total} downloaded clips...",
+                    0.15 + (idx / total) * 0.05,
+                )
+
+            try:
+                envelope_path.unlink()
+            except OSError:
+                pass
+
+            if len(created) != len(sections):
+                raise Exception(
+                    f"Batch splitter expected {len(sections)} section files, "
+                    f"but created {len(created)} in {output_dir}"
+                )
+
+            self.log(
+                f"  ✓ Batch source ready: {len(created)} sections from one "
+                "remote download"
+            )
+            return [str(p) for p in created]
 
 
         def download_video_section(self, url: str, start_time: str, end_time: str, output_path: str, resolution: str = "1080p") -> str:
