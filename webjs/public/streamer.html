@@ -691,6 +691,14 @@ window.fetch=(input,init)=>{
   return _nativeFetch(target,init);
 };
 $('#projectBadge').textContent='● '+PROJECT_LABEL;
+const PROJECT_STATE_KEY='streamer_project_state_v1_'+PROJECT_ID;
+function readProjectState(){try{return JSON.parse(localStorage.getItem(PROJECT_STATE_KEY)||'{}')}catch{return{}}}
+function writeProjectState(patch){
+  const cur=readProjectState();
+  localStorage.setItem(PROJECT_STATE_KEY,JSON.stringify({...cur,...patch}));
+}
+const _savedProjectState=readProjectState();
+if(_savedProjectState.url)$('#sourceUrl').value=_savedProjectState.url;
 
 const THEME_KEY='streamer_studio_theme_v1';
 function applyTheme(theme){
@@ -790,7 +798,9 @@ $('#saveProfile').onclick=()=>{const name=$('#profileName').value.trim(),r=nrect
 function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileName').value=name;$('#camPct').value=p.camPct||36;$('#gameX').value=p.gameX??50;updateLayoutPreview();if(p.rect){rect={x:p.rect.x*canvas.width,y:p.rect.y*canvas.height,w:p.rect.w*canvas.width,h:p.rect.h*canvas.height};redraw();rectInfo()}}
 $('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
 
-$('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText();syncSourceRangeAvailability()}catch{}};
+$('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText();writeProjectState({url:$('#sourceUrl').value.trim()});syncSourceRangeAvailability()}catch{}};
+$('#sourceUrl').addEventListener('change',()=>writeProjectState({url:$('#sourceUrl').value.trim()}));
+$('#sourceUrl').addEventListener('blur',()=>writeProjectState({url:$('#sourceUrl').value.trim()}));
 function isIrlMode(){return $('#layoutMode').value==='irl'}
 function updateLayoutPreview(){
  const cp=+$('#camPct').value,gp=+$('#gameX').value;
@@ -899,6 +909,7 @@ syncSourceRangeAvailability();
 function durationValues(){const p=$('#durationPreset').value.split(',').map(Number);return{min:p[0],max:p[1]}}
 async function analyzeWholeVod(){
  const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Шаг 1: вставь ссылку на VOD/ролик.');
+ writeProjectState({url});
  if(!isIrlMode()&&!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
  const forceFull=isYouTubeSource()||!sourceSupportsRange();
  const sourceStart=forceFull?'00:00:00':($('#sourceRangeStart').value.trim()||'00:00:00');
@@ -1852,6 +1863,72 @@ async function renderAllChecked(){
  $('#renderAllBtn').disabled=false;$('#renderBtn').disabled=false;
 }
 $('#renderAllBtn').onclick=renderAllChecked;
+
+function applyRecoveredAnalysis(s){
+  $('#analysisBox').classList.remove('hidden');
+  $('#analysisLog').textContent=s.log||'';
+  const p=s.progress==null?(s.running?5:(s.code===0?100:0)):s.progress;
+  $('#analysisProgress').value=p;
+  $('#analysisPct').textContent=Math.round(p)+'%';
+  if(s.running){
+    $('#analyzeBtn').disabled=true;
+    $('#analysisStatus').textContent='⏳ Проект продолжает AI-анализ на сервере...';
+    return false;
+  }
+  $('#analyzeBtn').disabled=false;
+  if(s.result&&s.result.ok){
+    const top=s.result.highlights||[],extra=s.result.alternatives||[];
+    topHighlightCount=top.length;
+    analysisHighlights=[...top,...extra];
+    renderHighlights();
+    $('#highlightsSection').classList.remove('hidden');
+    $('#analysisProgress').value=100;
+    $('#analysisPct').textContent='100%';
+    $('#analysisStatus').textContent='✅ Восстановлено: TOP '+top.length+(extra.length?' + ещё '+extra.length:'')+' моментов';
+    return true;
+  }
+  if(s.code!=null)$('#analysisStatus').textContent='❌ Предыдущий анализ завершился с ошибкой';
+  return true;
+}
+
+async function restoreProjectJobs(){
+  try{
+    const a=await (await fetch('/api/streamer/analyze/status')).json();
+    const finished=applyRecoveredAnalysis(a);
+    if(!finished&&a.running){
+      const timer=setInterval(async()=>{
+        try{
+          const s=await (await fetch('/api/streamer/analyze/status')).json();
+          if(applyRecoveredAnalysis(s)){clearInterval(timer)}
+        }catch{}
+      },1100);
+    }
+  }catch{}
+  try{
+    const r=await (await fetch('/api/streamer/render/status')).json();
+    if(r.running){
+      $('#renderStatus').textContent='⏳ Рендер этого проекта продолжается на сервере...';
+      $('#renderProgress').value=r.progress==null?5:r.progress;
+      const timer=setInterval(async()=>{
+        try{
+          const s=await (await fetch('/api/streamer/render/status')).json();
+          $('#renderLog').textContent=s.log||'';
+          $('#renderProgress').value=s.progress==null?5:s.progress;
+          $('#renderStatus').textContent=s.running
+            ?'⏳ Рендер продолжается • '+Math.round(s.progress||0)+'%'
+            :(s.code===0?'✅ Рендер готов':'❌ Ошибка рендера');
+          if(!s.running){
+            clearInterval(timer);
+            if(s.result&&s.result.ok)addResult(s.result,s.result.title_text||'Готовый клип');
+          }
+        }catch{}
+      },900);
+    }else if(r.result&&r.result.ok){
+      addResult(r.result,r.result.title_text||'Последний готовый клип');
+    }
+  }catch{}
+}
+restoreProjectJobs();
 </script>
 </body>
 </html>
