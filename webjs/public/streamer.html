@@ -98,6 +98,8 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
+      <span id="projectBadge" class="badge text-[11px]">Проект</span>
+      <a href="/streamer-multi.html" class="btn btn-soft">▦ Проекты</a>
       <button id="themeToggle" class="btn btn-soft" type="button" title="Сменить тему">☾ Тема</button>
       <a href="/settings.html" class="btn btn-soft">⚙ Настройки</a>
       <a href="/create.html" class="btn btn-soft">Обычные клипы</a>
@@ -675,6 +677,20 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
 <script>
 const $=s=>document.querySelector(s);
+
+const PROJECT_ID=(new URLSearchParams(location.search).get('project_id')||'default')
+  .replace(/[^A-Za-z0-9_-]/g,'').slice(0,40)||'default';
+const PROJECT_LABEL=(new URLSearchParams(location.search).get('project_name')||PROJECT_ID).slice(0,60);
+const _nativeFetch=window.fetch.bind(window);
+window.fetch=(input,init)=>{
+  let target=input;
+  if(typeof input==='string'&&input.startsWith('/api/streamer/')){
+    const sep=input.includes('?')?'&':'?';
+    target=input+sep+'project_id='+encodeURIComponent(PROJECT_ID);
+  }
+  return _nativeFetch(target,init);
+};
+$('#projectBadge').textContent='● '+PROJECT_LABEL;
 
 const THEME_KEY='streamer_studio_theme_v1';
 function applyTheme(theme){
