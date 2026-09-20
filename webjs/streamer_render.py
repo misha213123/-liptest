@@ -408,7 +408,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             elif longest > 16:
                 font_size = int(font_size * 0.90)
 
-            duration = max(0.8, min(5.0, float(title_duration or 2.3)))
+            clip_duration = max(0.8, float(clip_end_sec) - float(clip_start_sec))
+            duration = max(0.8, min(clip_duration, float(title_duration or 2.3)))
             base = (
                 r"{\an5\pos(" + str(center_x) + "," + str(center_y) + r")"
                 + r"\fn" + font_name + r"\b1\fs" + str(font_size)
@@ -449,7 +450,7 @@ def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_fil
             str(output_path),
         ]
 
-    debug_log("[streamer] Burn subtitles + 2s title in one pass.", flush=True)
+    debug_log("[streamer] Burn subtitles + AI title in one pass.", flush=True)
     result = core._run_ffmpeg_subprocess(make_cmd(encoder_args), timeout=900)
 
     if result.returncode != 0 and _is_hw_encoder_args(encoder_args):
@@ -908,7 +909,15 @@ def main():
     webcam_enhance = str(job.get("webcam_enhance") or "hq").strip().lower()
     title_enabled = bool(job.get("title_enabled", True))
     title_text = str(job.get("title_text") or "").strip()
-    title_duration = float(job.get("title_duration", 2.3) or 2.3)
+    raw_title_duration = job.get("title_duration", 2.3)
+    clip_duration = max(0.8, end_sec - start_sec)
+    if str(raw_title_duration).strip().lower() in ("always", "full", "clip", "all"):
+        title_duration = clip_duration
+    else:
+        title_duration = max(
+            0.8,
+            min(clip_duration, float(raw_title_duration or 2.3)),
+        )
     title_settings = dict(job.get("title_settings") or {})
 
     banner_enabled = bool(job.get("banner_enabled", False))
