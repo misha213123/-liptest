@@ -133,6 +133,11 @@ class IRLLayoutRenderer:
             self.log(
                 "  ⚠ GPU encoder не принял IRL-фильтр — повторяю на CPU/libx264."
             )
+            fps_args = []
+            if "-r" in self.encoder_args:
+                idx = self.encoder_args.index("-r")
+                if idx + 1 < len(self.encoder_args):
+                    fps_args = ["-r", str(self.encoder_args[idx + 1])]
             cpu_args = [
                 "-c:v", "libx264",
                 "-preset", "fast",
@@ -140,6 +145,7 @@ class IRLLayoutRenderer:
                 "-maxrate", "12M",
                 "-bufsize", "24M",
                 "-threads", "0",
+                *fps_args,
             ]
             cpu_cmd = [
                 self.ffmpeg_path,
