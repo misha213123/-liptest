@@ -125,6 +125,91 @@ def fetch_info(url: str) -> dict:
     }
 
 
+def find_cached_source(cache_dir: Path) -> Path | None:
+    allowed = {".mp4", ".mkv", ".webm", ".mov"}
+    candidates = sorted(
+        (
+            p for p in cache_dir.glob("source_1080.*")
+            if p.is_file()
+            and p.suffix.lower() in allowed
+            and ".part" not in p.name
+            and p.stat().st_size > 1_000_000
+        ),
+        key=lambda p: p.stat().st_size,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def download_youtube_source(url: str, cache_dir: Path) -> Path:
+    """Cache the full YouTube source once during AI analysis.
+
+    Rendering then cuts local sections from this file instead of touching
+    YouTube again. This avoids large batch section downloads during render.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = find_cached_source(cache_dir)
+    if cached:
+        debug_log(
+            f"[progress] ♻ Исходник 1080p уже в кэше: {cached.name} "
+            "(overall: 25.0%)",
+            flush=True,
+        )
+        return cached
+
+    last_pct = {"v": -5}
+
+    def hook(d):
+        if d.get("status") != "downloading":
+            return
+        raw = str(d.get("_percent_str") or "").replace("%", "").strip()
+        try:
+            pct = int(float(re.sub(r"[^0-9.]", "", raw)))
+        except Exception:
+            return
+        if pct >= last_pct["v"] + 5:
+            last_pct["v"] = pct
+            debug_log(
+                f"[progress] Кэширую YouTube 1080p {pct}% "
+                f"(overall: {5 + pct * 0.20:.1f}%)",
+                flush=True,
+            )
+
+    debug_log(
+        "[progress] Скачиваю YouTube один раз в 1080p для анализа и будущего рендера... "
+        "(overall: 5.0%)",
+        flush=True,
+    )
+    opts = ytdlp_base_opts()
+    opts.update({
+        "format": (
+            "bestvideo[height>=720][height<=1080]+bestaudio/"
+            "best[height>=720][height<=1080]/"
+            "bestvideo[height<=1080]+bestaudio/"
+            "best[height<=1080]/best"
+        ),
+        "outtmpl": str(cache_dir / "source_1080.%(ext)s"),
+        "merge_output_format": "mp4",
+        "progress_hooks": [hook],
+        "ffmpeg_location": str(Path(get_ffmpeg_path()).parent),
+    })
+    add_youtube_runtime(opts, url)
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([url])
+
+    cached = find_cached_source(cache_dir)
+    if not cached:
+        raise RuntimeError(
+            "YouTube скачался, но итоговый 1080p исходник не найден в кэше."
+        )
+    debug_log(
+        f"[streamer-ai] ✓ Исходник сохранён для рендера: {cached}",
+        flush=True,
+    )
+    return cached
+
+
 def download_audio(url: str, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     last_pct = {"v": -10}
@@ -456,6 +541,13 @@ def main():
     )
     cache["dir"].mkdir(parents=True, exist_ok=True)
 
+    cached_source_path = None
+    if is_youtube:
+        # Important: do this before returning a cached AI result. If highlights
+        # already exist from an older run, pressing "Найти лучшие моменты" will
+        # only fill the local 1080p source cache and will not spend AI tokens.
+        cached_source_path = download_youtube_source(url, cache["dir"])
+
     # Exact same URL + duration range + clip count: return saved AI result.
     # This avoids BOTH Whisper and highlight-model API spend on repeat runs.
     if cache["analysis"].exists():
@@ -555,6 +647,13 @@ def main():
                 source_start,
                 source_end,
             )
+        elif is_youtube and cached_source_path is not None:
+            debug_log(
+                "[progress] Использую уже скачанный 1080p YouTube исходник для Whisper... "
+                "(overall: 27.0%)",
+                flush=True,
+            )
+            audio_path = cached_source_path
         else:
             debug_log("[progress] Загружаю аудио всего ролика... (overall: 5.0%)", flush=True)
             audio_path = download_audio(url, analysis_dir)
