@@ -59,6 +59,109 @@ def fmt_time(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
 
+def youtube_cache_dir(url: str) -> Path:
+    key = hashlib.sha256(f"{str(url or '').strip()}|full".encode("utf-8")).hexdigest()[:24]
+    return APP_DIR / "output" / "streamer_cache" / key
+
+
+def find_cached_youtube_source(url: str) -> Path | None:
+    cache_dir = youtube_cache_dir(url)
+    allowed = {".mp4", ".mkv", ".webm", ".mov"}
+    candidates = sorted(
+        (
+            p for p in cache_dir.glob("source_1080.*")
+            if p.is_file()
+            and p.suffix.lower() in allowed
+            and ".part" not in p.name
+            and p.stat().st_size > 1_000_000
+        ),
+        key=lambda p: p.stat().st_size,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def cut_cached_source(
+    cached_source: Path,
+    output_path: Path,
+    start_sec: float,
+    end_sec: float,
+) -> Path:
+    """Create an exact local clip from the cached full YouTube source.
+
+    First try CUDA decode + NVENC so this preparation is GPU-heavy. If that is
+    unavailable, fall back to a fast local stream copy. No network request is
+    made here.
+    """
+    duration = max(0.1, float(end_sec) - float(start_sec))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    gpu_cmd = [
+        get_ffmpeg_path(),
+        "-y",
+        "-ss", f"{float(start_sec):.3f}",
+        "-hwaccel", "cuda",
+        "-hwaccel_output_format", "cuda",
+        "-i", str(cached_source),
+        "-t", f"{duration:.3f}",
+        "-map", "0:v:0",
+        "-map", "0:a?",
+        "-c:v", "h264_nvenc",
+        "-preset", "p2",
+        "-cq", "20",
+        "-b:v", "0",
+        "-c:a", "aac",
+        "-b:a", "160k",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    proc = subprocess.run(
+        gpu_cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=SUBPROCESS_FLAGS,
+    )
+    if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 10_000:
+        debug_log(
+            f"[streamer] ♻ Локальный source cache -> клип через CUDA/NVENC: {output_path.name}",
+            flush=True,
+        )
+        return output_path
+
+    copy_cmd = [
+        get_ffmpeg_path(),
+        "-y",
+        "-ss", f"{float(start_sec):.3f}",
+        "-i", str(cached_source),
+        "-t", f"{duration:.3f}",
+        "-map", "0:v:0",
+        "-map", "0:a?",
+        "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    proc = subprocess.run(
+        copy_cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=SUBPROCESS_FLAGS,
+    )
+    if proc.returncode != 0 or not output_path.exists() or output_path.stat().st_size < 10_000:
+        tail = "\n".join((proc.stderr or "").splitlines()[-25:])
+        raise RuntimeError(f"Не удалось вырезать клип из локального source cache:\n{tail}")
+
+    debug_log(
+        f"[streamer] ♻ Локальный source cache -> клип без сети: {output_path.name}",
+        flush=True,
+    )
+    return output_path
+
+
 def build_core(cfg: dict) -> AutoClipperCore:
     providers = cfg.get("ai_providers") or {}
     hf = providers.get("highlight_finder") or {}
@@ -171,9 +274,21 @@ def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
     rendered clip we slice only the overlapping segments and distribute their
     words across each segment.  This avoids a second Whisper/OpenAI request.
     """
-    url_key = hashlib.sha256(str(url or "").strip().encode("utf-8")).hexdigest()[:24]
-    transcript_path = APP_DIR / "output" / "streamer_cache" / url_key / "transcript.txt"
-    if not transcript_path.exists() or transcript_path.stat().st_size < 20:
+    full_key = hashlib.sha256(
+        f"{str(url or '').strip()}|full".encode("utf-8")
+    ).hexdigest()[:24]
+    legacy_key = hashlib.sha256(
+        str(url or "").strip().encode("utf-8")
+    ).hexdigest()[:24]
+    transcript_candidates = [
+        APP_DIR / "output" / "streamer_cache" / full_key / "transcript.txt",
+        APP_DIR / "output" / "streamer_cache" / legacy_key / "transcript.txt",
+    ]
+    transcript_path = next(
+        (p for p in transcript_candidates if p.exists() and p.stat().st_size > 20),
+        None,
+    )
+    if transcript_path is None:
         return None
 
     raw = transcript_path.read_text(encoding="utf-8", errors="replace")
@@ -983,8 +1098,15 @@ def main():
             flush=True,
         )
 
-    debug_log("[progress] Загружаю выбранный момент... (overall: 5.0%)", flush=True)
+    debug_log("[progress] Готовлю выбранный момент... (overall: 5.0%)", flush=True)
     debug_log(f"[streamer] {fmt_time(start_sec)} -> {fmt_time(end_sec)}", flush=True)
+
+    cached_youtube_source = find_cached_youtube_source(url)
+    if cached_youtube_source:
+        debug_log(
+            f"[streamer] ♻ Нашёл полный YouTube source cache: {cached_youtube_source.name}",
+            flush=True,
+        )
 
     batch_id = re.sub(r"[^A-Za-z0-9_-]+", "", str(job.get("batch_id") or ""))[:64]
     batch_sections = job.get("batch_sections") if isinstance(job.get("batch_sections"), list) else []
@@ -993,19 +1115,32 @@ def main():
     except Exception:
         batch_index = -1
 
-    if batch_id and batch_sections and 0 <= batch_index < len(batch_sections):
+    if cached_youtube_source is not None:
+        # YouTube was already downloaded while pressing "Найти лучшие моменты".
+        # Every render now cuts only the requested local interval and starts the
+        # GPU pipeline immediately; no yt-dlp call is made during rendering.
+        cut_cached_source(
+            cached_youtube_source,
+            source_path,
+            start_sec,
+            end_sec,
+        )
+    elif batch_id and batch_sections and 0 <= batch_index < len(batch_sections):
         batch_dir = APP_DIR / "output" / "streamer_batches" / batch_id
         batch_dir.mkdir(parents=True, exist_ok=True)
         allowed = {".mp4", ".mkv", ".webm", ".mov"}
         batch_files = sorted(
             p for p in batch_dir.glob("batch_*")
-            if p.is_file() and p.suffix.lower() in allowed and ".part" not in p.name
+            if p.is_file()
+            and p.suffix.lower() in allowed
+            and ".part" not in p.name
+            and p.name != "batch_source.mp4"
         )
 
         if len(batch_files) != len(batch_sections):
             debug_log(
-                f"[streamer] Batch source: скачиваю {len(batch_sections)} выбранных моментов "
-                "одним yt-dlp запуском.",
+                f"[streamer] Batch source cache отсутствует: готовлю "
+                f"{len(batch_sections)} секций через yt-dlp fallback.",
                 flush=True,
             )
             batch_files = [
@@ -1016,12 +1151,6 @@ def main():
                     resolution=requested_resolution,
                 )
             ]
-        else:
-            debug_log(
-                f"[streamer] Batch source: использую уже скачанные секции "
-                f"({len(batch_files)} шт.), без нового запроса к YouTube.",
-                flush=True,
-            )
 
         if len(batch_files) != len(batch_sections):
             raise RuntimeError(
