@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
 
 from core.streamer_dynamic_layout import render_dynamic_streamer_layout
 from core.vertical_quality import validate_vertical_output
