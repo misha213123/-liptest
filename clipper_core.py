@@ -291,7 +291,14 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
     # We detect these signatures, swap the GPU encoder args inside the
     # command for plain libx264 (CPU), and retry once. Subsequent calls in
     # the same session also fall back to CPU automatically.
-    _CPU_FALLBACK_ARGS = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-threads', '0']
+    _CPU_FALLBACK_ARGS = [
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '20',
+        '-maxrate', '12M',
+        '-bufsize', '24M',
+        '-threads', '0',
+    ]
 
     _GPU_ENCODER_NAMES = (
         'h264_nvenc', 'hevc_nvenc',
