@@ -42,10 +42,16 @@ def _cover_dims(source_w: int, source_h: int, target_w: int, target_h: int) -> t
 
 
 def cuda_filters_available(ffmpeg_path: str) -> bool:
+    """Return True only when CUDA filters are present AND libcuda is usable.
+
+    Listing filters is not enough in containers: FFmpeg can expose scale_cuda
+    while the pod does not mount libcuda.so.1. A tiny runtime probe prevents
+    every render from first failing with "Cannot load libcuda.so.1".
+    """
     if os.name == "nt":
         return False
     try:
-        proc = subprocess.run(
+        listed = subprocess.run(
             [ffmpeg_path, "-hide_banner", "-filters"],
             capture_output=True,
             text=True,
@@ -55,8 +61,32 @@ def cuda_filters_available(ffmpeg_path: str) -> bool:
         )
     except Exception:
         return False
-    text = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    return proc.returncode == 0 and "scale_cuda" in text and "hwupload_cuda" in text
+
+    text = (listed.stdout or "") + "\n" + (listed.stderr or "")
+    if listed.returncode != 0 or "scale_cuda" not in text or "hwupload_cuda" not in text:
+        return False
+
+    try:
+        probe = subprocess.run(
+            [
+                ffmpeg_path,
+                "-hide_banner",
+                "-loglevel", "error",
+                "-f", "lavfi",
+                "-i", "color=c=black:s=64x64:d=0.05",
+                "-vf", "format=nv12,hwupload_cuda,scale_cuda=64:64,hwdownload,format=nv12",
+                "-f", "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+    except Exception:
+        return False
+    return probe.returncode == 0
 
 
 def render_streamer_gpu_turbo(
