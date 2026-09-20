@@ -202,6 +202,23 @@ def _youtube_opts_variants(opts: dict, url: str, *, download: bool):
     add_youtube_runtime(primary, url)
     yield "default", primary
 
+    if download and "cookiefile" in primary:
+        # Current YouTube often serves reliable <=1080p HLS through the
+        # web_safari client when logged-in cookies are available, while DASH
+        # media URLs from other clients can die with HTTP 403 mid-download.
+        safari_hls = dict(primary)
+        safari_hls["extractor_args"] = {
+            "youtube": {"player_client": ["web_safari"]}
+        }
+        safari_hls["format"] = (
+            "best[height>=720][height<=1080][protocol^=m3u8]/"
+            "best[height<=1080][protocol^=m3u8]"
+        )
+        safari_hls["concurrent_fragment_downloads"] = 4
+        safari_hls["fragment_retries"] = 10
+        safari_hls["retries"] = 5
+        yield "web_safari HLS + cookies", safari_hls
+
     # Stale/account-specific cookies can make a public video look unavailable.
     anonymous = None
     if "cookiefile" in primary:
@@ -209,21 +226,34 @@ def _youtube_opts_variants(opts: dict, url: str, *, download: bool):
         anonymous.pop("cookiefile", None)
         yield "anonymous fallback", anonymous
 
-    # If direct DASH URLs are rejected with HTTP 403, prefer an HLS rendition.
-    # This keeps the cache useful for final 1080x1920 rendering and avoids
-    # silently dropping to a low-resolution progressive format.
     if download:
+        # Strict HLS fallback: never silently fall back to the same direct DASH
+        # URL that just returned 403.
         hls = dict(anonymous or primary)
         hls["format"] = (
             "best[height>=720][height<=1080][protocol^=m3u8]/"
-            "best[height<=1080][protocol^=m3u8]/"
-            "bestvideo[height<=1080][protocol^=m3u8]+bestaudio/"
-            "best[height<=1080]"
+            "best[height<=1080][protocol^=m3u8]"
         )
         hls["concurrent_fragment_downloads"] = 4
         hls["fragment_retries"] = 10
         hls["retries"] = 5
-        yield "HLS fallback", hls
+        yield "anonymous HLS fallback", hls
+
+        # Some videos expose usable HLS through web_embedded but not the
+        # default client. Keep this last because embedded playback can be
+        # disabled by the uploader.
+        embedded_hls = dict(anonymous or primary)
+        embedded_hls["extractor_args"] = {
+            "youtube": {"player_client": ["web_embedded"]}
+        }
+        embedded_hls["format"] = (
+            "best[height>=720][height<=1080][protocol^=m3u8]/"
+            "best[height<=1080][protocol^=m3u8]"
+        )
+        embedded_hls["concurrent_fragment_downloads"] = 4
+        embedded_hls["fragment_retries"] = 10
+        embedded_hls["retries"] = 5
+        yield "web_embedded HLS fallback", embedded_hls
 
 
 def _youtube_extract(url: str, opts: dict, *, download: bool):
