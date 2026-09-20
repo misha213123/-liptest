@@ -17,6 +17,30 @@ def _even(value: int, minimum: int = 2) -> int:
     return value - (value % 2)
 
 
+def _fit_dims(source_w: int, source_h: int, target_w: int, target_h: int) -> tuple[int, int]:
+    source_aspect = source_w / float(max(source_h, 1))
+    target_aspect = target_w / float(max(target_h, 1))
+    if source_aspect >= target_aspect:
+        width = target_w
+        height = _even(round(target_w / max(source_aspect, 1e-6)))
+    else:
+        height = target_h
+        width = _even(round(target_h * source_aspect))
+    return _even(width), _even(height)
+
+
+def _cover_dims(source_w: int, source_h: int, target_w: int, target_h: int) -> tuple[int, int]:
+    source_aspect = source_w / float(max(source_h, 1))
+    target_aspect = target_w / float(max(target_h, 1))
+    if source_aspect >= target_aspect:
+        height = target_h
+        width = _even(round(target_h * source_aspect))
+    else:
+        width = target_w
+        height = _even(round(target_w / max(source_aspect, 1e-6)))
+    return max(target_w, _even(width)), max(target_h, _even(height))
+
+
 def cuda_filters_available(ffmpeg_path: str) -> bool:
     if os.name == "nt":
         return False
@@ -173,5 +197,137 @@ def render_streamer_gpu_turbo(
     out = Path(output_path)
     if not out.exists() or out.stat().st_size < 10_000:
         raise StreamerGpuTurboError("GPU TURBO finished without a valid output file")
+
+    return str(out)
+
+
+
+def render_irl_gpu_turbo(
+    *,
+    ffmpeg_path: str,
+    input_path: str,
+    output_path: str,
+    encoder_args: list[str],
+    ass_file: str | Path | None = None,
+    output_width: int = 1080,
+    output_height: int = 1920,
+    foreground_y_pct: float = 0.48,
+    background_blur: float = 18.0,
+    background_brightness: float = -0.08,
+    log: Callable[[str], None] | None = None,
+) -> str:
+    """GPU-heavy IRL renderer for RunPod.
+
+    Expensive resize work is done with scale_cuda. The blur itself stays on a
+    small 360x640 CPU frame, then the background is uploaded back to CUDA and
+    enlarged on the GPU. The final 9:16 composition and ASS text are produced
+    in one encode pass. If NVENC is available, encoding is also done on GPU.
+    """
+    log = log or (lambda _m: None)
+    input_path = str(Path(input_path).resolve())
+    output_path = str(Path(output_path).resolve())
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    source_w, source_h = probe_video_size(input_path)
+    output_width = _even(output_width)
+    output_height = _even(output_height)
+    foreground_y_pct = max(0.10, min(0.90, float(foreground_y_pct)))
+    background_blur = max(4.0, min(40.0, float(background_blur)))
+    background_brightness = max(-0.35, min(0.15, float(background_brightness)))
+
+    bg_low_w, bg_low_h = 360, 640
+    bg_scaled_w, bg_scaled_h = _cover_dims(
+        source_w, source_h, bg_low_w, bg_low_h
+    )
+    bg_crop_x = max(0, (bg_scaled_w - bg_low_w) // 2)
+    bg_crop_y = max(0, (bg_scaled_h - bg_low_h) // 2)
+    bg_crop_x -= bg_crop_x % 2
+    bg_crop_y -= bg_crop_y % 2
+
+    fg_w, fg_h = _fit_dims(source_w, source_h, output_width, output_height)
+    fg_x = max(0, (output_width - fg_w) // 2)
+    fg_y = int(round(output_height * foreground_y_pct - fg_h / 2))
+    fg_y = max(0, min(output_height - fg_h, fg_y))
+    fg_x -= fg_x % 2
+    fg_y -= fg_y % 2
+
+    graph = [
+        "[0:v]split=2[bg0][fg0]",
+        (
+            "[bg0]format=nv12,hwupload_cuda,"
+            f"scale_cuda=w={bg_scaled_w}:h={bg_scaled_h}:interp_algo=bicubic,"
+            "hwdownload,format=nv12,"
+            f"crop={bg_low_w}:{bg_low_h}:{bg_crop_x}:{bg_crop_y},"
+            f"gblur=sigma={background_blur:.2f},"
+            f"eq=brightness={background_brightness:.3f}:saturation=0.90,"
+            "format=nv12,hwupload_cuda,"
+            f"scale_cuda=w={output_width}:h={output_height}:interp_algo=bicubic,"
+            "hwdownload,format=nv12[bg]"
+        ),
+        (
+            "[fg0]format=nv12,hwupload_cuda,"
+            f"scale_cuda=w={fg_w}:h={fg_h}:interp_algo=lanczos,"
+            "hwdownload,format=nv12[fg]"
+        ),
+        (
+            f"[bg][fg]overlay=x={fg_x}:y={fg_y}:"
+            "eof_action=pass[stack]"
+        ),
+    ]
+
+    if ass_file:
+        escaped = str(Path(ass_file).resolve()).replace("\\", "/").replace(":", "\\:")
+        graph.append(f"[stack]format=yuv420p,ass='{escaped}'[v]")
+    else:
+        graph.append("[stack]format=yuv420p[v]")
+
+    cmd = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        input_path,
+        "-filter_complex",
+        ";".join(graph),
+        "-map",
+        "[v]",
+        "-map",
+        "0:a?",
+        *list(encoder_args or []),
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+
+    log(
+        "  🚀 IRL GPU TURBO: CUDA resize foreground/background + one-pass text "
+        f"(source={source_w}x{source_h}, fg={fg_w}x{fg_h}, "
+        f"bg_low={bg_low_w}x{bg_low_h})"
+    )
+    log("  FFmpeg IRL GPU TURBO: " + " ".join(cmd))
+
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        timeout=1200,
+    )
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or "").splitlines()[-45:])
+        raise StreamerGpuTurboError("IRL GPU TURBO FFmpeg failed:\n" + tail)
+
+    out = Path(output_path)
+    if not out.exists() or out.stat().st_size < 10_000:
+        raise StreamerGpuTurboError(
+            "IRL GPU TURBO finished without a valid output file"
+        )
 
     return str(out)
