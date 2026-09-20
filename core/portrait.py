@@ -30,7 +30,12 @@ from datetime import datetime
 from openai import OpenAI, APIError, APIConnectionError, RateLimitError, APIStatusError
 from utils.logger import debug_log
 from utils.helpers import get_deno_path, get_ffmpeg_path, is_ytdlp_module_available, extract_video_id
-from core.vertical_quality import VERTICAL_WIDTH, VERTICAL_HEIGHT
+from core.vertical_quality import (
+    VERTICAL_WIDTH,
+    VERTICAL_HEIGHT,
+    ffprobe_path_from_ffmpeg,
+    probe_media,
+)
 
 # Check if yt-dlp is available as a Python module
 try:
@@ -1064,23 +1069,62 @@ class PortraitMixin:
             return False
 
         def _passthrough_portrait(self, input_path: str, output_path: str, progress_callback):
-            """Sumber sudah portrait: lewati crop/face-track. Stream-copy bila resolusi
-            sudah sama dengan target; bila beda, scale ke target (tanpa reframing)."""
+            """Portrait source: keep framing, but enforce delivery quality when needed."""
             import cv2
             cap = cv2.VideoCapture(input_path)
             s_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); s_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
             out_w, out_h = self._get_ratio_dimensions()
+
+            can_stream_copy = False
             if s_w == out_w and s_h == out_h:
-                self.log(f"  ✓ Lewati konversi portrait (stream copy, sudah {out_w}:{out_h})")
-                cmd = [self.ffmpeg_path, "-y", "-i", input_path, "-c", "copy", "-map", "0", output_path]
+                try:
+                    info = probe_media(
+                        input_path,
+                        ffprobe_path=ffprobe_path_from_ffmpeg(self.ffmpeg_path),
+                    )
+                    can_stream_copy = (
+                        info.get("video_codec") == "h264"
+                        and info.get("pixel_format") == "yuv420p"
+                        and (not info.get("has_audio") or info.get("audio_codec") == "aac")
+                    )
+                except Exception:
+                    can_stream_copy = False
+
+            if can_stream_copy:
+                self.log(
+                    f"  ✓ Portrait source уже delivery-ready {out_w}x{out_h}; "
+                    "использую stream copy без потери качества"
+                )
+                cmd = [
+                    self.ffmpeg_path, "-y", "-i", input_path,
+                    "-map", "0",
+                    "-c", "copy",
+                    "-movflags", "+faststart",
+                    output_path,
+                ]
             else:
-                self.log(f"  ✓ Lewati crop portrait (scale {s_w}x{s_h} -> {out_w}x{out_h})")
-                vf = (f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
-                      f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p")
+                self.log(
+                    f"  ✓ Portrait source -> native canvas {out_w}x{out_h} "
+                    f"(source {s_w}x{s_h})"
+                )
+                # Fill the target without stretching. Slightly off-ratio portrait
+                # inputs are cropped at the edges instead of getting black bars.
+                vf = (
+                    f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase:"
+                    "flags=lanczos+accurate_rnd+full_chroma_int,"
+                    f"crop={out_w}:{out_h},setsar=1,format=yuv420p"
+                )
                 encoder_args = self.get_video_encoder_args()
-                cmd = [self.ffmpeg_path, "-y", "-i", input_path, "-vf", vf, *encoder_args,
-                       "-c:a", "aac", "-b:a", "192k", output_path]
+                cmd = [
+                    self.ffmpeg_path, "-y", "-i", input_path,
+                    "-vf", vf,
+                    *encoder_args,
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart",
+                    output_path,
+                ]
             self.log_ffmpeg_command(cmd, "Portrait Passthrough", step="portrait")
             if progress_callback is not None:
                 self.run_ffmpeg_with_progress(cmd, 0, progress_callback)
