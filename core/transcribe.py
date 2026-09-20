@@ -483,6 +483,22 @@ class TranscribeMixin:
             cm_config = self.ai_providers.get("caption_maker", {})
             fw_settings = cm_config.get("faster_whisper", {})
             model_size = fw_settings.get("model_size", "small")
+
+            # Respect GPU-only callers BEFORE loading a local model. On RunPod
+            # CTranslate2 may expose zero CUDA devices even while other CUDA
+            # tooling works; loading medium on CPU can consume a lot of RAM and
+            # make a short render fail before the OpenAI Whisper fallback runs.
+            if not allow_cpu_fallback:
+                try:
+                    import ctranslate2
+                    cuda_devices = int(ctranslate2.get_cuda_device_count() or 0)
+                except Exception:
+                    cuda_devices = 0
+                if cuda_devices <= 0:
+                    raise RuntimeError(
+                        "Faster-Whisper CUDA недоступен в текущем CTranslate2; "
+                        "CPU fallback отключён для streamer captions."
+                    )
         
             # Initialize / reload model if config changed
             if not self.faster_whisper_model or getattr(self, 'faster_whisper_model_size', None) != model_size:
