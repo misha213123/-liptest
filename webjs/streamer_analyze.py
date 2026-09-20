@@ -429,6 +429,20 @@ def main():
 
     source_start = parse_time(job.get("source_start", 0))
     source_end_requested = parse_time(job.get("source_end", 0))
+
+    # Range selection is intended for very long Twitch/Kick VODs.
+    # YouTube videos are always scanned in full, even if stale UI/template
+    # values accidentally send source_start/source_end.
+    url_lower = url.lower()
+    is_youtube = "youtube.com/" in url_lower or "youtu.be/" in url_lower
+    if is_youtube:
+        source_start = 0.0
+        source_end_requested = 0.0
+        debug_log(
+            "[streamer-ai] YouTube источник: диапазон отключён, анализирую весь ролик.",
+            flush=True,
+        )
+
     if source_end_requested > 0 and source_end_requested <= source_start:
         raise ValueError("Конец диапазона должен быть позже начала.")
 
