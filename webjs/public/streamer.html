@@ -146,14 +146,24 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <div id="sourceRangeHelp" class="text-[10px] text-zinc-500 mt-1.5">Сейчас будет анализироваться весь VOD.</div>
         </div>
 
-        <div class="grid md:grid-cols-[220px_1fr] gap-2 mt-2 items-center">
-          <select id="layoutMode" class="input">
-            <option value="stream" selected>🎮 Стрим: webcam + gameplay</option>
-            <option value="irl">📱 IRL: оригинал + blurred background</option>
-          </select>
-          <div id="layoutModeHelp" class="text-[10px] text-zinc-500">
-            Для стрима выдели вебку. IRL оставляет исходный кадр целиком и заполняет 9:16 размытым фоном.
+        <div class="grid md:grid-cols-2 gap-2 mt-2">
+          <div>
+            <label class="text-[10px] text-zinc-500">Композиция</label>
+            <select id="layoutMode" class="input mt-1">
+              <option value="stream" selected>🎮 Стрим: webcam + gameplay</option>
+              <option value="irl">📱 IRL: оригинал + blurred background</option>
+            </select>
           </div>
+          <div>
+            <label class="text-[10px] text-zinc-500">Формат готового ролика</label>
+            <select id="outputFormat" class="input mt-1">
+              <option value="vertical_9_16" selected>📱 9:16 — 1080×1920 TikTok / Shorts</option>
+              <option value="square_blur">⬛ 1:1 — 1080×1080 + blur сверху/снизу</option>
+            </select>
+          </div>
+        </div>
+        <div id="layoutModeHelp" class="text-[10px] text-zinc-500 mt-1.5">
+          Для стрима выдели вебку. IRL оставляет исходный кадр целиком и заполняет 9:16 размытым фоном.
         </div>
       </section>
 
@@ -297,7 +307,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
         </div>
 
         <div class="mt-3 p-2 rounded-lg bg-black/30 border border-zinc-800">
-          <div class="text-[10px] text-zinc-500 text-center mb-2">🎬 Единый шаблон финального Short: webcam + gameplay + AI-заголовок + субтитры + рекламный баннер.</div>
+          <div id="masterTemplateHint" class="text-[10px] text-zinc-500 text-center mb-2">🎬 Шаблон 9:16 • 1080×1920: webcam + gameplay + AI-заголовок + субтитры + реклама.</div>
           <div id="overlayEditor" class="mx-auto w-[230px] max-w-full aspect-[9/16] bg-zinc-950 rounded-xl overflow-hidden border border-zinc-700 relative touch-none select-none">
             <div id="layoutCam" class="absolute inset-x-0 top-0 z-[1] bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center text-[10px] text-zinc-300 pointer-events-none" style="height:36%">WEBCAM • HQ</div>
             <div id="layoutGame" class="absolute inset-x-0 bottom-0 z-[1] bg-gradient-to-br from-sky-950 to-emerald-950 flex items-center justify-center text-[10px] text-zinc-300 pointer-events-none" style="height:64%">GAMEPLAY</div>
@@ -802,11 +812,25 @@ $('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipb
 $('#sourceUrl').addEventListener('change',()=>writeProjectState({url:$('#sourceUrl').value.trim()}));
 $('#sourceUrl').addEventListener('blur',()=>writeProjectState({url:$('#sourceUrl').value.trim()}));
 function isIrlMode(){return $('#layoutMode').value==='irl'}
+function isSquareMode(){return $('#outputFormat').value==='square_blur'}
+function isBlurMode(){return isIrlMode()||isSquareMode()}
+function syncOutputCanvas(){
+ const square=isSquareMode(),editor=$('#overlayEditor');
+ editor.style.aspectRatio=square?'1 / 1':'9 / 16';
+ layoutBannerCanvas.width=540;
+ layoutBannerCanvas.height=square?540:960;
+ $('#masterTemplateHint').textContent=square
+   ?'🎬 Шаблон 1:1 • 1080×1080: оригинал по центру, blur сверху/снизу, AI-заголовок, субтитры и реклама.'
+   :'🎬 Шаблон 9:16 • 1080×1920: webcam + gameplay + AI-заголовок + субтитры + реклама.';
+}
 function updateLayoutPreview(){
  const cp=+$('#camPct').value,gp=+$('#gameX').value;
  $('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';
  const cam=$('#layoutCam'),game=$('#layoutGame');
- if(isIrlMode()){
+ if(isSquareMode()){
+   cam.style.height='100%';cam.style.opacity='.72';cam.textContent='BLUR • BACKGROUND';
+   game.style.height='56.25%';game.style.top='21.875%';game.style.bottom='auto';game.style.opacity='1';game.textContent='ORIGINAL VIDEO • 1:1 FIT';
+ }else if(isIrlMode()){
    cam.style.height='100%';cam.style.opacity='.72';cam.textContent='IRL • BLURRED BACKGROUND';
    game.style.height='34%';game.style.top='33%';game.style.bottom='auto';game.style.opacity='1';game.textContent='ORIGINAL VIDEO';
  }else{
@@ -815,15 +839,21 @@ function updateLayoutPreview(){
  }
 }
 function syncLayoutMode(){
- const irl=isIrlMode();
- $('#webcamSection').classList.toggle('hidden',irl);
- $('#step2Label').textContent=irl?'IRL 9:16':'Рамка вебки';
- $('#layoutModeHelp').textContent=irl
-   ?'IRL: резкий исходный кадр остаётся целиком по центру, сверху/снизу — размытая копия. Вебку выделять не нужно.'
-   :'Стрим: выдели вебку один раз, снизу останется gameplay.';
+ const irl=isIrlMode(),square=isSquareMode(),blur=irl||square;
+ $('#layoutMode').disabled=square;
+ $('#webcamSection').classList.toggle('hidden',blur);
+ $('#step2Label').textContent=square?'Квадрат 1:1':(irl?'IRL 9:16':'Рамка вебки');
+ $('#layoutModeHelp').textContent=square
+   ?'1:1: готовый файл 1080×1080. Исходный кадр остаётся целиком по центру, свободное место сверху и снизу заполняется размытой копией. Вебку выделять не нужно.'
+   :(irl
+     ?'IRL 9:16: резкий исходный кадр остаётся целиком по центру, свободное место заполняет размытая копия. Вебку выделять не нужно.'
+     :'Стрим 9:16: выдели вебку один раз, снизу останется gameplay.');
+ syncOutputCanvas();
  updateLayoutPreview();
+ if(typeof drawBannerEditor==='function')drawBannerEditor();
 }
 $('#layoutMode').onchange=syncLayoutMode;
+$('#outputFormat').onchange=syncLayoutMode;
 $('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;syncLayoutMode();
 
 async function loadPreview(){
@@ -910,7 +940,7 @@ function durationValues(){const p=$('#durationPreset').value.split(',').map(Numb
 async function analyzeWholeVod(){
  const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Шаг 1: вставь ссылку на VOD/ролик.');
  writeProjectState({url});
- if(!isIrlMode()&&!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
+ if(!isBlurMode()&&!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
  const forceFull=isYouTubeSource()||!sourceSupportsRange();
  const sourceStart=forceFull?'00:00:00':($('#sourceRangeStart').value.trim()||'00:00:00');
  const sourceEnd=forceFull?'':$('#sourceRangeEnd').value.trim();
@@ -1658,7 +1688,8 @@ function fullTemplateSnapshot(){
    },
    render:{
      gpu:$('#gpu').checked,
-     layoutMode:$('#layoutMode').value
+     layoutMode:$('#layoutMode').value,
+     outputFormat:$('#outputFormat').value
    },
    banner:{
      enabled:$('#bannerEnabled').checked,
@@ -1737,6 +1768,7 @@ function applyFullTemplate(t,name=''){
 
  setVal('gpu',t.render?.gpu);
  setVal('layoutMode',t.render?.layoutMode);
+ setVal('outputFormat',t.render?.outputFormat||'vertical_9_16');
 
  setVal('bannerEnabled',t.banner?.enabled);
  setVal('bannerContinue',t.banner?.continueMode);
@@ -1823,12 +1855,12 @@ if($('#templateAutoLoad').checked&&autoTemplateName&&streamerTemplates()[autoTem
 }
 
 function renderPayload(h){
- const irl=isIrlMode();
- const webcam=irl?{x:0,y:0,w:1,h:1}:nrect();
+ const blurMode=isBlurMode();
+ const webcam=blurMode?{x:0,y:0,w:1,h:1}:nrect();
  if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),layout_mode:irl?'irl':'stream',layout_state:'NORMAL',layout_events:(!irl&&h&&Array.isArray(h.layout_events))?h.layout_events:[],webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,irl_foreground_y_pct:.48,irl_background_blur:18,irl_background_brightness:-.08,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),layout_mode:blurMode?'irl':'stream',output_format:$('#outputFormat').value,layout_state:'NORMAL',layout_events:(!blurMode&&h&&Array.isArray(h.layout_events))?h.layout_events:[],webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,irl_foreground_y_pct:.48,irl_background_blur:18,irl_background_brightness:-.08,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
@@ -1840,7 +1872,7 @@ async function renderCurrent(){try{const p=renderPayload(null);const r=await run
 $('#renderBtn').onclick=renderCurrent;
 
 async function renderAllChecked(){
- const selected=[...document.querySelectorAll('.hl-check:checked')].map(x=>analysisHighlights[+x.dataset.i]).filter(Boolean);if(!selected.length)return alert('Отметь хотя бы один момент.');if(!isIrlMode()&&!nrect())return alert('Сначала выдели веб-камеру.');
+ const selected=[...document.querySelectorAll('.hl-check:checked')].map(x=>analysisHighlights[+x.dataset.i]).filter(Boolean);if(!selected.length)return alert('Отметь хотя бы один момент.');if(!isBlurMode()&&!nrect())return alert('Сначала выдели веб-камеру.');
  $('#renderAllBtn').disabled=true;
 
  // All checked highlights from the same source share one batch id. The first
