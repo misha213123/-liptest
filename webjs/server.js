@@ -165,10 +165,59 @@ let CREATE_JOB = null;
 const PROCESS_JOBS = new Map();
 const REFIND_JOBS = new Map();
 let TRANS_JOB = null;
-let STREAMER_PREVIEW_JOB = null;
-let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
-let STREAMER_ANALYZE_JOB = null;
-let STREAMER_RENDER_JOB = null;
+const STREAMER_PREVIEW_JOBS = new Map();
+const STREAMER_HIGHLIGHT_PREVIEW_JOBS = new Map();
+const STREAMER_ANALYZE_JOBS = new Map();
+const STREAMER_RENDER_JOBS = new Map();
+const STREAMER_MAX_PROJECTS = Math.max(
+  1,
+  Math.min(5, parseInt(process.env.STREAMER_MAX_PROJECTS || '3', 10) || 3)
+);
+
+function streamerProjectId(u) {
+  const raw = String((u && u.searchParams && u.searchParams.get('project_id')) || 'default');
+  return (raw.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'default');
+}
+
+function streamerRunningProjectIds() {
+  const ids = new Set();
+  for (const map of [
+    STREAMER_PREVIEW_JOBS,
+    STREAMER_HIGHLIGHT_PREVIEW_JOBS,
+    STREAMER_ANALYZE_JOBS,
+    STREAMER_RENDER_JOBS,
+  ]) {
+    for (const [projectId, job] of map) {
+      if (job && job.code === undefined) ids.add(projectId);
+    }
+  }
+  return ids;
+}
+
+function streamerCanStart(projectId) {
+  const running = streamerRunningProjectIds();
+  return running.has(projectId) || running.size < STREAMER_MAX_PROJECTS;
+}
+
+function streamerJobState(job, logLimit = 16000) {
+  let result = null;
+  try {
+    if (job && job.code !== undefined && job.resultFile && fs.existsSync(job.resultFile)) {
+      result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+    }
+  } catch {}
+  const log = job && job.logPath ? tailFile(job.logPath, logLimit) : '';
+  return {
+    running: !!(job && job.code === undefined),
+    code: job ? job.code : null,
+    elapsed_s: job
+      ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000)
+      : null,
+    log,
+    progress: parseOverall(log),
+    result,
+  };
+}
 // job story clip & facebook upload
 let STORY_JOBS = new Map(); // key "run" -> job (biar /api/tasks legible)
 const FB_JOBS = new Map();  // key "run" -> job
@@ -1218,8 +1267,16 @@ except Exception as e:
 
     // POST /api/streamer/preview — download a tiny range and extract one frame.
     if (p === '/api/streamer/preview' && req.method === 'POST') {
-      if (STREAMER_PREVIEW_JOB && STREAMER_PREVIEW_JOB.code === undefined) {
-        return json(res, 409, { error: 'Превью уже загружается' });
+      const projectId = streamerProjectId(u);
+      const existing = STREAMER_PREVIEW_JOBS.get(projectId);
+      if (existing && existing.code === undefined) {
+        return json(res, 409, { error: 'Превью этого проекта уже загружается' });
+      }
+      if (!streamerCanStart(projectId)) {
+        return json(res, 429, {
+          error: `Одновременно можно запускать до ${STREAMER_MAX_PROJECTS} проектов`,
+          max_projects: STREAMER_MAX_PROJECTS
+        });
       }
       let body = '';
       req.on('data', chunk => body += chunk);
@@ -1231,62 +1288,59 @@ except Exception as e:
         if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
 
         const stamp = Date.now();
-        const logPath = path.join(ROOT, 'output', 'streamer_preview_' + stamp + '.log');
-        const resultFile = path.join(ROOT, 'output', '.streamer_preview_' + stamp + '.json');
+        const logPath = path.join(ROOT, 'output', `streamer_preview_${projectId}_${stamp}.log`);
+        const resultFile = path.join(ROOT, 'output', `.streamer_preview_${projectId}_${stamp}.json`);
         const out = fs.createWriteStream(logPath, { flags: 'a' });
-
         const child = spawn(
           PY,
           [path.join(__dirname, 'streamer_preview.py'), url, timestamp, resultFile],
-          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8', STREAMER_PROJECT_ID: projectId } }
         );
         child.stdout.pipe(out);
         child.stderr.pipe(out);
 
-        STREAMER_PREVIEW_JOB = {
+        const job = {
           proc: child,
           code: undefined,
           startedAt: Date.now(),
           logPath,
           resultFile,
           url,
-          timestamp
+          timestamp,
+          projectId
         };
+        STREAMER_PREVIEW_JOBS.set(projectId, job);
         child.on('close', code => {
-          STREAMER_PREVIEW_JOB.code = code;
-          STREAMER_PREVIEW_JOB.finishedAt = Date.now();
+          job.code = code;
+          job.finishedAt = Date.now();
           out.end();
         });
-        return json(res, 200, { ok: true, started: true });
+        return json(res, 200, { ok: true, started: true, project_id: projectId });
       });
       return;
     }
 
     if (p === '/api/streamer/preview/status' && req.method === 'GET') {
-      const job = STREAMER_PREVIEW_JOB;
-      let result = null;
-      try {
-        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
-          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
-          if (result && result.ok && result.image_name) {
-            result.image_url = '/streamer-preview/' + encodeURIComponent(result.image_name);
-          }
-        }
-      } catch {}
-      const log = job && job.logPath ? tailFile(job.logPath) : '';
-      return json(res, 200, {
-        running: !!(job && job.code === undefined),
-        code: job ? job.code : null,
-        log,
-        progress: parseOverall(log),
-        result
-      });
+      const projectId = streamerProjectId(u);
+      const state = streamerJobState(STREAMER_PREVIEW_JOBS.get(projectId), 12000);
+      if (state.result && state.result.ok && state.result.image_name) {
+        state.result.image_url = '/streamer-preview/' + encodeURIComponent(state.result.image_name);
+      }
+      return json(res, 200, { project_id: projectId, ...state });
     }
 
     // POST /api/streamer/highlight-preview — lightweight playable video for an AI-found moment.
     if (p === '/api/streamer/highlight-preview' && req.method === 'POST') {
-      if (STREAMER_HIGHLIGHT_PREVIEW_JOB && STREAMER_HIGHLIGHT_PREVIEW_JOB.code === undefined) {
-        return json(res, 409, { error: 'Предпросмотр другого момента уже готовится' });
+      const projectId = streamerProjectId(u);
+      const existing = STREAMER_HIGHLIGHT_PREVIEW_JOBS.get(projectId);
+      if (existing && existing.code === undefined) {
+        return json(res, 409, { error: 'Предпросмотр этого проекта уже готовится' });
+      }
+      if (!streamerCanStart(projectId)) {
+        return json(res, 429, {
+          error: `Одновременно можно запускать до ${STREAMER_MAX_PROJECTS} проектов`,
+          max_projects: STREAMER_MAX_PROJECTS
+        });
       }
 
       let body = '';
@@ -1303,12 +1357,13 @@ except Exception as e:
 
         const stamp = Date.now();
         const id = crypto.randomBytes(6).toString('hex');
-        const logPath = path.join(ROOT, 'output', 'streamer_highlight_preview_' + stamp + '.log');
-        const resultFile = path.join(ROOT, 'output', '.streamer_highlight_preview_' + stamp + '.json');
-        const jobFile = path.join(ROOT, 'output', '.streamer_highlight_preview_job_' + stamp + '.json');
+        const logPath = path.join(ROOT, 'output', `streamer_highlight_preview_${projectId}_${stamp}.log`);
+        const resultFile = path.join(ROOT, 'output', `.streamer_highlight_preview_${projectId}_${stamp}.json`);
+        const jobFile = path.join(ROOT, 'output', `.streamer_highlight_preview_job_${projectId}_${stamp}.json`);
 
         fs.writeFileSync(jobFile, JSON.stringify({
           id,
+          project_id: projectId,
           url,
           start_time: startTime,
           end_time: endTime
@@ -1318,58 +1373,55 @@ except Exception as e:
         const child = spawn(
           PY,
           [path.join(__dirname, 'streamer_highlight_preview.py'), jobFile, resultFile],
-          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8', STREAMER_PROJECT_ID: projectId } }
         );
         child.stdout.pipe(out);
         child.stderr.pipe(out);
 
-        STREAMER_HIGHLIGHT_PREVIEW_JOB = {
+        const job = {
           proc: child,
           code: undefined,
           startedAt: Date.now(),
           logPath,
           resultFile,
           jobFile,
-          id
+          id,
+          projectId
         };
+        STREAMER_HIGHLIGHT_PREVIEW_JOBS.set(projectId, job);
         child.on('close', code => {
-          STREAMER_HIGHLIGHT_PREVIEW_JOB.code = code;
-          STREAMER_HIGHLIGHT_PREVIEW_JOB.finishedAt = Date.now();
+          job.code = code;
+          job.finishedAt = Date.now();
           out.end();
           try { fs.unlinkSync(jobFile); } catch {}
         });
 
-        return json(res, 200, { ok: true, started: true, id });
+        return json(res, 200, { ok: true, started: true, id, project_id: projectId });
       });
       return;
     }
 
     if (p === '/api/streamer/highlight-preview/status' && req.method === 'GET') {
-      const job = STREAMER_HIGHLIGHT_PREVIEW_JOB;
-      let result = null;
-      try {
-        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
-          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
-          if (result && result.ok && result.file) {
-            result.video_url = '/streamer-highlight-preview/' + encodeURIComponent(result.file);
-          }
-        }
-      } catch {}
-      const log = job && job.logPath ? tailFile(job.logPath, 16000) : '';
-      return json(res, 200, {
-        running: !!(job && job.code === undefined),
-        code: job ? job.code : null,
-        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
-        log,
-        progress: parseOverall(log),
-        result
-      });
+      const projectId = streamerProjectId(u);
+      const state = streamerJobState(STREAMER_HIGHLIGHT_PREVIEW_JOBS.get(projectId), 16000);
+      if (state.result && state.result.ok && state.result.file) {
+        state.result.video_url = '/streamer-highlight-preview/' + encodeURIComponent(state.result.file);
+      }
+      return json(res, 200, { project_id: projectId, ...state });
     }
 
-    // POST /api/streamer/analyze — optionally download/analyze only a selected VOD range.
+    // POST /api/streamer/analyze — one independent analyzer per project slot.
     if (p === '/api/streamer/analyze' && req.method === 'POST') {
-      if (STREAMER_ANALYZE_JOB && STREAMER_ANALYZE_JOB.code === undefined) {
-        return json(res, 409, { error: 'AI уже анализирует ролик' });
+      const projectId = streamerProjectId(u);
+      const existing = STREAMER_ANALYZE_JOBS.get(projectId);
+      if (existing && existing.code === undefined) {
+        return json(res, 409, { error: 'AI уже анализирует этот проект' });
+      }
+      if (!streamerCanStart(projectId)) {
+        return json(res, 429, {
+          error: `Одновременно можно запускать до ${STREAMER_MAX_PROJECTS} проектов`,
+          max_projects: STREAMER_MAX_PROJECTS
+        });
       }
 
       let body = '';
@@ -1389,11 +1441,12 @@ except Exception as e:
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
-        const logPath = path.join(ROOT, 'output', 'streamer_analyze_' + stamp + '.log');
-        const resultFile = path.join(ROOT, 'output', '.streamer_analyze_' + stamp + '.json');
-        const jobFile = path.join(ROOT, 'output', '.streamer_analyze_job_' + stamp + '.json');
+        const logPath = path.join(ROOT, 'output', `streamer_analyze_${projectId}_${stamp}.log`);
+        const resultFile = path.join(ROOT, 'output', `.streamer_analyze_${projectId}_${stamp}.json`);
+        const jobFile = path.join(ROOT, 'output', `.streamer_analyze_job_${projectId}_${stamp}.json`);
         fs.writeFileSync(jobFile, JSON.stringify({
           id,
+          project_id: projectId,
           url,
           min_duration: minDuration,
           max_duration: maxDuration,
@@ -1406,12 +1459,12 @@ except Exception as e:
         const child = spawn(
           PY,
           [path.join(__dirname, 'streamer_analyze.py'), jobFile, resultFile],
-          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8', STREAMER_PROJECT_ID: projectId } }
         );
         child.stdout.pipe(out);
         child.stderr.pipe(out);
 
-        STREAMER_ANALYZE_JOB = {
+        const job = {
           proc: child,
           code: undefined,
           startedAt: Date.now(),
@@ -1419,43 +1472,40 @@ except Exception as e:
           resultFile,
           jobFile,
           id,
-          url
+          url,
+          projectId
         };
+        STREAMER_ANALYZE_JOBS.set(projectId, job);
         child.on('close', code => {
-          STREAMER_ANALYZE_JOB.code = code;
-          STREAMER_ANALYZE_JOB.finishedAt = Date.now();
+          job.code = code;
+          job.finishedAt = Date.now();
           out.end();
           try { fs.unlinkSync(jobFile); } catch {}
         });
 
-        return json(res, 200, { ok: true, started: true, id });
+        return json(res, 200, { ok: true, started: true, id, project_id: projectId });
       });
       return;
     }
 
     if (p === '/api/streamer/analyze/status' && req.method === 'GET') {
-      const job = STREAMER_ANALYZE_JOB;
-      let result = null;
-      try {
-        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
-          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
-        }
-      } catch {}
-      const log = job && job.logPath ? tailFile(job.logPath, 30000) : '';
-      return json(res, 200, {
-        running: !!(job && job.code === undefined),
-        code: job ? job.code : null,
-        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
-        log,
-        progress: parseOverall(log),
-        result
-      });
+      const projectId = streamerProjectId(u);
+      const state = streamerJobState(STREAMER_ANALYZE_JOBS.get(projectId), 30000);
+      return json(res, 200, { project_id: projectId, ...state });
     }
 
-    // POST /api/streamer/render — render selected webcam box + gameplay.
+    // POST /api/streamer/render — one independent render lane per project.
     if (p === '/api/streamer/render' && req.method === 'POST') {
-      if (STREAMER_RENDER_JOB && STREAMER_RENDER_JOB.code === undefined) {
-        return json(res, 409, { error: 'Streamer Clip уже рендерится' });
+      const projectId = streamerProjectId(u);
+      const existing = STREAMER_RENDER_JOBS.get(projectId);
+      if (existing && existing.code === undefined) {
+        return json(res, 409, { error: 'Этот проект уже рендерит клип' });
+      }
+      if (!streamerCanStart(projectId)) {
+        return json(res, 429, {
+          error: `Одновременно можно запускать до ${STREAMER_MAX_PROJECTS} проектов`,
+          max_projects: STREAMER_MAX_PROJECTS
+        });
       }
 
       let body = '';
@@ -1477,13 +1527,14 @@ except Exception as e:
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
-        const logPath = path.join(ROOT, 'output', 'streamer_render_' + stamp + '.log');
-        const resultFile = path.join(ROOT, 'output', '.streamer_render_' + stamp + '.json');
-        const jobFile = path.join(ROOT, 'output', '.streamer_job_' + stamp + '.json');
+        const logPath = path.join(ROOT, 'output', `streamer_render_${projectId}_${stamp}.log`);
+        const resultFile = path.join(ROOT, 'output', `.streamer_render_${projectId}_${stamp}.json`);
+        const jobFile = path.join(ROOT, 'output', `.streamer_job_${projectId}_${stamp}.json`);
 
         const payload = {
           ...o,
           id,
+          project_id: projectId,
           url,
           layout_mode: layoutMode,
           webcam_rect: {
@@ -1497,60 +1548,112 @@ except Exception as e:
         const child = spawn(
           PY,
           [path.join(__dirname, 'streamer_render.py'), jobFile, resultFile],
-          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8', STREAMER_PROJECT_ID: projectId } }
         );
         child.stdout.pipe(out);
         child.stderr.pipe(out);
 
-        STREAMER_RENDER_JOB = {
+        const job = {
           proc: child,
           code: undefined,
           startedAt: Date.now(),
           logPath,
           resultFile,
           jobFile,
-          id
+          id,
+          url,
+          projectId
         };
+        STREAMER_RENDER_JOBS.set(projectId, job);
         child.on('close', code => {
-          STREAMER_RENDER_JOB.code = code;
-          STREAMER_RENDER_JOB.finishedAt = Date.now();
+          job.code = code;
+          job.finishedAt = Date.now();
           out.end();
           try { fs.unlinkSync(jobFile); } catch {}
         });
-        return json(res, 200, { ok: true, started: true, id });
+        return json(res, 200, { ok: true, started: true, id, project_id: projectId });
       });
       return;
     }
 
     if (p === '/api/streamer/render/status' && req.method === 'GET') {
-      const job = STREAMER_RENDER_JOB;
-      let result = null;
-      try {
-        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
-          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
-          if (result && result.ok) {
-            const id = encodeURIComponent(result.id);
-            result.video_url = '/video/streamer/' + id + '/' + encodeURIComponent(result.final_file);
-            result.download_url = result.export_file
-              ? '/download/streamer-ready/' + encodeURIComponent(result.export_file)
-              : '/download/streamer/' + id + '/' + encodeURIComponent(result.final_file);
-            result.source_download_url = '/download/streamer/' + id + '/' + encodeURIComponent(result.source_file);
-            result.ready_folder = 'output\\FINAL_STREAMER_CLIPS';
-          }
+      const projectId = streamerProjectId(u);
+      const state = streamerJobState(STREAMER_RENDER_JOBS.get(projectId), 24000);
+      if (state.result && state.result.ok) {
+        const id = encodeURIComponent(state.result.id);
+        state.result.video_url = '/video/streamer/' + id + '/' + encodeURIComponent(state.result.final_file);
+        state.result.download_url = state.result.export_file
+          ? '/download/streamer-ready/' + encodeURIComponent(state.result.export_file)
+          : '/download/streamer/' + id + '/' + encodeURIComponent(state.result.final_file);
+        state.result.source_download_url = '/download/streamer/' + id + '/' + encodeURIComponent(state.result.source_file);
+        state.result.ready_folder = 'output\\FINAL_STREAMER_CLIPS';
+      }
+      return json(res, 200, { project_id: projectId, ...state });
+    }
+
+    // Dashboard for 3-5 simultaneous Streamer Studio projects.
+    if (p === '/api/streamer/projects/status' && req.method === 'GET') {
+      const ids = new Set([
+        ...STREAMER_PREVIEW_JOBS.keys(),
+        ...STREAMER_HIGHLIGHT_PREVIEW_JOBS.keys(),
+        ...STREAMER_ANALYZE_JOBS.keys(),
+        ...STREAMER_RENDER_JOBS.keys(),
+      ]);
+      const projects = [];
+      for (const projectId of ids) {
+        const analyze = streamerJobState(STREAMER_ANALYZE_JOBS.get(projectId), 3000);
+        const render = streamerJobState(STREAMER_RENDER_JOBS.get(projectId), 3000);
+        const preview = streamerJobState(STREAMER_HIGHLIGHT_PREVIEW_JOBS.get(projectId), 1500);
+        const active = analyze.running || render.running || preview.running;
+        let phase = 'idle';
+        let progress = null;
+        if (render.running) {
+          phase = 'render';
+          progress = render.progress;
+        } else if (analyze.running) {
+          phase = 'analyze';
+          progress = analyze.progress;
+        } else if (preview.running) {
+          phase = 'preview';
+          progress = preview.progress;
+        } else if (render.code === 0) {
+          phase = 'render_done';
+          progress = 100;
+        } else if (analyze.code === 0) {
+          phase = 'analyze_done';
+          progress = 100;
+        } else if (render.code != null || analyze.code != null) {
+          phase = 'error';
         }
-      } catch {}
-      const log = job && job.logPath ? tailFile(job.logPath, 24000) : '';
+        const srcJob = STREAMER_RENDER_JOBS.get(projectId) || STREAMER_ANALYZE_JOBS.get(projectId);
+        projects.push({
+          project_id: projectId,
+          active,
+          phase,
+          progress,
+          url: srcJob ? srcJob.url || null : null,
+          analyze: {
+            running: analyze.running,
+            code: analyze.code,
+            elapsed_s: analyze.elapsed_s,
+            progress: analyze.progress,
+          },
+          render: {
+            running: render.running,
+            code: render.code,
+            elapsed_s: render.elapsed_s,
+            progress: render.progress,
+          },
+        });
+      }
       return json(res, 200, {
-        running: !!(job && job.code === undefined),
-        code: job ? job.code : null,
-        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
-        log,
-        progress: parseOverall(log),
-        result
+        max_projects: STREAMER_MAX_PROJECTS,
+        running_projects: streamerRunningProjectIds().size,
+        projects,
       });
     }
 
-    // POST /api/create — phase 1: subtitle + AI highlights (seperti bot)
+        // POST /api/create — phase 1: subtitle + AI highlights (seperti bot)
     if (p === '/api/create' && req.method === 'POST') {
       if (CREATE_JOB && CREATE_JOB.code === undefined) return json(res, 409, { error: 'Analisis masih berjalan' });
       let body = '';
