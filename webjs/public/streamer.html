@@ -815,10 +815,9 @@ function isIrlMode(){return $('#layoutMode').value==='irl'}
 function isSquareMode(){return $('#outputFormat').value==='square_blur'}
 function isBlurMode(){return isIrlMode()||isSquareMode()}
 function syncOutputCanvas(){
- const square=isSquareMode(),editor=$('#overlayEditor');
+ const square=isSquareMode(),editor=$('#overlayEditor'),masterCanvas=$('#layoutBannerCanvas');
  editor.style.aspectRatio=square?'1 / 1':'9 / 16';
- layoutBannerCanvas.width=540;
- layoutBannerCanvas.height=square?540:960;
+ if(masterCanvas){masterCanvas.width=540;masterCanvas.height=square?540:960}
  $('#masterTemplateHint').textContent=square
    ?'🎬 Шаблон 1:1 • 1080×1080: оригинал по центру, blur сверху/снизу, AI-заголовок, субтитры и реклама.'
    :'🎬 Шаблон 9:16 • 1080×1920: webcam + gameplay + AI-заголовок + субтитры + реклама.';
@@ -850,7 +849,7 @@ function syncLayoutMode(){
      :'Стрим 9:16: выдели вебку один раз, снизу останется gameplay.');
  syncOutputCanvas();
  updateLayoutPreview();
- if(typeof drawBannerEditor==='function')drawBannerEditor();
+ setTimeout(()=>{if(typeof drawBannerEditor==='function')drawBannerEditor()},0);
 }
 $('#layoutMode').onchange=syncLayoutMode;
 $('#outputFormat').onchange=syncLayoutMode;
