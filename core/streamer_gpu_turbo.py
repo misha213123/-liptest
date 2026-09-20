@@ -142,7 +142,7 @@ def render_streamer_gpu_turbo(
             f"scale_cuda=w={output_width}:h={game_h}:interp_algo=lanczos,"
             "hwdownload,format=nv12[game]"
         ),
-        "[cam][game]vstack=inputs=2[stack]",
+        "[cam][game]vstack=inputs=2,setsar=1[stack]",
     ]
 
     if ass_file:
@@ -271,7 +271,7 @@ def render_irl_gpu_turbo(
         ),
         (
             f"[bg][fg]overlay=x={fg_x}:y={fg_y}:"
-            "eof_action=pass[stack]"
+            "eof_action=pass,setsar=1[stack]"
         ),
     ]
 
