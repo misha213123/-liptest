@@ -74,7 +74,7 @@ class IRLLayoutRenderer:
             "setsar=1,unsharp=5:5:0.25:5:5:0.00[fg];"
             f"[bg][fg]overlay=x='(W-w)/2':"
             f"y='max(0,min(H-h,H*{foreground_y_pct:.4f}-h/2))':"
-            "eof_action=pass[v]"
+            "eof_action=pass,setsar=1,format=yuv420p[v]"
         )
 
         cmd = [
@@ -134,14 +134,12 @@ class IRLLayoutRenderer:
                 "  ⚠ GPU encoder не принял IRL-фильтр — повторяю на CPU/libx264."
             )
             cpu_args = [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-crf",
-                "23",
-                "-threads",
-                "0",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "20",
+                "-maxrate", "12M",
+                "-bufsize", "24M",
+                "-threads", "0",
             ]
             cpu_cmd = [
                 self.ffmpeg_path,
