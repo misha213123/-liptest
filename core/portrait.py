@@ -30,6 +30,7 @@ from datetime import datetime
 from openai import OpenAI, APIError, APIConnectionError, RateLimitError, APIStatusError
 from utils.logger import debug_log
 from utils.helpers import get_deno_path, get_ffmpeg_path, is_ytdlp_module_available, extract_video_id
+from core.vertical_quality import VERTICAL_WIDTH, VERTICAL_HEIGHT
 
 # Check if yt-dlp is available as a Python module
 try:
@@ -264,7 +265,7 @@ class PortraitMixin:
                 x = max(0, int(filtered[0][1]))
                 y = max(0, int(filtered[0][2]))
                 return (f"[0:v]crop={crop_w}:{crop_h}:x={x}:y={y},"
-                        f"scale={out_w}:{out_h}:flags=bicubic,setsar=1,format=yuv420p[v]")
+                        f"scale={out_w}:{out_h}:flags=lanczos+accurate_rnd+full_chroma_int,setsar=1,format=yuv420p[v]")
 
             n = len(filtered)
             def seg_chain(k):
@@ -275,7 +276,7 @@ class PortraitMixin:
                 return (f"[s{k}]trim=start_frame={s0}:end_frame={e0},"
                         f"setpts=PTS-STARTPTS,"
                         f"crop={crop_w}:{crop_h}:x={x}:y={y},"
-                        f"scale={out_w}:{out_h}:flags=bicubic,setsar=1,format=yuv420p[t{k}]")
+                        f"scale={out_w}:{out_h}:flags=lanczos+accurate_rnd+full_chroma_int,setsar=1,format=yuv420p[t{k}]")
 
             split = f"[0:v]split={n}" + "".join(f"[s{k}]" for k in range(n))
             chains = [split] + [seg_chain(k) for k in range(n)]
@@ -311,7 +312,9 @@ class PortraitMixin:
                     *self._ffmpeg_filter_file_args(script_path),
                     "-map", "[v]", "-map", "0:a?",
                     *encoder_args,
+                    "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart",
                     "-shortest",
                     output_path,
                 ]
@@ -1001,12 +1004,20 @@ class PortraitMixin:
 
         def _get_ratio_dimensions(self):
             """Get (out_w, out_h) for the configured aspect ratio."""
-            # User kebijakan: 720p lebih cepat & cukup untuk sosial (lihat MEMORY.md).
-            # Map eksplisit agar tak tergantung resolution config yang tak konsisten
-            # antar jalur download/portrait. 9:16 -> 720x1280, dst.
-            _dims = {"9:16": (720, 1280), "1:1": (720, 720), "4:5": (720, 900),
-                     "3:4": (720, 960), "16:9": (1280, 720)}
-            return _dims.get(getattr(self, "aspect_ratio", "9:16"), (720, 1280))
+            # The portrait canvas is created at delivery resolution. Face tracking
+            # still works in source coordinates; only the composition target is
+            # Full-HD vertical, so we never upscale an already assembled 720p clip.
+            _dims = {
+                "9:16": (VERTICAL_WIDTH, VERTICAL_HEIGHT),
+                "1:1": (720, 720),
+                "4:5": (720, 900),
+                "3:4": (720, 960),
+                "16:9": (1280, 720),
+            }
+            return _dims.get(
+                getattr(self, "aspect_ratio", "9:16"),
+                (VERTICAL_WIDTH, VERTICAL_HEIGHT),
+            )
 
         def _get_crop_window(self, orig_w: int, orig_h: int, zoom_factor: float = 1.0):
             """Compute (crop_w, crop_h) for the configured aspect ratio, clamped to the
@@ -1122,7 +1133,9 @@ class PortraitMixin:
                     *self._ffmpeg_filter_file_args(script_path),
                     "-map", "[v]", "-map", "0:a?",
                     *encoder_args,
+                    "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart",
                     "-shortest",
                     output_path,
                 ]
@@ -1699,9 +1712,17 @@ class PortraitMixin:
             if self.gpu_enabled and self.gpu_encoder_args:
                 return self.gpu_encoder_args
             else:
-                # CPU encoding — ultrafast utk render maks. cepat (720p sosial).
-                # ponytail: kualitas cukup utk TikTok/Reels; naikkan preset/crf kalau mau HQ.
-                return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26', '-maxrate', '3M', '-bufsize', '6M', '-threads', '0']
+                # Quality fallback for final short-form delivery. This is slower
+                # than ultrafast, but avoids turning 1080x1920 detail into a soft
+                # low-bitrate intermediate when NVENC is unavailable.
+                return [
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '20',
+                    '-maxrate', '12M',
+                    '-bufsize', '24M',
+                    '-threads', '0',
+                ]
 
         @classmethod
         def _is_gpu_encoder_error(cls, stderr: str) -> bool:
