@@ -595,34 +595,22 @@ def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_fil
 
 
 def probe_media_info(media_path: Path) -> dict:
-    """Return duration and whether an audio stream exists, using ffprobe next to ffmpeg."""
-    ffmpeg = Path(get_ffmpeg_path())
-    ffprobe = ffmpeg.with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
-    cmd = [
-        str(ffprobe), "-v", "error",
-        "-show_entries", "format=duration:stream=codec_type",
-        "-of", "json",
-        str(media_path),
-    ]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=SUBPROCESS_FLAGS,
+    """Probe every video input used by the composition with the shared ffprobe path."""
+    info = probe_media(
+        media_path,
+        ffprobe_path=ffprobe_path_from_ffmpeg(get_ffmpeg_path()),
     )
-    if result.returncode != 0:
-        raise RuntimeError("Не удалось прочитать рекламное видео через ffprobe.")
-    try:
-        data = json.loads(result.stdout or "{}")
-        duration = float((data.get("format") or {}).get("duration") or 0)
-        has_audio = any((s or {}).get("codec_type") == "audio" for s in (data.get("streams") or []))
-    except Exception as exc:
-        raise RuntimeError("Не удалось определить длительность рекламного видео.") from exc
-    if duration <= 0:
-        raise RuntimeError("У рекламного видео не определилась длительность.")
-    return {"duration": duration, "has_audio": has_audio}
+    if float(info.get("duration") or 0) <= 0:
+        raise RuntimeError(f"У видео не определилась длительность: {media_path}")
+    debug_log(
+        f"[streamer] Input probe: {Path(media_path).name} | "
+        f"{info.get('width')}x{info.get('height')} | "
+        f"{float(info.get('fps') or 0):.3f} fps | "
+        f"{info.get('video_codec') or 'unknown'} | "
+        f"{(int(info.get('bitrate') or 0) / 1_000_000):.2f} Mbps",
+        flush=True,
+    )
+    return info
 
 
 def insert_ad_banner(
@@ -678,8 +666,8 @@ def insert_ad_banner(
     fade_duration = min(fade_duration, banner_duration / 3.0)
     fade_out_start = max(0.0, banner_duration - fade_duration)
 
-    target_w = max(64, int(round(1080 * width_pct)))
-    target_h = max(64, int(round(1920 * height_pct)))
+    target_w = max(64, int(round(VERTICAL_WIDTH * width_pct)))
+    target_h = max(64, int(round(VERTICAL_HEIGHT * height_pct)))
     post_duration = max(0.0, clip_duration - pause_at)
 
     # Optional normalized crop from the browser editor. This removes black
