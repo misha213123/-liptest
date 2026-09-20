@@ -1143,7 +1143,16 @@ def main():
         if isinstance(job.get("layout_events"), list)
         else []
     )
-    if layout_mode != "stream":
+
+    # TikTok/Shorts default: keep one stable 1080x1920 composition for the
+    # entire clip. AI layout events used to enlarge/shrink the webcam mid-clip
+    # (FACE_FOCUS / REACTION / GAME_FOCUS), which makes the finished short jump
+    # between compositions. Keep the feature available only as an explicit
+    # opt-in; existing and new renders stay visually stable by default.
+    dynamic_layout_enabled = str(
+        os.environ.get("STREAMER_DYNAMIC_LAYOUT", "0")
+    ).strip().lower() in ("1", "true", "yes", "on")
+    if layout_mode != "stream" or not dynamic_layout_enabled:
         layout_state = "NORMAL"
         layout_events = []
 
