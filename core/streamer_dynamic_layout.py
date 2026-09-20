@@ -280,6 +280,11 @@ def render_dynamic_streamer_layout(
     joined = " ".join(encoder_args or [])
     if code != 0 and any(x in joined for x in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf")):
         log("  ⚠ Hardware encoder failed for dynamic layout; retrying with libx264.")
+        fps_args = []
+        if "-r" in list(encoder_args or []):
+            idx = list(encoder_args).index("-r")
+            if idx + 1 < len(encoder_args):
+                fps_args = ["-r", str(encoder_args[idx + 1])]
         cpu = [
             "-c:v", "libx264",
             "-preset", "fast",
@@ -287,6 +292,7 @@ def render_dynamic_streamer_layout(
             "-maxrate", "12M",
             "-bufsize", "24M",
             "-threads", "0",
+            *fps_args,
         ]
         cpu_cmd = [
             ffmpeg_path, "-y",
