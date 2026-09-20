@@ -510,7 +510,7 @@ class AutoClipperCore(SubtitleGeneratorMixin, DownloadMixin, TranscribeMixin, Hi
 
 
     RATIO_DIMENSIONS = {
-        "9:16": (720, 1280),
+        "9:16": (1080, 1920),
         "1:1": (720, 720),
         "4:5": (720, 900),
         "3:4": (720, 960),
