@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Streamer Projects — Multi Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0c0f;--panel:#121316;--panel2:#17181c;--line:#2d2f35;
+  --text:#f4f4f5;--muted:#8b9099;--accent:#e4e4e7;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+.shell{max-width:1480px;margin:0 auto;padding:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.card.active{border-color:#71717a;box-shadow:0 0 0 2px rgba(113,113,122,.13)}
+.btn{border:1px solid #3a3d45;border-radius:8px;padding:8px 11px;font-size:13px;font-weight:800;background:#181a1f;color:#e4e4e7;cursor:pointer}
+.btn:hover{background:#22252b}
+.btn.primary{background:#e4e4e7;color:#111214;border-color:#e4e4e7}
+.input{width:100%;background:#101114;color:#f4f4f5;border:1px solid #34363d;border-radius:8px;padding:7px 9px;font-size:13px}
+.muted{color:var(--muted)}
+.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 8px;font-size:11px;color:#a1a1aa;background:#121316}
+.dot{width:7px;height:7px;border-radius:999px;background:#52525b}
+.dot.run{background:#22c55e}
+.dot.err{background:#ef4444}
+.progress{height:7px;background:#0d0e11;border:1px solid #292b31;border-radius:999px;overflow:hidden}
+.progress>span{display:block;height:100%;width:0%;background:#a1a1aa;transition:width .25s}
+.frame-wrap{margin-top:12px}
+.studio-frame{width:100%;border:0;background:#0b0c0f;border-radius:12px;display:none;min-height:1200px}
+.studio-frame.active{display:block}
+@media(max-width:900px){.shell{padding:8px}.project-grid{grid-template-columns:1fr!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="panel p-3 md:p-4 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <div class="text-lg font-black">▦ Multi Streamer Studio</div>
+      <div class="text-xs muted mt-1">Несколько независимых проектов на одном RunPod. Переключайся между ними — фоновые анализы и рендеры продолжаются.</div>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <span id="serverLoad" class="badge"><span class="dot"></span>0 / 3 активных</span>
+      <a class="btn" href="/streamer.html">Один проект</a>
+      <a class="btn" href="/settings.html">⚙ Настройки</a>
+    </div>
+  </header>
+
+  <section class="mt-3">
+    <div id="projectGrid" class="project-grid grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+  </section>
+
+  <section class="frame-wrap panel p-1 md:p-2">
+    <div class="flex items-center justify-between gap-2 px-2 py-2">
+      <div>
+        <div id="activeTitle" class="font-black">Проект 1</div>
+        <div id="activeMeta" class="text-[11px] muted">Рабочее окно</div>
+      </div>
+      <a id="openSeparate" class="btn" target="_blank" rel="noopener">↗ В отдельной вкладке</a>
+    </div>
+    <div id="frames"></div>
+  </section>
+</div>
+
+<script>
+(()=>{
+  const $=s=>document.querySelector(s);
+  const state={
+    max:3,
+    active:'project1',
+    names:JSON.parse(localStorage.getItem('streamer_multi_names_v1')||'{}'),
+    frames:new Map(),
+    status:new Map()
+  };
+
+  function pname(id,index){
+    return state.names[id]||('Проект '+(index+1));
+  }
+  function saveNames(){localStorage.setItem('streamer_multi_names_v1',JSON.stringify(state.names))}
+  function statusLabel(p){
+    if(!p)return ['Ожидание','idle'];
+    if(p.render&&p.render.running)return ['Рендер '+Math.round(p.render.progress||0)+'%','run'];
+    if(p.analyze&&p.analyze.running)return ['AI-анализ '+Math.round(p.analyze.progress||0)+'%','run'];
+    if(p.phase==='preview')return ['Предпросмотр','run'];
+    if(p.phase==='render_done')return ['Рендер готов','done'];
+    if(p.phase==='analyze_done')return ['Анализ готов','done'];
+    if(p.phase==='error')return ['Ошибка','err'];
+    return ['Ожидание','idle'];
+  }
+  function elapsed(sec){
+    if(sec==null)return '';
+    const s=Math.max(0,Number(sec)||0),m=Math.floor(s/60),r=s%60;
+    return m?m+'м '+r+'с':r+'с';
+  }
+  function frameUrl(id,index){
+    return '/streamer.html?project_id='+encodeURIComponent(id)+'&project_name='+encodeURIComponent(pname(id,index))+'&embedded=1';
+  }
+  function buildSlots(){
+    const grid=$('#projectGrid'),frames=$('#frames');
+    grid.innerHTML='';frames.innerHTML='';state.frames.clear();
+    for(let i=0;i<state.max;i++){
+      const id='project'+(i+1);
+      const card=document.createElement('div');
+      card.className='card'+(state.active===id?' active':'');
+      card.dataset.project=id;
+      card.innerHTML=
+        '<div class="flex items-center justify-between gap-2">'+
+          '<span class="badge"><span class="dot" data-dot></span><span data-status>Ожидание</span></span>'+
+          '<span class="text-[11px] muted" data-elapsed></span>'+
+        '</div>'+
+        '<input class="input mt-2 font-bold" data-name value="'+pname(id,i).replace(/"/g,'&quot;')+'" maxlength="40">'+
+        '<div class="text-[11px] muted mt-2 truncate" data-url>Ссылка ещё не запущена</div>'+
+        '<div class="progress mt-2"><span data-bar></span></div>'+
+        '<div class="flex gap-2 mt-3">'+
+          '<button type="button" class="btn primary flex-1" data-open>Открыть</button>'+
+          '<a class="btn" target="_blank" rel="noopener" data-new>↗</a>'+
+        '</div>';
+      grid.appendChild(card);
+
+      const nameInput=card.querySelector('[data-name]');
+      nameInput.addEventListener('change',()=>{
+        state.names[id]=nameInput.value.trim()||('Проект '+(i+1));
+        saveNames();
+        const fr=state.frames.get(id);
+        if(fr&&!fr.dataset.started){
+          fr.src=frameUrl(id,i);
+        }
+        if(state.active===id)showProject(id);
+      });
+      card.querySelector('[data-open]').addEventListener('click',()=>showProject(id));
+      card.querySelector('[data-new]').href=frameUrl(id,i);
+
+      const fr=document.createElement('iframe');
+      fr.className='studio-frame'+(state.active===id?' active':'');
+      fr.dataset.project=id;
+      fr.src=frameUrl(id,i);
+      fr.title=pname(id,i);
+      fr.addEventListener('load',()=>{fr.dataset.started='1';resizeFrame(fr)});
+      frames.appendChild(fr);
+      state.frames.set(id,fr);
+    }
+    showProject(state.active);
+  }
+  function resizeFrame(fr){
+    if(!fr||!fr.classList.contains('active'))return;
+    try{
+      const d=fr.contentDocument;
+      if(!d)return;
+      const h=Math.max(1200,d.documentElement.scrollHeight,d.body?d.body.scrollHeight:0);
+      fr.style.height=Math.min(5000,h+20)+'px';
+    }catch{}
+  }
+  function showProject(id){
+    state.active=id;
+    document.querySelectorAll('[data-project]').forEach(el=>{
+      if(el.classList.contains('card'))el.classList.toggle('active',el.dataset.project===id);
+      if(el.classList.contains('studio-frame'))el.classList.toggle('active',el.dataset.project===id);
+    });
+    const idx=Math.max(0,Number(id.replace('project',''))-1);
+    $('#activeTitle').textContent=pname(id,idx);
+    const st=state.status.get(id);
+    const label=statusLabel(st)[0];
+    $('#activeMeta').textContent=label;
+    $('#openSeparate').href=frameUrl(id,idx);
+    setTimeout(()=>resizeFrame(state.frames.get(id)),80);
+  }
+  function paintStatus(payload){
+    state.status.clear();
+    (payload.projects||[]).forEach(p=>state.status.set(p.project_id,p));
+    $('#serverLoad').innerHTML='<span class="dot '+(payload.running_projects?'run':'')+'"></span>'+
+      (payload.running_projects||0)+' / '+(payload.max_projects||state.max)+' активных';
+    for(let i=0;i<state.max;i++){
+      const id='project'+(i+1),p=state.status.get(id);
+      const card=document.querySelector('.card[data-project="'+id+'"]');
+      if(!card)continue;
+      const pair=statusLabel(p),dot=card.querySelector('[data-dot]');
+      card.querySelector('[data-status]').textContent=pair[0];
+      dot.className='dot'+(pair[1]==='run'?' run':pair[1]==='err'?' err':'');
+      const pr=p?(p.render&&p.render.running?p.render.progress:p.analyze&&p.analyze.running?p.analyze.progress:(p.progress??0)):0;
+      card.querySelector('[data-bar]').style.width=Math.max(0,Math.min(100,Number(pr)||0))+'%';
+      const sec=p?(p.render&&p.render.running?p.render.elapsed_s:p.analyze&&p.analyze.running?p.analyze.elapsed_s:null):null;
+      card.querySelector('[data-elapsed]').textContent=elapsed(sec);
+      card.querySelector('[data-url]').textContent=p&&p.url?p.url:'Ссылка ещё не запущена';
+    }
+    if(state.active)showProject(state.active);
+  }
+  async function refresh(){
+    try{
+      const r=await fetch('/api/streamer/projects/status',{cache:'no-store'});
+      if(!r.ok)return;
+      const d=await r.json();
+      const newMax=Math.max(1,Math.min(5,Number(d.max_projects)||3));
+      if(newMax!==state.max){
+        state.max=newMax;
+        if(Number(state.active.replace('project',''))>state.max)state.active='project1';
+        buildSlots();
+      }
+      paintStatus(d);
+    }catch{}
+  }
+
+  buildSlots();
+  refresh();
+  setInterval(refresh,1000);
+  setInterval(()=>resizeFrame(state.frames.get(state.active)),1200);
+})();
+</script>
+</body>
+</html>
