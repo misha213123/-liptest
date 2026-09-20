@@ -33,6 +33,21 @@ class IRLLayoutRenderer:
             encoder_args
             or ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
         )
+
+        # Bound CPU encoder threads. RunPod can expose dozens of vCPUs to
+        # FFmpeg; libx264 then starts ~48 threads for a 1080x1920 frame which,
+        # together with AV1 decoding and the blur graph, can trigger the
+        # container OOM killer. Eight threads is still fast for short clips and
+        # uses much less memory.
+        joined = " ".join(self.encoder_args)
+        if "libx264" in joined:
+            if "-threads" in self.encoder_args:
+                idx = self.encoder_args.index("-threads")
+                if idx + 1 < len(self.encoder_args):
+                    self.encoder_args[idx + 1] = "8"
+            else:
+                self.encoder_args += ["-threads", "8"]
+
         self.log = log or (lambda message: None)
 
     def render(
@@ -80,8 +95,10 @@ class IRLLayoutRenderer:
         cmd = [
             self.ffmpeg_path,
             "-y",
+            "-threads", "8",
             "-i",
             input_path,
+            "-filter_complex_threads", "4",
             "-filter_complex",
             filter_complex,
             "-map",
@@ -121,7 +138,15 @@ class IRLLayoutRenderer:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
             _, stderr_text = proc.communicate()
-            return proc.returncode, stderr_text or ""
+            code = int(proc.returncode or 0)
+            if code < 0:
+                stderr_text = (
+                    (stderr_text or "")
+                    + f"\nFFmpeg terminated by signal {-code}. "
+                    "On Linux this commonly means the process was killed by the "
+                    "container/OS (for example due to memory pressure)."
+                )
+            return code, stderr_text or ""
 
         code, stderr = run(cmd)
 
@@ -144,14 +169,16 @@ class IRLLayoutRenderer:
                 "-crf", "20",
                 "-maxrate", "12M",
                 "-bufsize", "24M",
-                "-threads", "0",
+                "-threads", "8",
                 *fps_args,
             ]
             cpu_cmd = [
                 self.ffmpeg_path,
                 "-y",
+                "-threads", "8",
                 "-i",
                 input_path,
+                "-filter_complex_threads", "4",
                 "-filter_complex",
                 filter_complex,
                 "-map",
