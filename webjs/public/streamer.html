@@ -106,7 +106,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
 
   <div class="stepbar">
     <div><b>1</b><span>Источник</span></div>
-    <div><b>2</b><span>Рамка вебки</span></div>
+    <div><b>2</b><span id="step2Label">Рамка вебки</span></div>
     <div><b>3</b><span>AI-моменты</span></div>
     <div><b>4</b><span>Рендер</span></div>
   </div>
@@ -123,9 +123,39 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <input id="sourceUrl" class="input flex-1" placeholder="YouTube / Twitch / Kick URL">
           <button id="pasteBtn" class="btn btn-soft shrink-0" type="button">📋 Вставить</button>
         </div>
+        <div class="soft rounded-xl p-2.5 mt-2">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-xs">⏱ Диапазон VOD для скачивания и AI-анализа</div>
+              <div class="text-[10px] text-zinc-500 mt-0.5">Для Twitch на 8–10 часов укажи только нужный кусок. Пустой конец = до конца VOD.</div>
+            </div>
+            <span id="sourceRangeBadge" class="badge text-[10px]">весь VOD</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <div>
+              <label class="text-[10px] text-zinc-500">Откуда</label>
+              <input id="sourceRangeStart" class="input mt-1" value="00:00:00" placeholder="02:00:00">
+            </div>
+            <div>
+              <label class="text-[10px] text-zinc-500">До куда</label>
+              <input id="sourceRangeEnd" class="input mt-1" value="" placeholder="03:00:00">
+            </div>
+          </div>
+          <div id="sourceRangeHelp" class="text-[10px] text-zinc-500 mt-1.5">Сейчас будет анализироваться весь VOD.</div>
+        </div>
+
+        <div class="grid md:grid-cols-[220px_1fr] gap-2 mt-2 items-center">
+          <select id="layoutMode" class="input">
+            <option value="stream" selected>🎮 Стрим: webcam + gameplay</option>
+            <option value="irl">📱 IRL: оригинал + blurred background</option>
+          </select>
+          <div id="layoutModeHelp" class="text-[10px] text-zinc-500">
+            Для стрима выдели вебку. IRL оставляет исходный кадр целиком и заполняет 9:16 размытым фоном.
+          </div>
+        </div>
       </section>
 
-      <section class="panel p-3 md:p-4">
+      <section id="webcamSection" class="panel p-3 md:p-4">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
           <div>
             <div class="font-bold">2. Рамка веб-камеры</div>
@@ -164,7 +194,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
             <div class="font-bold">3. Лучшие моменты</div>
             <p class="text-[11px] text-zinc-500 mt-0.5">OpenAI найдёт таймкоды и создаст короткие заголовки.</p>
           </div>
-          <span class="badge text-[11px]">AI-заголовок ~2.3 сек</span>
+          <span class="badge text-[11px]">AI-заголовок настраивается</span>
         </div>
         <div class="grid md:grid-cols-[1fr_auto] gap-3 p-3 soft rounded-xl">
           <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -355,6 +385,7 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
                   <option value="2.3" selected>2.3 сек</option>
                   <option value="2.8">2.8 сек</option>
                   <option value="3.5">3.5 сек</option>
+                  <option value="always">Весь клип</option>
                 </select>
               </div>
               <div>
@@ -608,6 +639,40 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
   </div>
 </div>
 
+<div id="highlightPreviewModal" class="hidden fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm items-center justify-center p-3">
+  <div class="panel w-full max-w-4xl p-3 md:p-4 shadow-2xl max-h-[95vh] overflow-auto">
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div class="min-w-0">
+        <div class="text-[10px] uppercase tracking-wider text-zinc-500">Предпросмотр найденного момента</div>
+        <div id="highlightPreviewTitle" class="font-black text-base md:text-lg truncate">—</div>
+        <div id="highlightPreviewMeta" class="text-[11px] text-zinc-500 mt-1"></div>
+      </div>
+      <button id="highlightPreviewClose" type="button" class="btn btn-soft shrink-0">✕</button>
+    </div>
+
+    <div class="rounded-xl overflow-hidden bg-black border border-zinc-800">
+      <video id="highlightPreviewVideo" controls playsinline preload="metadata" class="w-full max-h-[68vh] bg-black"></video>
+      <div id="highlightPreviewEmpty" class="min-h-[300px] flex items-center justify-center text-sm text-zinc-500 px-4 text-center">
+        Подготавливаю лёгкое видео для просмотра…
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <div class="flex items-center justify-between gap-2 text-xs">
+        <span id="highlightPreviewStatus" class="text-zinc-400">Ожидание</span>
+        <span id="highlightPreviewPct" class="font-bold text-zinc-300">0%</span>
+      </div>
+      <progress id="highlightPreviewProgress" max="100" value="0" class="w-full h-2 mt-1"></progress>
+      <div class="text-[10px] text-zinc-500 mt-1">Это быстрый 480p-предпросмотр исходного момента — без финального 9:16, субтитров и рекламы.</div>
+    </div>
+
+    <div class="flex flex-wrap justify-end gap-2 mt-4">
+      <button id="highlightPreviewUse" type="button" class="btn btn-soft">Использовать момент</button>
+      <button id="highlightPreviewRender" type="button" class="btn btn-primary" disabled>Сделать клип</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $=s=>document.querySelector(s);
 
@@ -624,6 +689,7 @@ $('#themeToggle').onclick=()=>applyTheme(document.documentElement.dataset.theme=
 
 const canvas=$('#previewCanvas'),ctx=canvas.getContext('2d');
 let image=null,rect=null,dragging=false,startPt=null,analysisHighlights=[],topHighlightCount=0,activeHighlight=-1,renderedResults=[];
+let highlightPreviewIndex=-1,highlightPreviewSeq=0;
 let drawQueued=false;
 function queueRedraw(withInfo=true){
   if(drawQueued)return;
@@ -709,8 +775,30 @@ function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileNam
 $('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
 
 $('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText()}catch{}};
-function updateLayoutPreview(){const cp=+$('#camPct').value,gp=+$('#gameX').value;$('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';$('#layoutCam').style.height=cp+'%';$('#layoutGame').style.height=(100-cp)+'%'}
-$('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;updateLayoutPreview();
+function isIrlMode(){return $('#layoutMode').value==='irl'}
+function updateLayoutPreview(){
+ const cp=+$('#camPct').value,gp=+$('#gameX').value;
+ $('#camPctLabel').textContent=cp+'%';$('#gameXLabel').textContent=gp+'%';
+ const cam=$('#layoutCam'),game=$('#layoutGame');
+ if(isIrlMode()){
+   cam.style.height='100%';cam.style.opacity='.72';cam.textContent='IRL • BLURRED BACKGROUND';
+   game.style.height='34%';game.style.top='33%';game.style.bottom='auto';game.style.opacity='1';game.textContent='ORIGINAL VIDEO';
+ }else{
+   cam.style.height=cp+'%';cam.style.opacity='1';cam.textContent='WEBCAM • HQ';
+   game.style.height=(100-cp)+'%';game.style.top='auto';game.style.bottom='0';game.style.opacity='1';game.textContent='GAMEPLAY';
+ }
+}
+function syncLayoutMode(){
+ const irl=isIrlMode();
+ $('#webcamSection').classList.toggle('hidden',irl);
+ $('#step2Label').textContent=irl?'IRL 9:16':'Рамка вебки';
+ $('#layoutModeHelp').textContent=irl
+   ?'IRL: резкий исходный кадр остаётся целиком по центру, сверху/снизу — размытая копия. Вебку выделять не нужно.'
+   :'Стрим: выдели вебку один раз, снизу останется gameplay.';
+ updateLayoutPreview();
+}
+$('#layoutMode').onchange=syncLayoutMode;
+$('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;syncLayoutMode();
 
 async function loadPreview(){
  const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Вставь ссылку.');
@@ -721,14 +809,57 @@ async function loadPreview(){
 }
 $('#previewBtn').onclick=()=>loadPreview().catch(e=>{$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+e.message});
 
+function parseUiTime(value){
+ const raw=String(value||'').trim().replace(',','.');
+ if(!raw)return 0;
+ const p=raw.split(':').map(Number);
+ if(p.some(x=>!Number.isFinite(x)||x<0))return NaN;
+ if(p.length===1)return p[0];
+ if(p.length===2)return p[0]*60+p[1];
+ if(p.length===3)return p[0]*3600+p[1]*60+p[2];
+ return NaN;
+}
+function fmtUiTime(sec){
+ sec=Math.max(0,Math.floor(Number(sec)||0));
+ const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+ return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+function updateSourceRangeUi(){
+ const startRaw=$('#sourceRangeStart').value.trim();
+ const endRaw=$('#sourceRangeEnd').value.trim();
+ const start=parseUiTime(startRaw),end=parseUiTime(endRaw);
+ const badge=$('#sourceRangeBadge'),help=$('#sourceRangeHelp');
+ if(!Number.isFinite(start)||(endRaw&&!Number.isFinite(end))){
+   badge.textContent='ошибка';help.textContent='Формат времени: HH:MM:SS, например 02:30:00.';return;
+ }
+ if(endRaw&&end<=start){
+   badge.textContent='ошибка';help.textContent='Конец диапазона должен быть позже начала.';return;
+ }
+ if(start<=0&&!endRaw){
+   badge.textContent='весь VOD';help.textContent='Сейчас будет анализироваться весь VOD.';return;
+ }
+ badge.textContent='отрезок';
+ help.textContent='AI скачает и проанализирует только '+fmtUiTime(start)+' → '+(endRaw?fmtUiTime(end):'конец VOD')+'. Финальные таймкоды останутся привязаны к оригинальному VOD.';
+}
+['sourceRangeStart','sourceRangeEnd'].forEach(id=>{
+ const el=$('#'+id);el.addEventListener('input',updateSourceRangeUi);el.addEventListener('change',updateSourceRangeUi);
+});
+updateSourceRangeUi();
+
 function durationValues(){const p=$('#durationPreset').value.split(',').map(Number);return{min:p[0],max:p[1]}}
 async function analyzeWholeVod(){
  const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Шаг 1: вставь ссылку на VOD/ролик.');
- if(!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
- const dur=durationValues();$('#analyzeBtn').disabled=true;$('#analysisBox').classList.remove('hidden');$('#highlightsSection').classList.add('hidden');$('#analysisProgress').value=1;$('#analysisPct').textContent='1%';$('#analysisStatus').textContent='Запускаю анализ всего ролика...';
- const r=await fetch('/api/streamer/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,min_duration:dur.min,max_duration:dur.max,num_clips:+$('#numClips').value})});
+ if(!isIrlMode()&&!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
+ const sourceStart=$('#sourceRangeStart').value.trim()||'00:00:00';
+ const sourceEnd=$('#sourceRangeEnd').value.trim();
+ const startSec=parseUiTime(sourceStart),endSec=parseUiTime(sourceEnd);
+ if(!Number.isFinite(startSec)||(sourceEnd&&!Number.isFinite(endSec)))return alert('Диапазон VOD: используй формат HH:MM:SS.');
+ if(sourceEnd&&endSec<=startSec)return alert('Диапазон VOD: конец должен быть позже начала.');
+ const limited=startSec>0||!!sourceEnd;
+ const dur=durationValues();$('#analyzeBtn').disabled=true;$('#analysisBox').classList.remove('hidden');$('#highlightsSection').classList.add('hidden');$('#analysisProgress').value=1;$('#analysisPct').textContent='1%';$('#analysisStatus').textContent=limited?'Запускаю анализ выбранного отрезка...':'Запускаю анализ всего ролика...';
+ const r=await fetch('/api/streamer/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,min_duration:dur.min,max_duration:dur.max,num_clips:+$('#numClips').value,source_start:sourceStart,source_end:sourceEnd})});
  const d=await r.json();if(!r.ok){$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+(d.error||'Ошибка');return}
- const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?'OpenAI анализирует весь ролик...':(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){const top=s.result.highlights||[],extra=s.result.alternatives||[];topHighlightCount=top.length;analysisHighlights=[...top,...extra];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';const msg='TOP '+top.length+(extra.length?' + ещё '+extra.length:'')+' моментов';$('#analysisStatus').textContent=s.result.cached?('♻ '+msg+' • API не использовался'):('✅ '+msg)}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
+ const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/analyze/status')).json();$('#analysisLog').textContent=s.log||'';$('#analysisLog').scrollTop=$('#analysisLog').scrollHeight;const p=s.progress==null?5:s.progress;$('#analysisProgress').value=p;$('#analysisPct').textContent=Math.round(p)+'%';$('#analysisStatus').textContent=s.running?(limited?'OpenAI анализирует выбранный отрезок...':'OpenAI анализирует весь ролик...'):(s.code===0?'Готово':'Ошибка анализа');if(!s.running){clearInterval(timer);$('#analyzeBtn').disabled=false;if(s.result&&s.result.ok){const top=s.result.highlights||[],extra=s.result.alternatives||[];topHighlightCount=top.length;analysisHighlights=[...top,...extra];renderHighlights();$('#highlightsSection').classList.remove('hidden');$('#analysisProgress').value=100;$('#analysisPct').textContent='100%';const msg='TOP '+top.length+(extra.length?' + ещё '+extra.length:'')+' моментов';$('#analysisStatus').textContent=s.result.cached?('♻ '+msg+' • API не использовался'):('✅ '+msg)}else $('#analysisStatus').textContent='❌ '+((s.result&&s.result.error)||'Анализ не удался')}},1100)
 }
 $('#analyzeBtn').onclick=()=>analyzeWholeVod().catch(e=>{$('#analyzeBtn').disabled=false;$('#analysisStatus').textContent='❌ '+e.message});
 
@@ -744,7 +875,7 @@ function renderHighlights(){
    const groupBadge=isTop
      ?'<span class="badge text-[10px] font-black">TOP '+(i+1)+'</span>'
      :'<span class="badge text-[10px]">Ещё</span>';
-   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" '+(isTop?'checked':'')+' data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap">'+groupBadge+'<span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="text-[10px] uppercase tracking-wide text-purple-300 mt-2">AI-заголовок</div><div class="font-black mt-1 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex gap-2 mt-3"><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
+   div.innerHTML='<div class="flex items-start gap-3"><input class="hl-check mt-1" type="checkbox" '+(isTop?'checked':'')+' data-i="'+i+'"><div class="min-w-0 flex-1"><div class="flex items-center gap-2 flex-wrap">'+groupBadge+'<span class="score px-2 py-1 rounded-md text-[11px] font-black">'+score+'/100</span><span class="text-[11px] text-zinc-500">'+esc(h.start_time)+' → '+esc(h.end_time)+' • '+dur+'с</span></div><div class="text-[10px] uppercase tracking-wide text-purple-300 mt-2">AI-заголовок</div><div class="font-black mt-1 leading-tight">'+esc(h.title)+'</div><div class="text-xs text-zinc-500 mt-1 line-clamp-2">'+esc(h.description||h.virality_reason||'')+'</div><div class="flex flex-wrap gap-2 mt-3"><button class="preview-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">▶ Предпросмотр</button><button class="use-hl btn btn-soft !py-2 text-xs" data-i="'+i+'">Использовать</button><button class="render-hl btn btn-primary !py-2 text-xs" data-i="'+i+'">Сделать клип</button></div></div></div>';
    (isTop?topBox:moreBox).appendChild(div);
  });
 
@@ -752,10 +883,91 @@ function renderHighlights(){
  $('#moreHighlightsCount').textContent=extraCount;
  $('#moreHighlightsSection').classList.toggle('hidden',extraCount===0);
 
+ document.querySelectorAll('.preview-hl').forEach(b=>b.onclick=()=>previewHighlight(+b.dataset.i));
  document.querySelectorAll('.use-hl').forEach(b=>b.onclick=()=>useHighlight(+b.dataset.i));
  document.querySelectorAll('.render-hl').forEach(b=>b.onclick=async()=>{useHighlight(+b.dataset.i);await renderCurrent()});
  if(analysisHighlights.length)useHighlight(0);
 }
+
+function closeHighlightPreview(){
+ highlightPreviewSeq++;
+ const modal=$('#highlightPreviewModal'),video=$('#highlightPreviewVideo');
+ modal.classList.add('hidden');modal.classList.remove('flex');
+ try{video.pause()}catch{}
+ video.removeAttribute('src');video.load();
+}
+
+async function previewHighlight(i){
+ const h=analysisHighlights[i];if(!h)return;
+ useHighlight(i);
+ highlightPreviewIndex=i;
+ const seq=++highlightPreviewSeq;
+ const modal=$('#highlightPreviewModal'),video=$('#highlightPreviewVideo'),empty=$('#highlightPreviewEmpty');
+ $('#highlightPreviewTitle').textContent=h.title||('Момент '+(i+1));
+ $('#highlightPreviewMeta').textContent=(h.start_time||'')+' → '+(h.end_time||'')+' • '+Math.round(Number(h.duration_seconds||0))+'с';
+ $('#highlightPreviewStatus').textContent='⏳ Загружаю только этот момент…';
+ $('#highlightPreviewPct').textContent='2%';
+ $('#highlightPreviewProgress').value=2;
+ $('#highlightPreviewRender').disabled=true;
+ video.classList.add('hidden');video.removeAttribute('src');video.load();
+ empty.classList.remove('hidden');empty.textContent='Подготавливаю лёгкое видео для просмотра…';
+ modal.classList.remove('hidden');modal.classList.add('flex');
+
+ try{
+   const r=await fetch('/api/streamer/highlight-preview',{
+     method:'POST',
+     headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({
+       url:$('#sourceUrl').value.trim(),
+       start_time:h.start_time,
+       end_time:h.end_time
+     })
+   });
+   const d=await r.json();
+   if(!r.ok)throw new Error(d.error||'Не удалось запустить предпросмотр');
+
+   while(seq===highlightPreviewSeq){
+     await new Promise(resolve=>setTimeout(resolve,650));
+     const resp=await fetch('/api/streamer/highlight-preview/status');
+     const s=await resp.json();
+     const pct=s.progress==null?(s.running?15:100):s.progress;
+     $('#highlightPreviewProgress').value=pct;
+     $('#highlightPreviewPct').textContent=Math.round(pct)+'%';
+     $('#highlightPreviewStatus').textContent=s.running
+       ?'⏳ Готовлю предпросмотр…'
+       :(s.code===0?'✅ Предпросмотр готов':'❌ Ошибка предпросмотра');
+
+     if(!s.running){
+       if(seq!==highlightPreviewSeq)return;
+       if(s.result&&s.result.ok&&s.result.video_url){
+         video.src=s.result.video_url+'?t='+Date.now();
+         video.classList.remove('hidden');
+         empty.classList.add('hidden');
+         $('#highlightPreviewRender').disabled=false;
+         $('#highlightPreviewStatus').textContent=s.result.cached
+           ?'✅ Готово • взято из кэша'
+           :'✅ Готово • можно посмотреть перед рендером';
+         $('#highlightPreviewProgress').value=100;
+         $('#highlightPreviewPct').textContent='100%';
+         try{await video.play()}catch{}
+       }else{
+         throw new Error((s.result&&s.result.error)||'Предпросмотр завершился с ошибкой');
+       }
+       break;
+     }
+   }
+ }catch(e){
+   if(seq!==highlightPreviewSeq)return;
+   $('#highlightPreviewStatus').textContent='❌ '+e.message;
+   $('#highlightPreviewPct').textContent='—';
+   empty.classList.remove('hidden');empty.textContent='Не удалось открыть предпросмотр. Можно повторить или сразу сделать клип.';
+ }
+}
+$('#highlightPreviewClose').onclick=closeHighlightPreview;
+$('#highlightPreviewModal').addEventListener('click',e=>{if(e.target===$('#highlightPreviewModal'))closeHighlightPreview()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#highlightPreviewModal').classList.contains('hidden'))closeHighlightPreview()});
+$('#highlightPreviewUse').onclick=()=>{if(highlightPreviewIndex>=0)useHighlight(highlightPreviewIndex);closeHighlightPreview()};
+$('#highlightPreviewRender').onclick=async()=>{if(highlightPreviewIndex<0)return;useHighlight(highlightPreviewIndex);closeHighlightPreview();await renderCurrent()};
 
 $('#selectMoreBtn').onclick=()=>document.querySelectorAll('#moreHighlightsList .hl-check').forEach(x=>x.checked=true);
 $('#clearMoreBtn').onclick=()=>document.querySelectorAll('#moreHighlightsList .hl-check').forEach(x=>x.checked=false);
@@ -1340,7 +1552,9 @@ function fullTemplateSnapshot(){
    saved_at:new Date().toISOString(),
    analysis:{
      durationPreset:$('#durationPreset').value,
-     numClips:$('#numClips').value
+     numClips:$('#numClips').value,
+     sourceStart:$('#sourceRangeStart').value,
+     sourceEnd:$('#sourceRangeEnd').value
    },
    webcam:{
      rect:nrect(),
@@ -1381,7 +1595,8 @@ function fullTemplateSnapshot(){
      bgOpacity:+$('#subBgOpacity').value
    },
    render:{
-     gpu:$('#gpu').checked
+     gpu:$('#gpu').checked,
+     layoutMode:$('#layoutMode').value
    },
    banner:{
      enabled:$('#bannerEnabled').checked,
@@ -1419,6 +1634,9 @@ function applyFullTemplate(t,name=''){
 
  setVal('durationPreset',t.analysis?.durationPreset);
  setVal('numClips',t.analysis?.numClips);
+ setVal('sourceRangeStart',t.analysis?.sourceStart);
+ setVal('sourceRangeEnd',t.analysis?.sourceEnd);
+ updateSourceRangeUi();
 
  setVal('camPct',t.webcam?.camPct);
  setVal('gameX',t.webcam?.gameX);
@@ -1456,6 +1674,7 @@ function applyFullTemplate(t,name=''){
  setVal('subBgOpacity',t.subtitles?.bgOpacity);
 
  setVal('gpu',t.render?.gpu);
+ setVal('layoutMode',t.render?.layoutMode);
 
  setVal('bannerEnabled',t.banner?.enabled);
  setVal('bannerContinue',t.banner?.continueMode);
@@ -1481,7 +1700,7 @@ function applyFullTemplate(t,name=''){
    bannerPreviewError=false;
  }
 
- updateLayoutPreview();
+ syncLayoutMode();
  updateTitlePreview();
  updateSubtitlePreview();
  syncMasterLayerVisibility();
@@ -1542,10 +1761,12 @@ if($('#templateAutoLoad').checked&&autoTemplateName&&streamerTemplates()[autoTem
 }
 
 function renderPayload(h){
- const webcam=nrect();if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
+ const irl=isIrlMode();
+ const webcam=irl?{x:0,y:0,w:1,h:1}:nrect();
+ if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:+$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),layout_mode:irl?'irl':'stream',webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,irl_foreground_y_pct:.48,irl_background_blur:18,irl_background_brightness:-.08,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;
@@ -1557,7 +1778,7 @@ async function renderCurrent(){try{const p=renderPayload(null);const r=await run
 $('#renderBtn').onclick=renderCurrent;
 
 async function renderAllChecked(){
- const selected=[...document.querySelectorAll('.hl-check:checked')].map(x=>analysisHighlights[+x.dataset.i]).filter(Boolean);if(!selected.length)return alert('Отметь хотя бы один момент.');if(!nrect())return alert('Сначала выдели веб-камеру.');
+ const selected=[...document.querySelectorAll('.hl-check:checked')].map(x=>analysisHighlights[+x.dataset.i]).filter(Boolean);if(!selected.length)return alert('Отметь хотя бы один момент.');if(!isIrlMode()&&!nrect())return alert('Сначала выдели веб-камеру.');
  $('#renderAllBtn').disabled=true;
 
  // All checked highlights from the same source share one batch id. The first

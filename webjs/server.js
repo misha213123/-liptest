@@ -166,6 +166,7 @@ const PROCESS_JOBS = new Map();
 const REFIND_JOBS = new Map();
 let TRANS_JOB = null;
 let STREAMER_PREVIEW_JOB = null;
+let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
 let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
 // job story clip & facebook upload
@@ -480,6 +481,18 @@ const server = http.createServer((req, res) => {
       });
       fs.createReadStream(fp).pipe(res);
       return;
+    }
+
+    // Playable lightweight previews of AI-found highlights.
+    const mStreamerHighlightPreview = p.match(/^\/streamer-highlight-preview\/([^/]+\.mp4)$/i);
+    if (mStreamerHighlightPreview && req.method === 'GET') {
+      const name = path.basename(mStreamerHighlightPreview[1]);
+      const base = path.join(ROOT, 'output', 'streamer_highlight_previews');
+      const fp = path.join(base, name);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'highlight preview not found' });
+      }
+      return sendFile(req, res, fp, false);
     }
 
     // Streamer advertising assets (authenticated): images + video creatives.
@@ -1270,7 +1283,90 @@ except Exception as e:
       });
     }
 
-    // POST /api/streamer/analyze — transcribe the whole VOD and let OpenAI rank the best moments.
+    // POST /api/streamer/highlight-preview — lightweight playable video for an AI-found moment.
+    if (p === '/api/streamer/highlight-preview' && req.method === 'POST') {
+      if (STREAMER_HIGHLIGHT_PREVIEW_JOB && STREAMER_HIGHLIGHT_PREVIEW_JOB.code === undefined) {
+        return json(res, 409, { error: 'Предпросмотр другого момента уже готовится' });
+      }
+
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+
+        const url = String(o.url || '').trim();
+        const startTime = String(o.start_time || '').trim();
+        const endTime = String(o.end_time || '').trim();
+        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!startTime || !endTime) return json(res, 400, { error: 'Нет таймкодов предпросмотра' });
+
+        const stamp = Date.now();
+        const id = crypto.randomBytes(6).toString('hex');
+        const logPath = path.join(ROOT, 'output', 'streamer_highlight_preview_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.streamer_highlight_preview_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.streamer_highlight_preview_job_' + stamp + '.json');
+
+        fs.writeFileSync(jobFile, JSON.stringify({
+          id,
+          url,
+          start_time: startTime,
+          end_time: endTime
+        }, null, 2), 'utf8');
+
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+        const child = spawn(
+          PY,
+          [path.join(__dirname, 'streamer_highlight_preview.py'), jobFile, resultFile],
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+        );
+        child.stdout.pipe(out);
+        child.stderr.pipe(out);
+
+        STREAMER_HIGHLIGHT_PREVIEW_JOB = {
+          proc: child,
+          code: undefined,
+          startedAt: Date.now(),
+          logPath,
+          resultFile,
+          jobFile,
+          id
+        };
+        child.on('close', code => {
+          STREAMER_HIGHLIGHT_PREVIEW_JOB.code = code;
+          STREAMER_HIGHLIGHT_PREVIEW_JOB.finishedAt = Date.now();
+          out.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+
+        return json(res, 200, { ok: true, started: true, id });
+      });
+      return;
+    }
+
+    if (p === '/api/streamer/highlight-preview/status' && req.method === 'GET') {
+      const job = STREAMER_HIGHLIGHT_PREVIEW_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+          if (result && result.ok && result.file) {
+            result.video_url = '/streamer-highlight-preview/' + encodeURIComponent(result.file);
+          }
+        }
+      } catch {}
+      const log = job && job.logPath ? tailFile(job.logPath, 16000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
+        log,
+        progress: parseOverall(log),
+        result
+      });
+    }
+
+    // POST /api/streamer/analyze — optionally download/analyze only a selected VOD range.
     if (p === '/api/streamer/analyze' && req.method === 'POST') {
       if (STREAMER_ANALYZE_JOB && STREAMER_ANALYZE_JOB.code === undefined) {
         return json(res, 409, { error: 'AI уже анализирует ролик' });
@@ -1288,6 +1384,8 @@ except Exception as e:
         const minDuration = Math.max(10, Math.min(180, parseInt(o.min_duration) || 25));
         const maxDuration = Math.max(minDuration, Math.min(240, parseInt(o.max_duration) || 55));
         const numClips = Math.max(1, Math.min(30, parseInt(o.num_clips) || 5));
+        const sourceStart = String(o.source_start || '00:00:00').trim();
+        const sourceEnd = String(o.source_end || '').trim();
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
@@ -1299,7 +1397,9 @@ except Exception as e:
           url,
           min_duration: minDuration,
           max_duration: maxDuration,
-          num_clips: numClips
+          num_clips: numClips,
+          source_start: sourceStart,
+          source_end: sourceEnd
         }, null, 2), 'utf8');
 
         const out = fs.createWriteStream(logPath, { flags: 'a' });
@@ -1365,11 +1465,15 @@ except Exception as e:
         try { o = JSON.parse(body || '{}'); } catch {}
 
         const url = String(o.url || '').trim();
-        const rect = o.webcam_rect;
+        const rawMode = String(o.layout_mode || 'stream').trim().toLowerCase();
+        const layoutMode = ['irl', 'irl_blur', 'irl_vertical'].includes(rawMode) ? 'irl' : 'stream';
+        let rect = o.webcam_rect;
         if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
-        if (!rect || !['x','y','w','h'].every(k => Number.isFinite(Number(rect[k])))) {
+        const validRect = rect && ['x','y','w','h'].every(k => Number.isFinite(Number(rect[k])));
+        if (layoutMode === 'stream' && !validRect) {
           return json(res, 400, { error: 'Сначала выдели веб-камеру рамкой' });
         }
+        if (!validRect) rect = { x: 0, y: 0, w: 1, h: 1 };
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
@@ -1381,6 +1485,7 @@ except Exception as e:
           ...o,
           id,
           url,
+          layout_mode: layoutMode,
           webcam_rect: {
             x: Number(rect.x), y: Number(rect.y),
             w: Number(rect.w), h: Number(rect.h)

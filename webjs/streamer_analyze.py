@@ -167,6 +167,83 @@ def download_audio(url: str, out_dir: Path) -> Path:
     return candidates[0]
 
 
+def parse_time(value) -> float:
+    raw = str(value or "0").strip().replace(",", ".")
+    if not raw:
+        return 0.0
+    if ":" not in raw:
+        return max(0.0, float(raw))
+    parts = raw.split(":")
+    if len(parts) == 2:
+        return max(0.0, float(parts[0]) * 60 + float(parts[1]))
+    if len(parts) == 3:
+        return max(
+            0.0,
+            float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2]),
+        )
+    raise ValueError(f"Неверный таймкод диапазона: {value}")
+
+
+def fmt_time(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+
+def offset_transcript_timestamps(core: AutoClipperCore, transcript: str, offset: float) -> str:
+    """Shift SRT-like transcript timestamps to the original VOD timeline."""
+    if offset <= 0:
+        return transcript
+
+    pattern = re.compile(
+        r"^\[(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-\s*"
+        r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\](.*)$"
+    )
+    out = []
+    for line in (transcript or "").splitlines():
+        m = pattern.match(line)
+        if not m:
+            out.append(line)
+            continue
+        start = core.parse_timestamp(m.group(1)) + offset
+        end = core.parse_timestamp(m.group(2)) + offset
+        out.append(
+            f"[{core._seconds_to_srt_timestamp(start)} - "
+            f"{core._seconds_to_srt_timestamp(end)}]{m.group(3)}"
+        )
+    return "\n".join(out)
+
+
+def download_analysis_range(
+    core: AutoClipperCore,
+    url: str,
+    out_dir: Path,
+    start_sec: float,
+    end_sec: float,
+) -> Path:
+    """Download only the selected Twitch/Kick/YouTube range for transcription."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / "analysis_range.mp4"
+    debug_log(
+        f"[progress] Скачиваю выбранный отрезок {fmt_time(start_sec)} → "
+        f"{fmt_time(end_sec)}... (overall: 7.0%)",
+        flush=True,
+    )
+    downloaded = core.download_video_section(
+        url,
+        fmt_time(start_sec),
+        fmt_time(end_sec),
+        str(target),
+        resolution="360p",
+    )
+    path = Path(downloaded)
+    if not path.exists() or path.stat().st_size < 10_000:
+        raise RuntimeError("Не удалось скачать выбранный отрезок VOD.")
+    return path
+
+
 def split_transcript(transcript: str, max_chars: int = 24000) -> list[str]:
     lines = [line for line in (transcript or "").splitlines() if line.strip()]
     chunks = []
@@ -301,11 +378,25 @@ def global_rank(core: AutoClipperCore, candidates: list[dict], target: int, vide
     return sorted(candidates, key=lambda x: x.get("virality_score", 0), reverse=True)[:target]
 
 
-def cache_paths(url: str, min_duration: int, max_duration: int, requested: int) -> dict:
-    url_key = hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:24]
+def cache_paths(
+    url: str,
+    min_duration: int,
+    max_duration: int,
+    requested: int,
+    source_start: float = 0.0,
+    source_end: float = 0.0,
+) -> dict:
+    range_key = (
+        f"{source_start:.3f}-{source_end:.3f}"
+        if source_start > 0 or source_end > 0
+        else "full"
+    )
+    url_key = hashlib.sha256(
+        f"{url.strip()}|{range_key}".encode("utf-8")
+    ).hexdigest()[:24]
     cache_dir = APP_DIR / "output" / "streamer_cache" / url_key
-    analysis_key = f"{min_duration}_{max_duration}_{requested}_v2"
-    pool_key = f"{min_duration}_{max_duration}_v2"
+    analysis_key = f"{min_duration}_{max_duration}_{requested}_v3"
+    pool_key = f"{min_duration}_{max_duration}_v3"
     return {
         "dir": cache_dir,
         "transcript": cache_dir / "transcript.txt",
@@ -336,7 +427,19 @@ def main():
     max_duration = max(min_duration, min(240, int(job.get("max_duration") or 55)))
     requested = max(1, min(30, int(job.get("num_clips") or 5)))
 
-    cache = cache_paths(url, min_duration, max_duration, requested)
+    source_start = parse_time(job.get("source_start", 0))
+    source_end_requested = parse_time(job.get("source_end", 0))
+    if source_end_requested > 0 and source_end_requested <= source_start:
+        raise ValueError("Конец диапазона должен быть позже начала.")
+
+    cache = cache_paths(
+        url,
+        min_duration,
+        max_duration,
+        requested,
+        source_start,
+        source_end_requested,
+    )
     cache["dir"].mkdir(parents=True, exist_ok=True)
 
     # Exact same URL + duration range + clip count: return saved AI result.
@@ -377,10 +480,47 @@ def main():
         info = fetch_info(url)
         write_json(cache["info"], info)
 
+    full_duration = float(info.get("duration") or 0)
+    if full_duration > 0 and source_start >= full_duration:
+        raise ValueError(
+            f"Начало диапазона ({fmt_time(source_start)}) находится после конца VOD "
+            f"({fmt_time(full_duration)})."
+        )
+
+    source_end = source_end_requested
+    if source_end <= 0:
+        source_end = full_duration
+    elif full_duration > 0:
+        source_end = min(source_end, full_duration)
+
+    range_requested = source_start > 0 or source_end_requested > 0
+    if range_requested and source_end <= source_start:
+        raise ValueError("Не удалось определить корректный конец выбранного диапазона.")
+
+    analysis_duration = (
+        source_end - source_start
+        if source_end > source_start
+        else max(0.0, full_duration - source_start)
+    )
+    timeline_end = source_end if source_end > 0 else full_duration
+
+    info = dict(info)
+    info["analysis_range_start"] = source_start
+    info["analysis_range_end"] = source_end
+    info["analysis_range_duration"] = analysis_duration
+
     debug_log(
-        f"[streamer-ai] {info.get('title')} | {info.get('channel')} | {info.get('duration',0):.0f}s",
+        f"[streamer-ai] {info.get('title')} | {info.get('channel')} | "
+        f"{full_duration:.0f}s",
         flush=True,
     )
+    if range_requested:
+        debug_log(
+            f"[streamer-ai] Анализирую только диапазон "
+            f"{fmt_time(source_start)} → {fmt_time(source_end)} "
+            f"({analysis_duration / 60:.1f} мин).",
+            flush=True,
+        )
 
     if cache["transcript"].exists() and cache["transcript"].stat().st_size > 20:
         transcript = cache["transcript"].read_text(encoding="utf-8")
@@ -389,8 +529,21 @@ def main():
             flush=True,
         )
     else:
-        debug_log("[progress] Загружаю аудио всего ролика... (overall: 5.0%)", flush=True)
-        audio_path = download_audio(url, analysis_dir)
+        if range_requested:
+            debug_log(
+                "[progress] Загружаю только выбранный диапазон VOD... (overall: 5.0%)",
+                flush=True,
+            )
+            audio_path = download_analysis_range(
+                core,
+                url,
+                analysis_dir,
+                source_start,
+                source_end,
+            )
+        else:
+            debug_log("[progress] Загружаю аудио всего ролика... (overall: 5.0%)", flush=True)
+            audio_path = download_audio(url, analysis_dir)
 
         debug_log("[progress] Проверяю быстрый Faster-Whisper на GPU... (overall: 28.0%)", flush=True)
         try:
@@ -418,6 +571,14 @@ def main():
             )
             transcript = core.transcribe_full_video(str(audio_path))
 
+        if range_requested and source_start > 0:
+            transcript = offset_transcript_timestamps(core, transcript, source_start)
+            debug_log(
+                f"[streamer-ai] Таймкоды расшифровки сдвинуты на "
+                f"{fmt_time(source_start)} к оригинальному Twitch VOD.",
+                flush=True,
+            )
+
         cache["transcript"].write_text(transcript, encoding="utf-8")
         debug_log("[streamer-ai] ✓ Транскрипция сохранена в кэш для повторных запусков.", flush=True)
 
@@ -438,10 +599,11 @@ def main():
 
     if not candidates:
         chunks = split_transcript(transcript)
-        video_duration = float(info.get("duration") or 0)
-        # Long VODs need a large candidate pool. Rough target: at least one
+        video_duration = timeline_end
+        scanned_duration = analysis_duration or full_duration
+        # Long ranges need a large candidate pool. Rough target: at least one
         # candidate per ~3 minutes, or 3x the requested TOP count.
-        pool_target = max(12, requested * 3, math.ceil(video_duration / 180.0) if video_duration else 12)
+        pool_target = max(12, requested * 3, math.ceil(scanned_duration / 180.0) if scanned_duration else 12)
         pool_target = min(120, pool_target)
         per_chunk = max(4, min(12, math.ceil(pool_target / max(1, len(chunks)))))
 
@@ -520,6 +682,12 @@ def main():
         "ok": True,
         "id": analysis_id,
         "video_info": info,
+        "source_range": {
+            "start": source_start,
+            "end": source_end,
+            "duration": analysis_duration,
+            "limited": range_requested,
+        },
         "min_duration": min_duration,
         "max_duration": max_duration,
         "top_count": len(best),
