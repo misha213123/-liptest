@@ -6,6 +6,8 @@ import hashlib
 import math
 import os
 import re
+import shutil
+import subprocess
 import sys
 import traceback
 import uuid
@@ -109,16 +111,74 @@ def ytdlp_base_opts() -> dict:
     return opts
 
 
+def _supported_node_path() -> str | None:
+    """Return Node >=22 for yt-dlp EJS, if available.
+
+    Node 20 is enough for our web server but too old for yt-dlp's current EJS
+    challenge solver, so never advertise it as a JS runtime.
+    """
+    candidates = []
+    in_path = shutil.which("node")
+    if in_path:
+        candidates.append(Path(in_path))
+
+    for root in (Path("/workspace/.nvm/versions/node"), Path.home() / ".nvm" / "versions" / "node"):
+        try:
+            candidates.extend(sorted(root.glob("v*/bin/node"), reverse=True))
+        except OSError:
+            pass
+
+    seen = set()
+    for candidate in candidates:
+        raw = str(candidate)
+        if raw in seen or not candidate.exists():
+            continue
+        seen.add(raw)
+        try:
+            proc = subprocess.run(
+                [raw, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            match = re.search(r"v?(\d+)", (proc.stdout or "").strip())
+            if proc.returncode == 0 and match and int(match.group(1)) >= 22:
+                return raw
+        except Exception:
+            continue
+    return None
+
+
 def add_youtube_runtime(opts: dict, url: str) -> None:
     if "youtube.com" not in url and "youtu.be" not in url:
         return
 
-    # Do not force legacy player clients. Current yt-dlp successfully resolves
-    # some videos only when it chooses the client itself.
+    # YouTube now relies on external JS challenge solving. Prefer Deno because
+    # yt-dlp enables/supports it directly; fall back to Node only when >=22.
     deno = get_deno_path()
     if deno and Path(deno).exists():
         opts["js_runtimes"] = {"deno": {"path": deno}}
         opts["remote_components"] = ["ejs:github"]
+        debug_log(
+            f"[streamer-ai] YouTube JS runtime: deno ({deno})",
+            flush=True,
+        )
+    else:
+        node = _supported_node_path()
+        if node:
+            opts["js_runtimes"] = {"node": {"path": node}}
+            opts["remote_components"] = ["ejs:github"]
+            debug_log(
+                f"[streamer-ai] YouTube JS runtime: node ({node})",
+                flush=True,
+            )
+        else:
+            debug_log(
+                "[streamer-ai] ⚠ YouTube JS runtime не найден: "
+                "нужен Deno >=2.3 или Node >=22. yt-dlp может потерять форматы "
+                "или получить 403.",
+                flush=True,
+            )
 
     raw_clients = str(
         os.environ.get("STREAMER_YOUTUBE_PLAYER_CLIENTS", "")
@@ -137,17 +197,33 @@ def add_youtube_runtime(opts: dict, url: str) -> None:
         opts.pop("extractor_args", None)
 
 
-def _youtube_opts_variants(opts: dict, url: str):
+def _youtube_opts_variants(opts: dict, url: str, *, download: bool):
     primary = dict(opts)
     add_youtube_runtime(primary, url)
     yield "default", primary
 
     # Stale/account-specific cookies can make a public video look unavailable.
-    # If that happens, retry the same request anonymously.
+    anonymous = None
     if "cookiefile" in primary:
         anonymous = dict(primary)
         anonymous.pop("cookiefile", None)
         yield "anonymous fallback", anonymous
+
+    # If direct DASH URLs are rejected with HTTP 403, prefer an HLS rendition.
+    # This keeps the cache useful for final 1080x1920 rendering and avoids
+    # silently dropping to a low-resolution progressive format.
+    if download:
+        hls = dict(anonymous or primary)
+        hls["format"] = (
+            "best[height>=720][height<=1080][protocol^=m3u8]/"
+            "best[height<=1080][protocol^=m3u8]/"
+            "bestvideo[height<=1080][protocol^=m3u8]+bestaudio/"
+            "best[height<=1080]"
+        )
+        hls["concurrent_fragment_downloads"] = 4
+        hls["fragment_retries"] = 10
+        hls["retries"] = 5
+        yield "HLS fallback", hls
 
 
 def _youtube_extract(url: str, opts: dict, *, download: bool):
@@ -157,7 +233,7 @@ def _youtube_extract(url: str, opts: dict, *, download: bool):
             return ydl.extract_info(url, download=download)
 
     last_exc = None
-    variants = list(_youtube_opts_variants(opts, url))
+    variants = list(_youtube_opts_variants(opts, url, download=download))
     for index, (label, variant) in enumerate(variants):
         try:
             debug_log(
@@ -168,6 +244,21 @@ def _youtube_extract(url: str, opts: dict, *, download: bool):
                 return ydl.extract_info(url, download=download)
         except yt_dlp.utils.DownloadError as exc:
             last_exc = exc
+
+            # Do not resume a stale partial file using a newly issued media URL.
+            # A failed GoogleVideo URL often produces repeated 403 errors on the
+            # next profile unless the partial/ytdl state is removed first.
+            outtmpl = str(variant.get("outtmpl") or "")
+            if download and outtmpl:
+                parent = Path(outtmpl).parent
+                stem = Path(outtmpl).name.split("%(", 1)[0].rstrip(".")
+                try:
+                    for partial in parent.glob(f"{stem}*"):
+                        if partial.suffix in {".part", ".ytdl"} or ".part" in partial.name:
+                            partial.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
             if index + 1 < len(variants):
                 debug_log(
                     f"[streamer-ai] ⚠ YouTube profile '{label}' failed: {exc}. "
