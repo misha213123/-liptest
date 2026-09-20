@@ -1,0 +1,21 @@
+name: Streamer Studio syntax checks
+
+on:
+  push:
+    branches:
+      - runpod-gpu-turbo
+  workflow_dispatch:
+
+jobs:
+  pycompile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python syntax
+        run: |
+          python -m py_compile             core/vertical_quality.py             core/portrait.py             clipper_core.py             core/subtitle_generator.py             core/streamer_dynamic_layout.py             webjs/streamer_analyze.py             webjs/streamer_render.py             core/streamer_layout.py             core/caption.py             core/streamer_gpu_turbo.py             core/irl_layout.py
+      - name: Node syntax
+        run: node --check webjs/server.js
