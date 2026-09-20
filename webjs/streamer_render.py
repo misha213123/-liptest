@@ -255,27 +255,141 @@ def _srt_ts_seconds(value: str) -> float:
     return h * 3600 + minute * 60 + sec + fraction
 
 
-def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
-    """Build caption words from the transcript already paid for during VOD analysis.
+def _same_cached_video_info(a: dict, b: dict) -> bool:
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    title_a = str(a.get("title") or "").strip().casefold()
+    title_b = str(b.get("title") or "").strip().casefold()
+    if not title_a or title_a != title_b:
+        return False
+    channel_a = str(a.get("channel") or "").strip().casefold()
+    channel_b = str(b.get("channel") or "").strip().casefold()
+    if channel_a and channel_b and channel_a != channel_b:
+        return False
+    try:
+        dur_a = float(a.get("duration") or 0)
+        dur_b = float(b.get("duration") or 0)
+    except Exception:
+        dur_a = dur_b = 0.0
+    if dur_a > 0 and dur_b > 0 and abs(dur_a - dur_b) > 3.0:
+        return False
+    return True
 
-    The analysis cache stores timestamped segments for the whole VOD.  For a
-    rendered clip we slice only the overlapping segments and distribute their
-    words across each segment.  This avoids a second Whisper/OpenAI request.
-    """
+
+def _find_cached_transcript_for_url(url: str) -> Path | None:
+    """Recover the paid VOD transcript across cache/URL migrations."""
     full_key = hashlib.sha256(
         f"{str(url or '').strip()}|full".encode("utf-8")
     ).hexdigest()[:24]
     legacy_key = hashlib.sha256(
         str(url or "").strip().encode("utf-8")
     ).hexdigest()[:24]
-    transcript_candidates = [
-        APP_DIR / "output" / "streamer_cache" / full_key / "transcript.txt",
-        APP_DIR / "output" / "streamer_cache" / legacy_key / "transcript.txt",
+    cache_root = APP_DIR / "output" / "streamer_cache"
+    current_dir = cache_root / full_key
+
+    direct = [
+        current_dir / "transcript.txt",
+        cache_root / legacy_key / "transcript.txt",
     ]
-    transcript_path = next(
-        (p for p in transcript_candidates if p.exists() and p.stat().st_size > 20),
-        None,
-    )
+    for path in direct:
+        if path.exists() and path.stat().st_size > 20:
+            return path
+
+    current_info = None
+    for info_path in (
+        current_dir / "video_info.json",
+        cache_root / legacy_key / "video_info.json",
+    ):
+        try:
+            if info_path.exists():
+                current_info = json.loads(info_path.read_text(encoding="utf-8"))
+                if isinstance(current_info, dict):
+                    break
+        except Exception:
+            current_info = None
+
+    if not isinstance(current_info, dict):
+        return None
+
+    # Same YouTube video may have been analyzed under a different URL form.
+    try:
+        info_files = sorted(
+            cache_root.glob("*/video_info.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        info_files = []
+
+    for info_path in info_files:
+        try:
+            other_info = json.loads(info_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not _same_cached_video_info(current_info, other_info):
+            continue
+        transcript = info_path.parent / "transcript.txt"
+        if transcript.exists() and transcript.stat().st_size > 20:
+            try:
+                current_dir.mkdir(parents=True, exist_ok=True)
+                target = current_dir / "transcript.txt"
+                if transcript != target and not target.exists():
+                    shutil.copy2(transcript, target)
+                    debug_log(
+                        f"[streamer] ♻ Восстановил transcript из старого URL-кэша: "
+                        f"{transcript}",
+                        flush=True,
+                    )
+                    return target
+            except Exception:
+                pass
+            return transcript
+
+    # Historical analyzer runs also kept transcript.txt beside analysis.json.
+    history_root = APP_DIR / "output" / "streamer_analysis"
+    try:
+        analysis_files = sorted(
+            history_root.glob("*/analysis.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        analysis_files = []
+
+    for analysis_path in analysis_files:
+        try:
+            payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not _same_cached_video_info(
+            current_info,
+            payload.get("video_info") or {},
+        ):
+            continue
+        transcript = analysis_path.parent / "transcript.txt"
+        if not transcript.exists() or transcript.stat().st_size <= 20:
+            continue
+        try:
+            current_dir.mkdir(parents=True, exist_ok=True)
+            target = current_dir / "transcript.txt"
+            if transcript != target and not target.exists():
+                shutil.copy2(transcript, target)
+                debug_log(
+                    f"[streamer] ♻ Восстановил transcript из истории AI-анализа: "
+                    f"{transcript}",
+                    flush=True,
+                )
+                return target
+        except Exception:
+            pass
+        return transcript
+
+    return None
+
+
+def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
+    """Build caption words from the transcript already paid for during VOD analysis."""
+    transcript_path = _find_cached_transcript_for_url(url)
     if transcript_path is None:
         return None
 
@@ -303,19 +417,30 @@ def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
         if local_end <= local_start:
             continue
 
-        # Keep only a sensible duration for words that partially overlap a clip
-        # boundary. Stable captions will additionally collapse duplicate tokens.
         tokens = text.split()
         if not tokens:
             continue
         step = max(0.045, (local_end - local_start) / len(tokens))
         for idx, token in enumerate(tokens):
             w_start = min(local_end, local_start + idx * step)
-            w_end = min(local_end, max(w_start + 0.045, local_start + (idx + 1) * step))
+            w_end = min(
+                local_end,
+                max(w_start + 0.045, local_start + (idx + 1) * step),
+            )
             if w_end > w_start:
-                words.append(SimpleNamespace(word=token + " ", start=w_start, end=w_end))
+                words.append(
+                    SimpleNamespace(
+                        word=token + " ",
+                        start=w_start,
+                        end=w_end,
+                    )
+                )
 
-        segments.append({"start": local_start, "end": local_end, "text": text})
+        segments.append({
+            "start": local_start,
+            "end": local_end,
+            "text": text,
+        })
         text_parts.append(text)
 
     if not words:
@@ -326,7 +451,11 @@ def load_cached_clip_transcript(url: str, clip_start: float, clip_end: float):
         f"{len(words)} слов, Whisper API не вызывается.",
         flush=True,
     )
-    return SimpleNamespace(words=words, segments=segments, text=" ".join(text_parts))
+    return SimpleNamespace(
+        words=words,
+        segments=segments,
+        text=" ".join(text_parts),
+    )
 
 
 def create_streamer_ass(
