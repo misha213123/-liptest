@@ -87,48 +87,15 @@ def cut_cached_source(
     start_sec: float,
     end_sec: float,
 ) -> Path:
-    """Create an exact local clip from the cached full YouTube source.
+    """Cut a local clip from the cached full YouTube source without re-encoding.
 
-    First try CUDA decode + NVENC so this preparation is GPU-heavy. If that is
-    unavailable, fall back to a fast local stream copy. No network request is
-    made here.
+    The final 9:16 renderer already performs the real encode. Re-encoding the
+    source clip here wastes time and, on RunPod instances without NVENC device
+    access, also causes a failed NVENC probe before falling back. Stream-copy is
+    effectively instant and keeps the original source quality.
     """
     duration = max(0.1, float(end_sec) - float(start_sec))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    gpu_cmd = [
-        get_ffmpeg_path(),
-        "-y",
-        "-ss", f"{float(start_sec):.3f}",
-        "-hwaccel", "cuda",
-        "-hwaccel_output_format", "cuda",
-        "-i", str(cached_source),
-        "-t", f"{duration:.3f}",
-        "-map", "0:v:0",
-        "-map", "0:a?",
-        "-c:v", "h264_nvenc",
-        "-preset", "p2",
-        "-cq", "20",
-        "-b:v", "0",
-        "-c:a", "aac",
-        "-b:a", "160k",
-        "-movflags", "+faststart",
-        str(output_path),
-    ]
-    proc = subprocess.run(
-        gpu_cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=SUBPROCESS_FLAGS,
-    )
-    if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 10_000:
-        debug_log(
-            f"[streamer] ♻ Локальный source cache -> клип через CUDA/NVENC: {output_path.name}",
-            flush=True,
-        )
-        return output_path
 
     copy_cmd = [
         get_ffmpeg_path(),
@@ -156,7 +123,8 @@ def cut_cached_source(
         raise RuntimeError(f"Не удалось вырезать клип из локального source cache:\n{tail}")
 
     debug_log(
-        f"[streamer] ♻ Локальный source cache -> клип без сети: {output_path.name}",
+        f"[streamer] ♻ Локальный source cache -> быстрый clip без перекодирования: "
+        f"{output_path.name}",
         flush=True,
     )
     return output_path
@@ -362,14 +330,26 @@ def create_streamer_ass(
     ass_file = out_dir / "streamer_text.ass"
 
     if captions:
-        transcript = None
         precise_mode = str(
-            os.environ.get("STREAMER_CAPTION_TIMING", "whisperx")
+            os.environ.get("STREAMER_CAPTION_TIMING", "cache")
         ).strip().lower()
-        precise_requested = precise_mode in ("whisperx", "forced", "exact", "1", "true", "on")
+        precise_requested = precise_mode in (
+            "whisperx", "forced", "exact", "1", "true", "on"
+        )
+
+        # Fast/default path: reuse the transcript produced while finding
+        # highlights. This removes a second WhisperX/Whisper pass for every
+        # 25-45 second clip.
+        transcript = None
+        if not precise_requested:
+            transcript = load_cached_clip_transcript(
+                source_url,
+                clip_start_sec,
+                clip_end_sec,
+            )
 
         audio_file = None
-        if precise_requested or transcript is None:
+        if transcript is None:
             audio_file = out_dir / "captions_audio.wav"
             cmd = [
                 get_ffmpeg_path(), "-y",
@@ -389,10 +369,9 @@ def create_streamer_ass(
             if result.returncode != 0 or not audio_file.exists():
                 raise RuntimeError("Не удалось извлечь аудио для субтитров.")
 
-        # Maximum timing accuracy: WhisperX does phoneme-based forced alignment
-        # after ASR. Unlike the cached VOD transcript, words are NOT distributed
-        # evenly across a segment; each word gets an alignment against the clip audio.
-        if precise_requested and whisperx_available():
+        # WhisperX remains available as an opt-in precision mode:
+        # STREAMER_CAPTION_TIMING=whisperx
+        if transcript is None and precise_requested and whisperx_available():
             try:
                 lang = str(getattr(core, "subtitle_language", "ru") or "ru")
                 lang = lang.split("-", 1)[0].strip().lower() or "ru"
@@ -410,21 +389,17 @@ def create_streamer_ass(
                     f"[streamer] ⚠ WhisperX forced alignment недоступен: {exc}",
                     flush=True,
                 )
-                debug_log(
-                    "[streamer] ↩ Перехожу на локальный Faster-Whisper word timestamps.",
-                    flush=True,
-                )
 
-        # Accurate local fallback: transcribe the actual clip audio. We
-        # intentionally do NOT use the cached whole-VOD pseudo word timings here.
+        # Only transcribe the clip again when no analysis transcript is
+        # available (or exact mode was explicitly requested).
         if transcript is None:
             cm_config = core.ai_providers.setdefault("caption_maker", {})
             fw_settings = cm_config.setdefault("faster_whisper", {})
             fw_settings["model_size"] = str(
-                os.environ.get("STREAMER_FASTER_WHISPER_MODEL", "large-v3") or "large-v3"
+                os.environ.get("STREAMER_FASTER_WHISPER_MODEL", "medium") or "medium"
             )
             debug_log(
-                f"[streamer] 🎯 Точные субтитры по аудио клипа: Faster-Whisper "
+                f"[streamer] 🎯 Локальный fallback субтитров: Faster-Whisper "
                 f"{fw_settings['model_size']} + word timestamps.",
                 flush=True,
             )
