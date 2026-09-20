@@ -1,6 +1,8 @@
 import os
 import re
 
+from core.vertical_quality import VERTICAL_WIDTH, VERTICAL_HEIGHT, SAFE_LEFT, SAFE_RIGHT
+
 class SubtitleGeneratorMixin:
     def format_time(self, seconds: float) -> str:
         """Convert seconds to ASS time format"""
@@ -14,16 +16,17 @@ class SubtitleGeneratorMixin:
         """Create configurable karaoke captions for short-form video."""
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
 
-        font_size = max(28, min(96, int(cfg.get("font_size", 48) or 48)))
-        position_x_pct = max(0.05, min(0.95, float(cfg.get("position_x_pct", 0.50) or 0.50)))
-        position_y_pct = max(0.08, min(0.94, float(cfg.get("position_y_pct", 0.76) or 0.76)))
-        pos_x = int(round(720 * position_x_pct))
-        pos_y = int(round(1280 * position_y_pct))
+        font_size = max(42, min(144, int(round((int(cfg.get("font_size", 48) or 48)) * (VERTICAL_WIDTH / 720.0)))))
+        position_x_pct = max(0.10, min(0.84, float(cfg.get("position_x_pct", 0.50) or 0.50)))
+        position_y_pct = max(0.16, min(0.78, float(cfg.get("position_y_pct", 0.70) or 0.70)))
+        pos_x = int(round(VERTICAL_WIDTH * position_x_pct))
+        pos_y = int(round(VERTICAL_HEIGHT * position_y_pct))
         position_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
-        safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
+        safe_margin = max(SAFE_LEFT, min(300, int(round((int(cfg.get("safe_margin", 72) or 72)) * (VERTICAL_WIDTH / 720.0)))))
+        safe_right = max(SAFE_RIGHT, safe_margin)
         max_words = max(1, min(7, int(cfg.get("max_words", 3) or 3)))
-        outline = max(0, min(10, int(cfg.get("outline", 3) or 3)))
-        shadow = max(0, min(8, int(cfg.get("shadow", 1) or 1)))
+        outline = max(0, min(15, int(round((int(cfg.get("outline", 3) or 3)) * (VERTICAL_WIDTH / 720.0)))))
+        shadow = max(0, min(12, int(round((int(cfg.get("shadow", 1) or 1)) * (VERTICAL_WIDTH / 720.0)))))
         spacing = max(-2, min(8, int(cfg.get("spacing", 0) or 0)))
         font_name = str(cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
         uppercase = bool(cfg.get("uppercase", True))
@@ -43,19 +46,19 @@ class SubtitleGeneratorMixin:
         bg_alpha = int(round(255 * (1.0 - background_opacity / 100.0)))
         back_color = ass_style_color(cfg.get("background_color", "#000000"), "#000000", bg_alpha)
         border_style = 3 if background_box else 1
-        margin_v = int(round((1.0 - position_y_pct) * 1280))
+        margin_v = int(round((1.0 - position_y_pct) * VERTICAL_HEIGHT))
 
         ass_content = f"""[Script Info]
 Title: Karaoke captions
 ScriptType: v4.00+
 WrapStyle: 2
-PlayResX: 720
-PlayResY: 1280
+PlayResX: {VERTICAL_WIDTH}
+PlayResY: {VERTICAL_HEIGHT}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{primary},{secondary},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_margin},{margin_v},1
+Style: Default,{font_name},{font_size},{primary},{secondary},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_right},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -109,17 +112,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
 
-        font_size = max(28, min(96, int(cfg.get("font_size", 50) or 50)))
-        position_x_pct = max(0.05, min(0.95, float(cfg.get("position_x_pct", 0.50) or 0.50)))
-        position_y_pct = max(0.08, min(0.94, float(cfg.get("position_y_pct", 0.76) or 0.76)))
-        pos_x = int(round(720 * position_x_pct))
-        pos_y = int(round(1280 * position_y_pct))
+        font_size = max(42, min(144, int(round((int(cfg.get("font_size", 50) or 50)) * (VERTICAL_WIDTH / 720.0)))))
+        position_x_pct = max(0.10, min(0.84, float(cfg.get("position_x_pct", 0.50) or 0.50)))
+        position_y_pct = max(0.16, min(0.78, float(cfg.get("position_y_pct", 0.70) or 0.70)))
+        pos_x = int(round(VERTICAL_WIDTH * position_x_pct))
+        pos_y = int(round(VERTICAL_HEIGHT * position_y_pct))
         position_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
-        safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
+        safe_margin = max(SAFE_LEFT, min(300, int(round((int(cfg.get("safe_margin", 72) or 72)) * (VERTICAL_WIDTH / 720.0)))))
+        safe_right = max(SAFE_RIGHT, safe_margin)
         max_words = max(2, min(7, int(cfg.get("max_words", 4) or 4)))
         max_chars = max(10, min(42, int(cfg.get("max_chars", 28) or 28)))
-        outline = max(0, min(10, int(cfg.get("outline", 4) or 4)))
-        shadow = max(0, min(8, int(cfg.get("shadow", 1) or 1)))
+        outline = max(0, min(15, int(round((int(cfg.get("outline", 4) or 4)) * (VERTICAL_WIDTH / 720.0)))))
+        shadow = max(0, min(12, int(round((int(cfg.get("shadow", 1) or 1)) * (VERTICAL_WIDTH / 720.0)))))
         spacing = max(-2, min(8, int(cfg.get("spacing", 0) or 0)))
         font_name = str(cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
         uppercase = bool(cfg.get("uppercase", True))
@@ -139,19 +143,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         bg_alpha = int(round(255 * (1.0 - background_opacity / 100.0)))
         back_color = ass_color(cfg.get("background_color", "#000000"), "#000000", bg_alpha)
         border_style = 3 if background_box else 1
-        margin_v = int(round((1.0 - position_y_pct) * 1280))
+        margin_v = int(round((1.0 - position_y_pct) * VERTICAL_HEIGHT))
 
         ass_content = f"""[Script Info]
 Title: Stable streamer captions
 ScriptType: v4.00+
 WrapStyle: 2
-PlayResX: 720
-PlayResY: 1280
+PlayResX: {VERTICAL_WIDTH}
+PlayResY: {VERTICAL_HEIGHT}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{highlight},{normal},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_margin},{margin_v},1
+Style: Default,{font_name},{font_size},{highlight},{normal},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_right},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -253,17 +257,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         """Create configurable TikTok/CapCut-style captions with word highlighting."""
         cfg = dict(getattr(self, "subtitle_settings", {}) or {})
 
-        font_size = max(28, min(96, int(cfg.get("font_size", 48) or 48)))
-        position_x_pct = max(0.05, min(0.95, float(cfg.get("position_x_pct", 0.50) or 0.50)))
-        position_y_pct = max(0.08, min(0.94, float(cfg.get("position_y_pct", 0.76) or 0.76)))
-        pos_x = int(round(720 * position_x_pct))
-        pos_y = int(round(1280 * position_y_pct))
+        font_size = max(42, min(144, int(round((int(cfg.get("font_size", 48) or 48)) * (VERTICAL_WIDTH / 720.0)))))
+        position_x_pct = max(0.10, min(0.84, float(cfg.get("position_x_pct", 0.50) or 0.50)))
+        position_y_pct = max(0.16, min(0.78, float(cfg.get("position_y_pct", 0.70) or 0.70)))
+        pos_x = int(round(VERTICAL_WIDTH * position_x_pct))
+        pos_y = int(round(VERTICAL_HEIGHT * position_y_pct))
         position_tag = f"{{\\an5\\pos({pos_x},{pos_y})}}"
-        safe_margin = max(20, min(220, int(cfg.get("safe_margin", 72) or 72)))
+        safe_margin = max(SAFE_LEFT, min(300, int(round((int(cfg.get("safe_margin", 72) or 72)) * (VERTICAL_WIDTH / 720.0)))))
+        safe_right = max(SAFE_RIGHT, safe_margin)
         max_words = max(1, min(7, int(cfg.get("max_words", 3) or 3)))
         user_max_chars = max(8, min(48, int(cfg.get("max_chars", 24) or 24)))
-        outline = max(0, min(10, int(cfg.get("outline", 3) or 3)))
-        shadow = max(0, min(8, int(cfg.get("shadow", 1) or 1)))
+        outline = max(0, min(15, int(round((int(cfg.get("outline", 3) or 3)) * (VERTICAL_WIDTH / 720.0)))))
+        shadow = max(0, min(12, int(round((int(cfg.get("shadow", 1) or 1)) * (VERTICAL_WIDTH / 720.0)))))
         spacing = max(-2, min(8, int(cfg.get("spacing", 0) or 0)))
         font_name = str(cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
         text_hex = str(cfg.get("text_color", "#FFFFFF") or "#FFFFFF")
@@ -295,9 +300,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         text_inline = inline_color(text_color)
         highlight_inline = inline_color(highlight_color)
-        margin_v = int(round((1.0 - position_y_pct) * 1280))
+        margin_v = int(round((1.0 - position_y_pct) * VERTICAL_HEIGHT))
 
-        safe_width = max(220, 720 - 2 * safe_margin)
+        safe_width = max(360, VERTICAL_WIDTH - safe_margin - safe_right)
         dynamic_char_limit = max(8, int(safe_width / max(1.0, font_size * 0.58)))
         max_chars = min(user_max_chars, dynamic_char_limit)
 
@@ -305,13 +310,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Title: Auto-generated captions
 ScriptType: v4.00+
 WrapStyle: 2
-PlayResX: 720
-PlayResY: 1280
+PlayResX: {VERTICAL_WIDTH}
+PlayResY: {VERTICAL_HEIGHT}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{text_color},{highlight_color},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_margin},{margin_v},1
+Style: Default,{font_name},{font_size},{text_color},{highlight_color},{outline_color},{back_color},-1,0,0,0,100,100,{spacing},0,{border_style},{outline},{shadow},2,{safe_margin},{safe_right},{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
