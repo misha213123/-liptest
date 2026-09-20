@@ -234,6 +234,7 @@ class TranscribeMixin:
                     raw_segments = []
                     total_duration = float(getattr(info, "duration", 0) or 0)
                     last_logged_pct = -10
+                    last_callback_pct = -1
                     for seg in segments_gen:
                         raw_segments.append(seg)
                         if total_duration > 0:
@@ -241,7 +242,11 @@ class TranscribeMixin:
                             if pct >= last_logged_pct + 10:
                                 last_logged_pct = pct
                                 self.log(f"  Faster-Whisper progress: {pct}%")
-                            if progress_callback is not None:
+                            # The generator can yield dozens of segments inside the
+                            # same integer percentage. Do not spam the live log/UI
+                            # with identical progress lines.
+                            if progress_callback is not None and pct > last_callback_pct:
+                                last_callback_pct = pct
                                 try:
                                     progress_callback(pct / 100.0)
                                 except Exception:
@@ -262,6 +267,7 @@ class TranscribeMixin:
                     raw_segments = []
                     total_duration = float(getattr(info, "duration", 0) or 0)
                     last_logged_pct = -10
+                    last_callback_pct = -1
                     for seg in segments_gen:
                         raw_segments.append(seg)
                         if total_duration > 0:
@@ -269,7 +275,8 @@ class TranscribeMixin:
                             if pct >= last_logged_pct + 10:
                                 last_logged_pct = pct
                                 self.log(f"  Faster-Whisper CPU progress: {pct}%")
-                            if progress_callback is not None:
+                            if progress_callback is not None and pct > last_callback_pct:
+                                last_callback_pct = pct
                                 try:
                                     progress_callback(pct / 100.0)
                                 except Exception:
