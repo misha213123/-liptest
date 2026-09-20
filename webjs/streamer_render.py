@@ -942,6 +942,8 @@ def insert_ad_banner(
         "-map", "[aout]",
         *encoder_args,
         "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
         "-movflags", "+faststart",
         str(output_path),
     ]
@@ -968,6 +970,8 @@ def insert_ad_banner(
             "-map", "[aout]",
             *_cpu_encoder_args(),
             "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
             "-movflags", "+faststart",
             str(output_path),
         ]
