@@ -169,6 +169,17 @@ def render_dynamic_streamer_layout(
     graph = []
     segment_labels = []
 
+    # FFmpeg filter inputs are consumable pads. Duplicate the source once up
+    # front, then trim each independent branch; do not reference [0:v]
+    # repeatedly for multiple state segments.
+    if len(timeline) == 1:
+        graph.append("[0:v]null[src0]")
+    else:
+        graph.append(
+            f"[0:v]split={len(timeline)}"
+            + "".join(f"[src{i}]" for i in range(len(timeline)))
+        )
+
     for idx, seg in enumerate(timeline):
         state = _state_name(seg["state"])
         top_pct, crop_factor = _profile(state, webcam_height_pct)
@@ -196,7 +207,7 @@ def render_dynamic_streamer_layout(
         start = float(seg["start"])
         end = float(seg["end"])
         graph.append(
-            f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,"
+            f"[src{idx}]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,"
             f"split=2[s{idx}cam0][s{idx}game0]"
         )
         graph.append(
