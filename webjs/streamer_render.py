@@ -23,7 +23,11 @@ from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
 from core.irl_layout import IRLLayoutRenderer
-from core.streamer_gpu_turbo import cuda_filters_available, render_streamer_gpu_turbo
+from core.streamer_gpu_turbo import (
+    cuda_filters_available,
+    render_irl_gpu_turbo,
+    render_streamer_gpu_turbo,
+)
 from core.streamer_precise_captions import (
     PreciseCaptionError,
     transcribe_words_whisperx,
@@ -958,9 +962,17 @@ def main():
         merged_subtitle_settings.update(subtitle_settings)
         core.subtitle_settings = merged_subtitle_settings
 
-    turbo_requested = str(os.environ.get("STREAMER_GPU_TURBO", "0")).strip().lower() in (
-        "1", "true", "yes", "on"
-    )
+    requested_gpu = bool(job.get("gpu", True))
+    turbo_env = os.environ.get("STREAMER_GPU_TURBO")
+    if turbo_env is None:
+        # RunPod/Linux defaults to GPU-heavy rendering when the UI GPU switch is on.
+        # Windows local keeps the conservative renderer unless explicitly enabled.
+        turbo_requested = requested_gpu and os.name != "nt"
+    else:
+        turbo_requested = requested_gpu and str(turbo_env).strip().lower() in (
+            "1", "true", "yes", "on"
+        )
+
     requested_resolution = str(job.get("resolution") or "best")
     if turbo_requested and requested_resolution.strip().lower() in ("best", "auto"):
         requested_resolution = str(
@@ -1034,14 +1046,13 @@ def main():
             resolution=requested_resolution,
         )
 
-    requested_gpu = bool(job.get("gpu", True))
-    effective_gpu = True if turbo_requested else requested_gpu
-    if turbo_requested and not requested_gpu:
-        debug_log(
-            "[streamer] 🚀 GPU TURBO принудительно включает GPU, игнорирую gpu=false из шаблона/UI.",
-            flush=True,
-        )
+    effective_gpu = requested_gpu
     core.enable_gpu_acceleration(effective_gpu)
+    debug_log(
+        f"[streamer] GPU mode: requested={requested_gpu}, "
+        f"turbo={turbo_requested}, platform={os.name}",
+        flush=True,
+    )
     encoder_args = tune_encoder_args(core.get_video_encoder_args())
     if _is_hw_encoder_args(encoder_args):
         debug_log(
@@ -1077,12 +1088,51 @@ def main():
     target_before_banner = text_path if banner_enabled else final_path
     turbo_done = False
 
-    if turbo_requested and layout_mode == "irl":
-        debug_log(
-            "[streamer] IRL mode: GPU TURBO webcam-layout отключён; "
-            "использую отдельный безопасный IRL pipeline.",
-            flush=True,
-        )
+    if turbo_requested and effective_gpu and layout_mode == "irl":
+        if cuda_filters_available(get_ffmpeg_path()):
+            try:
+                debug_log(
+                    "[progress] 🚀 IRL GPU TURBO: CUDA scale + текст одним проходом... "
+                    "(overall: 55.0%)",
+                    flush=True,
+                )
+                render_irl_gpu_turbo(
+                    ffmpeg_path=get_ffmpeg_path(),
+                    input_path=str(source_path),
+                    output_path=str(target_before_banner),
+                    encoder_args=encoder_args,
+                    ass_file=ass_file,
+                    foreground_y_pct=float(
+                        job.get("irl_foreground_y_pct", 0.48) or 0.48
+                    ),
+                    background_blur=float(
+                        job.get("irl_background_blur", 18.0) or 18.0
+                    ),
+                    background_brightness=float(
+                        job.get("irl_background_brightness", -0.08) or -0.08
+                    ),
+                    log=lambda m: debug_log(m, flush=True),
+                )
+                turbo_done = True
+                debug_log(
+                    "[progress] 🚀 IRL GPU TURBO pass готов. (overall: 88.0%)",
+                    flush=True,
+                )
+            except Exception as exc:
+                debug_log(
+                    f"[streamer] ⚠ IRL GPU TURBO не прошёл: {exc}",
+                    flush=True,
+                )
+                debug_log(
+                    "[streamer] ↩ Возвращаюсь к безопасному IRL pipeline.",
+                    flush=True,
+                )
+        else:
+            debug_log(
+                "[streamer] ⚠ CUDA FFmpeg filters недоступны для IRL — "
+                "использую безопасный pipeline.",
+                flush=True,
+            )
 
     if turbo_requested and effective_gpu and layout_mode == "stream":
         if cuda_filters_available(get_ffmpeg_path()):
