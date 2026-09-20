@@ -126,8 +126,8 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
         <div id="sourceRangePanel" class="soft rounded-xl p-2.5 mt-2">
           <div class="flex items-start justify-between gap-2">
             <div>
-              <div class="font-bold text-xs">⏱ Диапазон VOD для скачивания и AI-анализа</div>
-              <div class="text-[10px] text-zinc-500 mt-0.5">Для Twitch на 8–10 часов укажи только нужный кусок. Пустой конец = до конца VOD.</div>
+              <div class="font-bold text-xs">⏱ Диапазон Twitch/Kick VOD</div>
+              <div class="text-[10px] text-zinc-500 mt-0.5">Для длинных Twitch/Kick VOD можно выбрать кусок. YouTube всегда проверяется полностью.</div>
             </div>
             <span id="sourceRangeBadge" class="badge text-[10px]">весь VOD</span>
           </div>
@@ -774,7 +774,7 @@ $('#saveProfile').onclick=()=>{const name=$('#profileName').value.trim(),r=nrect
 function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileName').value=name;$('#camPct').value=p.camPct||36;$('#gameX').value=p.gameX??50;updateLayoutPreview();if(p.rect){rect={x:p.rect.x*canvas.width,y:p.rect.y*canvas.height,w:p.rect.w*canvas.width,h:p.rect.h*canvas.height};redraw();rectInfo()}}
 $('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
 
-$('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText()}catch{}};
+$('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText();syncSourceRangeAvailability()}catch{}};
 function isIrlMode(){return $('#layoutMode').value==='irl'}
 function updateLayoutPreview(){
  const cp=+$('#camPct').value,gp=+$('#gameX').value;
@@ -1671,7 +1671,7 @@ function applyFullTemplate(t,name=''){
  setVal('numClips',t.analysis?.numClips);
  setVal('sourceRangeStart',t.analysis?.sourceStart);
  setVal('sourceRangeEnd',t.analysis?.sourceEnd);
- updateSourceRangeUi();
+ syncSourceRangeAvailability();
 
  setVal('camPct',t.webcam?.camPct);
  setVal('gameX',t.webcam?.gameX);
