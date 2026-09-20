@@ -160,6 +160,7 @@ def validate_vertical_output(
     expected_width: int = VERTICAL_WIDTH,
     expected_height: int = VERTICAL_HEIGHT,
     require_audio: bool = True,
+    expected_fps: float | None = None,
     log: Callable[[str], None] | None = None,
 ) -> dict:
     info = probe_media(path, ffprobe_path=ffprobe_path)
@@ -182,6 +183,13 @@ def validate_vertical_output(
     fps = float(info.get("fps") or 0)
     if fps < 20.0 or fps > 60.5:
         problems.append(f"fps is {fps:.3f}, expected a sane source fps or 30")
+    if expected_fps is not None:
+        target_fps = float(expected_fps or 0)
+        # Fractional rates such as 29.970/59.940 need a small tolerance.
+        if target_fps > 0 and abs(fps - target_fps) > 0.12:
+            problems.append(
+                f"fps is {fps:.3f}, expected {target_fps:.3f}"
+            )
 
     valid = not problems
     info["valid"] = valid
