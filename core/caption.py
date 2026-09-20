@@ -30,6 +30,12 @@ from datetime import datetime
 from openai import OpenAI, APIError, APIConnectionError, RateLimitError, APIStatusError
 from utils.logger import debug_log
 from utils.helpers import get_deno_path, get_ffmpeg_path, is_ytdlp_module_available, extract_video_id
+from core.vertical_quality import (
+    VERTICAL_WIDTH,
+    VERTICAL_HEIGHT,
+    ffprobe_path_from_ffmpeg,
+    validate_vertical_output,
+)
 
 
 def _hex_to_rgb(hex_color: str):
@@ -173,7 +179,9 @@ class CaptionMixin:
                 "-i", input_path,
                 "-vf", f"ass='{ass_path_escaped}'",
                 *encoder_args,
+                "-pix_fmt", "yuv420p",
                 "-c:a", "copy",
+                "-movflags", "+faststart",
                 output_path
             ]
         
@@ -251,7 +259,7 @@ class CaptionMixin:
             if res_match:
                 width, height = int(res_match.group(1)), int(res_match.group(2))
             else:
-                width, height = 720, 1280
+                width, height = VERTICAL_WIDTH, VERTICAL_HEIGHT
 
             progress_callback(0.3)
 
@@ -385,7 +393,9 @@ class CaptionMixin:
                 "-map", "[v]",
                 "-map", "0:a?",
                 *encoder_args,
+                "-pix_fmt", "yuv420p",
                 "-c:a", "copy",
+                "-movflags", "+faststart",
                 output_path,
             ]
             self.log_ffmpeg_command(overlay_cmd, "Overlay Hook Text (tanpa pause)", step="hook")
@@ -1476,6 +1486,18 @@ class CaptionMixin:
                 import shutil
                 shutil.copy(str(current_output), str(final_file))
         
+            # Validate the actual delivery file, not an intermediate. A 512x910
+            # or 720x1280 result is now a hard render failure instead of silently
+            # reaching the library.
+            output_validation = validate_vertical_output(
+                final_file,
+                ffprobe_path=ffprobe_path_from_ffmpeg(self.ffmpeg_path),
+                expected_width=VERTICAL_WIDTH,
+                expected_height=VERTICAL_HEIGHT,
+                require_audio=True,
+                log=lambda line: self.log(f"  {line}"),
+            )
+
             # Temp files are kept for inspection (landscape, portrait, hooked, etc.)
         
             # Save metadata
@@ -1513,6 +1535,7 @@ class CaptionMixin:
                 "portrait_mode": getattr(self, "portrait_mode", None),
                 "channel_name": self.channel_name,
                 "aspect_ratio": self.aspect_ratio,
+                "output_validation": output_validation,
             }
         
             # Auto generate social kit metadata if client is available (sequential overall 0→100)
