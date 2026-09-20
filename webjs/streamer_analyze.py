@@ -66,7 +66,14 @@ def streamer_prompt(min_duration: int, max_duration: int) -> str:
 5. Используй ТОЛЬКО реальные таймкоды из расшифровки.
 6. Заголовок — максимум 6 слов, цепкий и честный.
 7. timed_title показывается только первые 2.3 секунды.
-8. Верни ТОЛЬКО JSON-массив без markdown и пояснений.
+8. Для монтажа можешь добавить layout_events — максимум 3 осмысленных переключения
+   относительно НАЧАЛА найденного клипа. Допустимые state:
+   NORMAL, FACE_FOCUS, GAME_FOCUS, REACTION.
+   Не переключай layout чаще чем раз в 1.2 секунды. Если переключение не нужно —
+   верни пустой массив.
+9. FACE_FOCUS используй для важной реплики/эмоции стримера, GAME_FOCUS — когда
+   главное действие происходит в игре, REACTION — для короткой сильной реакции.
+10. Верни ТОЛЬКО JSON-массив без markdown и пояснений.
 
 ФОРМАТ:
 [
@@ -78,7 +85,11 @@ def streamer_prompt(min_duration: int, max_duration: int) -> str:
     "virality_score": 92,
     "virality_reason": "Почему момент удерживает внимание",
     "hook_text": "Короткий хук",
-    "timed_title": {{"text": "ОН НЕ ОЖИДАЛ ЭТОГО", "start": 0.0, "end": 2.3}}
+    "timed_title": {{"text": "ОН НЕ ОЖИДАЛ ЭТОГО", "start": 0.0, "end": 2.3}},
+    "layout_events": [
+      {{"state": "REACTION", "start": 7.0, "end": 9.2}},
+      {{"state": "GAME_FOCUS", "start": 14.0, "end": 17.5}}
+    ]
   }}
 ]
 
@@ -480,8 +491,8 @@ def cache_paths(
         f"{url.strip()}|{range_key}".encode("utf-8")
     ).hexdigest()[:24]
     cache_dir = APP_DIR / "output" / "streamer_cache" / url_key
-    analysis_key = f"{min_duration}_{max_duration}_{requested}_v3"
-    pool_key = f"{min_duration}_{max_duration}_v3"
+    analysis_key = f"{min_duration}_{max_duration}_{requested}_v4"
+    pool_key = f"{min_duration}_{max_duration}_v4"
     return {
         "dir": cache_dir,
         "transcript": cache_dir / "transcript.txt",
@@ -553,7 +564,7 @@ def main():
     if cache["analysis"].exists():
         try:
             cached_payload = json.loads(cache["analysis"].read_text(encoding="utf-8"))
-            if int(cached_payload.get("schema_version") or 0) < 2:
+            if int(cached_payload.get("schema_version") or 0) < 3:
                 raise ValueError("старый формат кэша")
             cached_payload["ok"] = True
             cached_payload["id"] = str(job.get("id") or cached_payload.get("id") or uuid.uuid4().hex[:12])
@@ -791,7 +802,7 @@ def main():
         h.pop("_candidate_id", None)
 
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "ok": True,
         "id": analysis_id,
         "video_info": info,
