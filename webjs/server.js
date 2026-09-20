@@ -173,6 +173,9 @@ const STREAMER_MAX_PROJECTS = Math.max(
   1,
   Math.min(5, parseInt(process.env.STREAMER_MAX_PROJECTS || '3', 10) || 3)
 );
+// Four independent UI project slots. STREAMER_MAX_PROJECTS remains the
+// concurrency limit, so adding project4 does not increase GPU/RAM load by itself.
+const STREAMER_PROJECT_SLOTS = 4;
 
 function streamerProjectId(u) {
   const raw = String((u && u.searchParams && u.searchParams.get('project_id')) || 'default');
@@ -584,7 +587,25 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    // Flat folder with finished Streamer Clips only.
+    // Project-scoped ready folder. project4 intentionally gets its own final
+    // export directory so a new source cannot mix finished files with projects 1-3.
+    const mStreamerReadyScoped = p.match(/^\/download\/streamer-ready\/([^/]+)\/([^/]+)$/);
+    if (mStreamerReadyScoped) {
+      const folder = path.basename(mStreamerReadyScoped[1]);
+      const allowedFolders = new Set(['FINAL_STREAMER_CLIPS', 'FINAL_STREAMER_CLIPS_PROJECT4']);
+      if (!allowedFolders.has(folder)) {
+        return json(res, 404, { error: 'finished streamer folder not found' });
+      }
+      const file = path.basename(mStreamerReadyScoped[2]);
+      const base = path.join(ROOT, 'output', folder);
+      const fp = path.join(base, file);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'finished streamer clip not found' });
+      }
+      return sendFile(req, res, fp, true);
+    }
+
+    // Legacy flat folder for projects 1-3 and old links.
     const mStreamerReady = p.match(/^\/download\/streamer-ready\/([^/]+)$/);
     if (mStreamerReady) {
       const file = path.basename(mStreamerReady[1]);
@@ -1581,12 +1602,15 @@ except Exception as e:
       const state = streamerJobState(STREAMER_RENDER_JOBS.get(projectId), 24000);
       if (state.result && state.result.ok) {
         const id = encodeURIComponent(state.result.id);
+        const exportFolder = String(state.result.export_folder || 'FINAL_STREAMER_CLIPS');
         state.result.video_url = '/video/streamer/' + id + '/' + encodeURIComponent(state.result.final_file);
         state.result.download_url = state.result.export_file
-          ? '/download/streamer-ready/' + encodeURIComponent(state.result.export_file)
+          ? (exportFolder === 'FINAL_STREAMER_CLIPS'
+              ? '/download/streamer-ready/' + encodeURIComponent(state.result.export_file)
+              : '/download/streamer-ready/' + encodeURIComponent(exportFolder) + '/' + encodeURIComponent(state.result.export_file))
           : '/download/streamer/' + id + '/' + encodeURIComponent(state.result.final_file);
         state.result.source_download_url = '/download/streamer/' + id + '/' + encodeURIComponent(state.result.source_file);
-        state.result.ready_folder = 'output\\FINAL_STREAMER_CLIPS';
+        state.result.ready_folder = 'output\\' + exportFolder;
       }
       return json(res, 200, { project_id: projectId, ...state });
     }
@@ -1648,6 +1672,7 @@ except Exception as e:
       }
       return json(res, 200, {
         max_projects: STREAMER_MAX_PROJECTS,
+        project_slots: STREAMER_PROJECT_SLOTS,
         running_projects: streamerRunningProjectIds().size,
         projects,
       });
