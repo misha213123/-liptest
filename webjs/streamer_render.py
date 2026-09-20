@@ -1112,6 +1112,11 @@ def main():
     job_path = Path(sys.argv[1]).resolve()
     result_path = Path(sys.argv[2]).resolve()
     job = json.loads(job_path.read_text(encoding="utf-8"))
+    project_id = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "",
+        str(job.get("project_id") or os.environ.get("STREAMER_PROJECT_ID") or "default"),
+    )[:40] or "default"
 
     url = str(job.get("url") or "").strip()
     if not url.startswith(("http://", "https://")):
@@ -1592,9 +1597,15 @@ def main():
     debug_log("[streamer] === RENDER COMPLETE ===", flush=True)
     debug_log(f"[streamer] Output: {final_path}", flush=True)
 
-    # Keep a flat folder with ONLY finished clips so they are easy to drag to
-    # Telegram/TikTok/Drive without digging through technical render folders.
-    export_dir = APP_DIR / "output" / "FINAL_STREAMER_CLIPS"
+    # Project 4 is a deliberately isolated lane: its finished renders never mix
+    # with the existing projects 1-3 folder. Intermediate render folders and
+    # caches keep their existing behavior, so this is backward-compatible.
+    export_folder = (
+        "FINAL_STREAMER_CLIPS_PROJECT4"
+        if project_id == "project4"
+        else "FINAL_STREAMER_CLIPS"
+    )
+    export_dir = APP_DIR / "output" / export_folder
     export_dir.mkdir(parents=True, exist_ok=True)
     base_name = re.sub(r'[<>:"/\\|?*]+', "_", title_text or "streamer_clip")
     base_name = re.sub(r"\s+", "_", base_name).strip(" ._")[:80] or "streamer_clip"
@@ -1605,6 +1616,7 @@ def main():
 
     meta = {
         "id": clip_id,
+        "project_id": project_id,
         "url": url,
         "start_time": start_sec,
         "end_time": end_sec,
@@ -1647,6 +1659,7 @@ def main():
         "layout_file": layout_path.name if layout_path.exists() else "",
         "final_file": final_path.name,
         "export_file": export_name,
+        "export_folder": export_folder,
         "export_path": str(export_path),
     }
     (out_dir / "streamer_job.json").write_text(
@@ -1657,10 +1670,12 @@ def main():
     payload = {
         "ok": True,
         "id": clip_id,
+        "project_id": project_id,
         "output_dir": str(out_dir),
         "source_file": source_path.name,
         "final_file": final_path.name,
         "export_file": export_name,
+        "export_folder": export_folder,
         "export_path": str(export_path),
         "title_text": title_text,
         "layout_mode": layout_mode,
