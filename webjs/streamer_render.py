@@ -22,6 +22,7 @@ from openai import OpenAI
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
+from core.irl_layout import IRLLayoutRenderer
 from core.streamer_gpu_turbo import cuda_filters_available, render_streamer_gpu_turbo
 from core.streamer_precise_captions import (
     PreciseCaptionError,
@@ -884,7 +885,16 @@ def main():
     if end_sec - start_sec > 15 * 60:
         raise ValueError("Один клип пока ограничен 15 минутами")
 
+    layout_mode = str(job.get("layout_mode") or "stream").strip().lower()
+    if layout_mode in ("irl", "irl_blur", "irl_vertical"):
+        layout_mode = "irl"
+    else:
+        layout_mode = "stream"
+
     webcam_rect = dict(job.get("webcam_rect") or {})
+    if layout_mode == "irl" and not webcam_rect:
+        webcam_rect = {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
+
     top_pct = float(job.get("webcam_height_pct", 0.365) or 0.365)
     game_center_x = float(job.get("gameplay_center_x", 0.50) or 0.50)
     captions = bool(job.get("captions", True))
@@ -1058,7 +1068,14 @@ def main():
     target_before_banner = text_path if banner_enabled else final_path
     turbo_done = False
 
-    if turbo_requested and effective_gpu:
+    if turbo_requested and layout_mode == "irl":
+        debug_log(
+            "[streamer] IRL mode: GPU TURBO webcam-layout отключён; "
+            "использую отдельный безопасный IRL pipeline.",
+            flush=True,
+        )
+
+    if turbo_requested and effective_gpu and layout_mode == "stream":
         if cuda_filters_available(get_ffmpeg_path()):
             try:
                 debug_log(
@@ -1099,21 +1116,45 @@ def main():
             )
 
     if not turbo_done:
-        debug_log("[progress] Собираю webcam + gameplay... (overall: 35.0%)", flush=True)
-        renderer = StreamerLayoutRenderer(
-            ffmpeg_path=get_ffmpeg_path(),
-            encoder_args=encoder_args,
-            log=lambda m: debug_log(m, flush=True),
-        )
-        renderer.render(
-            str(source_path),
-            str(layout_path),
-            webcam_rect,
-            webcam_height_pct=top_pct,
-            gameplay_center_x=game_center_x,
-            webcam_padding=int(job.get("webcam_padding", 0) or 0),
-            webcam_enhance=webcam_enhance,
-        )
+        if layout_mode == "irl":
+            debug_log(
+                "[progress] Собираю IRL 9:16: оригинал + blurred background... "
+                "(overall: 35.0%)",
+                flush=True,
+            )
+            renderer = IRLLayoutRenderer(
+                ffmpeg_path=get_ffmpeg_path(),
+                encoder_args=encoder_args,
+                log=lambda m: debug_log(m, flush=True),
+            )
+            renderer.render(
+                str(source_path),
+                str(layout_path),
+                foreground_y_pct=float(job.get("irl_foreground_y_pct", 0.48) or 0.48),
+                background_blur=float(job.get("irl_background_blur", 18.0) or 18.0),
+                background_brightness=float(
+                    job.get("irl_background_brightness", -0.08) or -0.08
+                ),
+            )
+        else:
+            debug_log(
+                "[progress] Собираю webcam + gameplay... (overall: 35.0%)",
+                flush=True,
+            )
+            renderer = StreamerLayoutRenderer(
+                ffmpeg_path=get_ffmpeg_path(),
+                encoder_args=encoder_args,
+                log=lambda m: debug_log(m, flush=True),
+            )
+            renderer.render(
+                str(source_path),
+                str(layout_path),
+                webcam_rect,
+                webcam_height_pct=top_pct,
+                gameplay_center_x=game_center_x,
+                webcam_padding=int(job.get("webcam_padding", 0) or 0),
+                webcam_enhance=webcam_enhance,
+            )
 
         if ass_file:
             debug_log("[progress] Прожигаю текст... (overall: 84.0%)", flush=True)
@@ -1175,6 +1216,7 @@ def main():
         "url": url,
         "start_time": start_sec,
         "end_time": end_sec,
+        "layout_mode": layout_mode,
         "webcam_rect": webcam_rect,
         "webcam_height_pct": top_pct,
         "gameplay_center_x": game_center_x,
@@ -1226,6 +1268,7 @@ def main():
         "export_file": export_name,
         "export_path": str(export_path),
         "title_text": title_text,
+        "layout_mode": layout_mode,
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
