@@ -150,6 +150,127 @@ class IRLLayoutRenderer:
 
         code, stderr = run(cmd)
 
+        def low_memory_render():
+            """Two-pass IRL fallback for memory-constrained containers.
+
+            Pass 1 decodes AV1 only once and writes a tiny blurred background.
+            Pass 2 decodes the source once more for the foreground and combines
+            it with the tiny background. This avoids split=2 keeping two large
+            decoded AV1 branches alive in one filter graph.
+            """
+            low_bg = Path(output_path).with_name(
+                Path(output_path).stem + "_bg_low.mp4"
+            )
+            try:
+                low_bg.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+            bg_w = 270
+            bg_h = 480
+            bg_filter = (
+                f"scale={bg_w}:{bg_h}:force_original_aspect_ratio=increase:"
+                "flags=bilinear,"
+                f"crop={bg_w}:{bg_h},"
+                f"boxblur=12:2,"
+                f"eq=brightness={background_brightness:.3f}:saturation=0.90,"
+                "format=yuv420p"
+            )
+            bg_cmd = [
+                self.ffmpeg_path,
+                "-y",
+                "-threads", "2",
+                "-i", input_path,
+                "-filter_threads", "1",
+                "-vf", bg_filter,
+                "-an",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-tune", "zerolatency",
+                "-crf", "24",
+                "-threads", "2",
+                "-x264-params", "rc-lookahead=0:bframes=0",
+                "-pix_fmt", "yuv420p",
+                str(low_bg),
+            ]
+
+            self.log(
+                "  🛟 LOW-MEM IRL: pass 1/2 — создаю маленький blurred background "
+                f"{bg_w}x{bg_h}."
+            )
+            bg_code, bg_stderr = run(bg_cmd)
+            if bg_code != 0 or not low_bg.exists() or low_bg.stat().st_size < 10_000:
+                return bg_code or 1, bg_stderr
+
+            fg_filter = (
+                f"[0:v]scale={output_width}:{output_height}:flags=bilinear,"
+                "setsar=1[bg];"
+                f"[1:v]scale={output_width}:{output_height}:"
+                "force_original_aspect_ratio=decrease:flags=bicubic,"
+                "setsar=1[fg];"
+                f"[bg][fg]overlay=x='(W-w)/2':"
+                f"y='max(0,min(H-h,H*{foreground_y_pct:.4f}-h/2))':"
+                "eof_action=pass:shortest=1,format=yuv420p[v]"
+            )
+
+            # Preserve the requested FPS when present.
+            fps_args = []
+            if "-r" in self.encoder_args:
+                idx = self.encoder_args.index("-r")
+                if idx + 1 < len(self.encoder_args):
+                    fps_args = ["-r", str(self.encoder_args[idx + 1])]
+
+            fg_cmd = [
+                self.ffmpeg_path,
+                "-y",
+                "-threads", "2",
+                "-i", str(low_bg),
+                "-threads", "2",
+                "-i", input_path,
+                "-filter_complex_threads", "1",
+                "-filter_complex", fg_filter,
+                "-map", "[v]",
+                "-map", "1:a?",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-tune", "zerolatency",
+                "-crf", "20",
+                "-maxrate", "12M",
+                "-bufsize", "24M",
+                "-threads", "2",
+                "-x264-params", "rc-lookahead=0:bframes=0",
+                *fps_args,
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-movflags", "+faststart",
+                output_path,
+            ]
+
+            self.log(
+                "  🛟 LOW-MEM IRL: pass 2/2 — foreground + background, "
+                "2 encoder threads."
+            )
+            fg_code, fg_stderr = run(fg_cmd)
+            try:
+                low_bg.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return fg_code, fg_stderr
+
+        # A SIGKILL here is almost always the container OOM killer. Retry with
+        # a two-pass graph that never keeps two full-size AV1 branches alive.
+        if code in (-9, 137) or "terminated by signal 9" in (stderr or "").lower():
+            self.log(
+                "  ⚠ Однопроходный IRL был убит SIGKILL. "
+                "Автоматически включаю LOW-MEM двухпроходный рендер."
+            )
+            try:
+                Path(output_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            code, stderr = low_memory_render()
+
         joined = " ".join(self.encoder_args)
         if code != 0 and any(
             enc in joined
