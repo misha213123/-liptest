@@ -202,6 +202,11 @@ class StreamerLayoutRenderer:
             for enc in ("h264_nvenc", "hevc_nvenc", "h264_qsv", "h264_amf")
         ):
             self.log("  ⚠ GPU encoder не принял фильтр — повторяю Streamer Layout на CPU.")
+            fps_args = []
+            if "-r" in self.encoder_args:
+                idx = self.encoder_args.index("-r")
+                if idx + 1 < len(self.encoder_args):
+                    fps_args = ["-r", str(self.encoder_args[idx + 1])]
             cpu_args = [
                 "-c:v", "libx264",
                 "-preset", "fast",
@@ -209,6 +214,7 @@ class StreamerLayoutRenderer:
                 "-maxrate", "12M",
                 "-bufsize", "24M",
                 "-threads", "0",
+                *fps_args,
             ]
             gpu_start = 0
             gpu_end = 0
