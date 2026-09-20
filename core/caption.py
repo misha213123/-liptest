@@ -1489,14 +1489,16 @@ class CaptionMixin:
             # Validate the actual delivery file, not an intermediate. A 512x910
             # or 720x1280 result is now a hard render failure instead of silently
             # reaching the library.
-            output_validation = validate_vertical_output(
-                final_file,
-                ffprobe_path=ffprobe_path_from_ffmpeg(self.ffmpeg_path),
-                expected_width=VERTICAL_WIDTH,
-                expected_height=VERTICAL_HEIGHT,
-                require_audio=True,
-                log=lambda line: self.log(f"  {line}"),
-            )
+            output_validation = None
+            if str(getattr(self, "aspect_ratio", "9:16")) == "9:16":
+                output_validation = validate_vertical_output(
+                    final_file,
+                    ffprobe_path=ffprobe_path_from_ffmpeg(self.ffmpeg_path),
+                    expected_width=VERTICAL_WIDTH,
+                    expected_height=VERTICAL_HEIGHT,
+                    require_audio=True,
+                    log=lambda line: self.log(f"  {line}"),
+                )
 
             # Temp files are kept for inspection (landscape, portrait, hooked, etc.)
         
