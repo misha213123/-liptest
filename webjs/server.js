@@ -1366,7 +1366,7 @@ except Exception as e:
       });
     }
 
-    // POST /api/streamer/analyze — transcribe the whole VOD and let OpenAI rank the best moments.
+    // POST /api/streamer/analyze — optionally download/analyze only a selected VOD range.
     if (p === '/api/streamer/analyze' && req.method === 'POST') {
       if (STREAMER_ANALYZE_JOB && STREAMER_ANALYZE_JOB.code === undefined) {
         return json(res, 409, { error: 'AI уже анализирует ролик' });
@@ -1384,6 +1384,8 @@ except Exception as e:
         const minDuration = Math.max(10, Math.min(180, parseInt(o.min_duration) || 25));
         const maxDuration = Math.max(minDuration, Math.min(240, parseInt(o.max_duration) || 55));
         const numClips = Math.max(1, Math.min(30, parseInt(o.num_clips) || 5));
+        const sourceStart = String(o.source_start || '00:00:00').trim();
+        const sourceEnd = String(o.source_end || '').trim();
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
@@ -1395,7 +1397,9 @@ except Exception as e:
           url,
           min_duration: minDuration,
           max_duration: maxDuration,
-          num_clips: numClips
+          num_clips: numClips,
+          source_start: sourceStart,
+          source_end: sourceEnd
         }, null, 2), 'utf8');
 
         const out = fs.createWriteStream(logPath, { flags: 'a' });
