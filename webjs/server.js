@@ -166,6 +166,7 @@ const PROCESS_JOBS = new Map();
 const REFIND_JOBS = new Map();
 let TRANS_JOB = null;
 let STREAMER_PREVIEW_JOB = null;
+let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
 let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
 // job story clip & facebook upload
@@ -480,6 +481,18 @@ const server = http.createServer((req, res) => {
       });
       fs.createReadStream(fp).pipe(res);
       return;
+    }
+
+    // Playable lightweight previews of AI-found highlights.
+    const mStreamerHighlightPreview = p.match(/^\/streamer-highlight-preview\/([^/]+\.mp4)$/i);
+    if (mStreamerHighlightPreview && req.method === 'GET') {
+      const name = path.basename(mStreamerHighlightPreview[1]);
+      const base = path.join(ROOT, 'output', 'streamer_highlight_previews');
+      const fp = path.join(base, name);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'highlight preview not found' });
+      }
+      return sendFile(req, res, fp, false);
     }
 
     // Streamer advertising assets (authenticated): images + video creatives.
@@ -1264,6 +1277,89 @@ except Exception as e:
       return json(res, 200, {
         running: !!(job && job.code === undefined),
         code: job ? job.code : null,
+        log,
+        progress: parseOverall(log),
+        result
+      });
+    }
+
+    // POST /api/streamer/highlight-preview — lightweight playable video for an AI-found moment.
+    if (p === '/api/streamer/highlight-preview' && req.method === 'POST') {
+      if (STREAMER_HIGHLIGHT_PREVIEW_JOB && STREAMER_HIGHLIGHT_PREVIEW_JOB.code === undefined) {
+        return json(res, 409, { error: 'Предпросмотр другого момента уже готовится' });
+      }
+
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+
+        const url = String(o.url || '').trim();
+        const startTime = String(o.start_time || '').trim();
+        const endTime = String(o.end_time || '').trim();
+        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!startTime || !endTime) return json(res, 400, { error: 'Нет таймкодов предпросмотра' });
+
+        const stamp = Date.now();
+        const id = crypto.randomBytes(6).toString('hex');
+        const logPath = path.join(ROOT, 'output', 'streamer_highlight_preview_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.streamer_highlight_preview_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.streamer_highlight_preview_job_' + stamp + '.json');
+
+        fs.writeFileSync(jobFile, JSON.stringify({
+          id,
+          url,
+          start_time: startTime,
+          end_time: endTime
+        }, null, 2), 'utf8');
+
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+        const child = spawn(
+          PY,
+          [path.join(__dirname, 'streamer_highlight_preview.py'), jobFile, resultFile],
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+        );
+        child.stdout.pipe(out);
+        child.stderr.pipe(out);
+
+        STREAMER_HIGHLIGHT_PREVIEW_JOB = {
+          proc: child,
+          code: undefined,
+          startedAt: Date.now(),
+          logPath,
+          resultFile,
+          jobFile,
+          id
+        };
+        child.on('close', code => {
+          STREAMER_HIGHLIGHT_PREVIEW_JOB.code = code;
+          STREAMER_HIGHLIGHT_PREVIEW_JOB.finishedAt = Date.now();
+          out.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+
+        return json(res, 200, { ok: true, started: true, id });
+      });
+      return;
+    }
+
+    if (p === '/api/streamer/highlight-preview/status' && req.method === 'GET') {
+      const job = STREAMER_HIGHLIGHT_PREVIEW_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+          if (result && result.ok && result.file) {
+            result.video_url = '/streamer-highlight-preview/' + encodeURIComponent(result.file);
+          }
+        }
+      } catch {}
+      const log = job && job.logPath ? tailFile(job.logPath, 16000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
         log,
         progress: parseOverall(log),
         result
