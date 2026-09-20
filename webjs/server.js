@@ -1365,11 +1365,15 @@ except Exception as e:
         try { o = JSON.parse(body || '{}'); } catch {}
 
         const url = String(o.url || '').trim();
-        const rect = o.webcam_rect;
+        const rawMode = String(o.layout_mode || 'stream').trim().toLowerCase();
+        const layoutMode = ['irl', 'irl_blur', 'irl_vertical'].includes(rawMode) ? 'irl' : 'stream';
+        let rect = o.webcam_rect;
         if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
-        if (!rect || !['x','y','w','h'].every(k => Number.isFinite(Number(rect[k])))) {
+        const validRect = rect && ['x','y','w','h'].every(k => Number.isFinite(Number(rect[k])));
+        if (layoutMode === 'stream' && !validRect) {
           return json(res, 400, { error: 'Сначала выдели веб-камеру рамкой' });
         }
+        if (!validRect) rect = { x: 0, y: 0, w: 1, h: 1 };
 
         const id = crypto.randomBytes(6).toString('hex');
         const stamp = Date.now();
@@ -1381,6 +1385,7 @@ except Exception as e:
           ...o,
           id,
           url,
+          layout_mode: layoutMode,
           webcam_rect: {
             x: Number(rect.x), y: Number(rect.y),
             w: Number(rect.w), h: Number(rect.h)
