@@ -1,4 +1,4 @@
-name: Streamer Studio syntax checks
+name: Streamer Studio render checks
 
 on:
   push:
@@ -7,15 +7,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  pycompile:
+  render-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Python syntax
         run: |
-          python -m py_compile             core/vertical_quality.py             core/portrait.py             clipper_core.py             core/subtitle_generator.py             core/streamer_dynamic_layout.py             webjs/streamer_analyze.py             webjs/streamer_render.py             core/streamer_layout.py             core/caption.py             core/streamer_gpu_turbo.py             core/irl_layout.py
+          python -m py_compile \
+            core/vertical_quality.py \
+            core/portrait.py \
+            clipper_core.py \
+            core/subtitle_generator.py \
+            core/streamer_dynamic_layout.py \
+            webjs/streamer_analyze.py \
+            webjs/streamer_render.py \
+            core/streamer_layout.py \
+            core/caption.py \
+            core/streamer_gpu_turbo.py \
+            core/irl_layout.py \
+            tests/vertical_render_smoke.py
+
       - name: Node syntax
         run: node --check webjs/server.js
+
+      - name: Install smoke-test dependency
+        run: python -m pip install --disable-pip-version-check opencv-python-headless
+
+      - name: Verify FFmpeg
+        run: |
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Render 1080x1920 smoke clip
+        run: python tests/vertical_render_smoke.py
