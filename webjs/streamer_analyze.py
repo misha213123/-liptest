@@ -681,6 +681,69 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_cached_analysis(
+    cache: dict,
+    *,
+    min_duration: int,
+    max_duration: int,
+    requested: int,
+) -> tuple[dict | None, Path | None]:
+    """Load current or legacy AI analysis without touching YouTube.
+
+    Older app versions used different cache-version suffixes. Reusing those
+    results is safe and avoids paying OpenAI again just because render/layout
+    code changed.
+    """
+    exact = Path(cache["analysis"])
+    candidates = [exact]
+
+    legacy_pattern = f"analysis_{min_duration}_{max_duration}_{requested}_v*.json"
+    try:
+        legacy = sorted(
+            (
+                p for p in Path(cache["dir"]).glob(legacy_pattern)
+                if p.is_file() and p != exact
+            ),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        candidates.extend(legacy)
+    except OSError:
+        pass
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            debug_log(
+                f"[streamer-ai] Не удалось прочитать AI-кэш {path.name}: {exc}",
+                flush=True,
+            )
+            continue
+
+        highlights = payload.get("highlights")
+        alternatives = payload.get("alternatives", [])
+        if not isinstance(highlights, list):
+            continue
+        if not isinstance(alternatives, list):
+            alternatives = []
+
+        # Legacy results did not contain dynamic layout hints. They are still
+        # perfectly valid highlight results; render them with NORMAL layout.
+        for item in highlights + alternatives:
+            if isinstance(item, dict):
+                item.setdefault("layout_events", [])
+
+        payload["highlights"] = highlights
+        payload["alternatives"] = alternatives
+        payload["schema_version"] = max(3, int(payload.get("schema_version") or 0))
+        return payload, path
+
+    return None, None
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit("Usage: streamer_analyze.py <job.json> <result.json>")
@@ -726,31 +789,59 @@ def main():
     )
     cache["dir"].mkdir(parents=True, exist_ok=True)
 
+    # Reuse AI results FIRST. A repeated analysis must never wait for a
+    # 1-2 GB YouTube download or spend OpenAI tokens again.
+    cached_payload, cached_analysis_path = load_cached_analysis(
+        cache,
+        min_duration=min_duration,
+        max_duration=max_duration,
+        requested=requested,
+    )
+    if cached_payload is not None:
+        cached_payload["ok"] = True
+        cached_payload["id"] = str(
+            job.get("id")
+            or cached_payload.get("id")
+            or uuid.uuid4().hex[:12]
+        )
+        cached_payload["cached"] = True
+        cached_payload["cache_kind"] = "analysis"
+        cached_payload["cache_file"] = (
+            cached_analysis_path.name if cached_analysis_path else ""
+        )
+
+        # Migrate an older cache suffix to the current filename so future
+        # opens are instant too.
+        try:
+            if cached_analysis_path != cache["analysis"]:
+                write_json(cache["analysis"], cached_payload)
+                debug_log(
+                    f"[streamer-ai] ♻ Старый AI-кэш {cached_analysis_path.name} "
+                    f"перенесён в {cache['analysis'].name}.",
+                    flush=True,
+                )
+        except Exception as exc:
+            debug_log(
+                f"[streamer-ai] Не удалось мигрировать AI-кэш: {exc}",
+                flush=True,
+            )
+
+        debug_log(
+            "[progress] ♻ Использую сохранённый AI-анализ — "
+            "YouTube не скачиваю, OpenAI не вызываю. (overall: 100.0%)",
+            flush=True,
+        )
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(cached_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(cached_payload, ensure_ascii=False), flush=True)
+        return
+
     cached_source_path = None
     if is_youtube:
-        # Important: do this before returning a cached AI result. If highlights
-        # already exist from an older run, pressing "Найти лучшие моменты" will
-        # only fill the local 1080p source cache and will not spend AI tokens.
         cached_source_path = download_youtube_source(url, cache["dir"])
-
-    # Exact same URL + duration range + clip count: return saved AI result.
-    # This avoids BOTH Whisper and highlight-model API spend on repeat runs.
-    if cache["analysis"].exists():
-        try:
-            cached_payload = json.loads(cache["analysis"].read_text(encoding="utf-8"))
-            if int(cached_payload.get("schema_version") or 0) < 3:
-                raise ValueError("старый формат кэша")
-            cached_payload["ok"] = True
-            cached_payload["id"] = str(job.get("id") or cached_payload.get("id") or uuid.uuid4().hex[:12])
-            cached_payload["cached"] = True
-            cached_payload["cache_kind"] = "analysis"
-            debug_log("[progress] ♻ Использую сохранённый AI-анализ — токены не тратятся. (overall: 100.0%)", flush=True)
-            result_path.parent.mkdir(parents=True, exist_ok=True)
-            result_path.write_text(json.dumps(cached_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(json.dumps(cached_payload, ensure_ascii=False), flush=True)
-            return
-        except Exception as exc:
-            debug_log(f"[streamer-ai] Не удалось прочитать кэш анализа: {exc}", flush=True)
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
