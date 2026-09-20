@@ -112,21 +112,80 @@ def ytdlp_base_opts() -> dict:
 def add_youtube_runtime(opts: dict, url: str) -> None:
     if "youtube.com" not in url and "youtu.be" not in url:
         return
+
+    # Do not force legacy player clients. Current yt-dlp successfully resolves
+    # some videos only when it chooses the client itself.
     deno = get_deno_path()
     if deno and Path(deno).exists():
         opts["js_runtimes"] = {"deno": {"path": deno}}
         opts["remote_components"] = ["ejs:github"]
-    opts["extractor_args"] = {
-        "youtube": {"player_client": ["web", "web_embedded", "web_safari", "mweb"]}
-    }
+
+    raw_clients = str(
+        os.environ.get("STREAMER_YOUTUBE_PLAYER_CLIENTS", "")
+    ).strip()
+    if raw_clients:
+        clients = [
+            item.strip()
+            for item in re.split(r"[,; ]+", raw_clients)
+            if item.strip()
+        ]
+        if clients:
+            opts["extractor_args"] = {
+                "youtube": {"player_client": clients}
+            }
+    else:
+        opts.pop("extractor_args", None)
+
+
+def _youtube_opts_variants(opts: dict, url: str):
+    primary = dict(opts)
+    add_youtube_runtime(primary, url)
+    yield "default", primary
+
+    # Stale/account-specific cookies can make a public video look unavailable.
+    # If that happens, retry the same request anonymously.
+    if "cookiefile" in primary:
+        anonymous = dict(primary)
+        anonymous.pop("cookiefile", None)
+        yield "anonymous fallback", anonymous
+
+
+def _youtube_extract(url: str, opts: dict, *, download: bool):
+    is_youtube = "youtube.com" in url or "youtu.be" in url
+    if not is_youtube:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=download)
+
+    last_exc = None
+    variants = list(_youtube_opts_variants(opts, url))
+    for index, (label, variant) in enumerate(variants):
+        try:
+            debug_log(
+                f"[streamer-ai] yt-dlp YouTube profile: {label}",
+                flush=True,
+            )
+            with yt_dlp.YoutubeDL(variant) as ydl:
+                return ydl.extract_info(url, download=download)
+        except yt_dlp.utils.DownloadError as exc:
+            last_exc = exc
+            if index + 1 < len(variants):
+                debug_log(
+                    f"[streamer-ai] ⚠ YouTube profile '{label}' failed: {exc}. "
+                    "Пробую следующий профиль.",
+                    flush=True,
+                )
+                continue
+            raise
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("yt-dlp не смог обработать YouTube источник.")
 
 
 def fetch_info(url: str) -> dict:
     opts = ytdlp_base_opts()
     opts["skip_download"] = True
-    add_youtube_runtime(opts, url)
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    info = _youtube_extract(url, opts, download=False)
     return {
         "title": info.get("title") or "Streamer VOD",
         "channel": info.get("channel") or info.get("uploader") or "",
@@ -204,10 +263,7 @@ def download_youtube_source(url: str, cache_dir: Path) -> Path:
         "progress_hooks": [hook],
         "ffmpeg_location": str(Path(get_ffmpeg_path()).parent),
     })
-    add_youtube_runtime(opts, url)
-
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    _youtube_extract(url, opts, download=True)
 
     cached = find_cached_source(cache_dir)
     if not cached:
@@ -249,10 +305,7 @@ def download_audio(url: str, out_dir: Path) -> Path:
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
         "ffmpeg_location": str(Path(get_ffmpeg_path()).parent),
     })
-    add_youtube_runtime(opts, url)
-
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    _youtube_extract(url, opts, download=True)
 
     wav = out_dir / "source_audio.wav"
     if wav.exists():
