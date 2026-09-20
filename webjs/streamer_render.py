@@ -22,6 +22,10 @@ from openai import OpenAI
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
+from core.streamer_dynamic_layout import (
+    VALID_LAYOUT_STATES,
+    render_dynamic_streamer_layout,
+)
 from core.irl_layout import IRLLayoutRenderer
 from core.streamer_gpu_turbo import (
     cuda_filters_available,
@@ -32,6 +36,14 @@ from core.streamer_precise_captions import (
     PreciseCaptionError,
     transcribe_words_whisperx,
     whisperx_available,
+)
+from core.vertical_quality import (
+    VERTICAL_WIDTH,
+    VERTICAL_HEIGHT,
+    ffprobe_path_from_ffmpeg,
+    probe_media,
+    render_header_lines,
+    validate_vertical_output,
 )
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
@@ -163,18 +175,23 @@ def tune_encoder_args(args: list[str]) -> list[str]:
             if idx + 1 < len(out):
                 out[idx + 1] = value
 
-    if "h264_nvenc" in joined or "hevc_nvenc" in joined:
-        replace_value("-cq", "16")
+    if "-c:v" in out:
+        codec_idx = out.index("-c:v") + 1
+        if codec_idx < len(out) and out[codec_idx] == "hevc_nvenc":
+            out[codec_idx] = "h264_nvenc"
+            joined = " ".join(out)
+
+    if "h264_nvenc" in joined:
+        replace_value("-cq", "17")
         replace_value("-b:v", "10M")
         replace_value("-maxrate", "16M")
         replace_value("-bufsize", "24M")
         replace_value("-preset", "p4")
     elif "libx264" in joined:
-        # Fast fallback: on RunPod NVENC may be unavailable even with a 4090.
-        # Keep CPU encoding quick instead of silently switching to the very slow
-        # "medium" preset for every clip.
-        replace_value("-crf", "23")
-        replace_value("-preset", "ultrafast")
+        replace_value("-crf", "20")
+        replace_value("-preset", "fast")
+        replace_value("-maxrate", "12M")
+        replace_value("-bufsize", "24M")
     return out
 
 
@@ -186,8 +203,10 @@ def _is_hw_encoder_args(args: list[str]) -> bool:
 def _cpu_encoder_args() -> list[str]:
     return [
         "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "23",
+        "-preset", "fast",
+        "-crf", "20",
+        "-maxrate", "12M",
+        "-bufsize", "24M",
         "-threads", "0",
     ]
 
@@ -466,7 +485,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         title_cfg = dict(title_settings or {})
         top, bottom = split_title(title_text)
         if top:
-            canvas_w, canvas_h = ((720, 1280) if captions else (1080, 1920))
+            canvas_w, canvas_h = (VERTICAL_WIDTH, VERTICAL_HEIGHT)
 
             def _inline_ass_color(value: str, fallback: str) -> str:
                 raw = str(value or fallback).strip().lstrip("#")
@@ -475,8 +494,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 rr, gg, bb = raw[0:2], raw[2:4], raw[4:6]
                 return f"&H{bb}{gg}{rr}&".upper()
 
-            x_pct = max(0.05, min(0.95, float(title_cfg.get("x_pct", 0.50) or 0.50)))
-            y_pct = max(0.08, min(0.92, float(title_cfg.get("y_pct", 0.50) or 0.50)))
+            x_pct = max(0.10, min(0.82, float(title_cfg.get("x_pct", 0.50) or 0.50)))
+            y_pct = max(0.10, min(0.82, float(title_cfg.get("y_pct", 0.42) or 0.42)))
             center_x = int(round(canvas_w * x_pct))
             center_y = int(round(canvas_h * y_pct))
             font_name = str(title_cfg.get("font_name", "Arial Black") or "Arial Black").replace(",", " ")
@@ -511,6 +530,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 + r"\3c" + outline_color
                 + r"\shad" + str(shadow)
                 + r"\fscx" + str(scale_pct) + r"\fscy" + str(scale_pct)
+                + r"\fad(120,180)"
+                + r"\t(0,220,\fscx" + str(min(120, scale_pct + 4))
+                + r"\fscy" + str(min(120, scale_pct + 4)) + r")"
             )
             if bottom:
                 title_ass = (
@@ -986,6 +1008,18 @@ def main():
     else:
         layout_mode = "stream"
 
+    layout_state = str(job.get("layout_state") or "NORMAL").strip().upper()
+    if layout_state not in VALID_LAYOUT_STATES:
+        layout_state = "NORMAL"
+    layout_events = (
+        job.get("layout_events")
+        if isinstance(job.get("layout_events"), list)
+        else []
+    )
+    if layout_mode != "stream":
+        layout_state = "NORMAL"
+        layout_events = []
+
     webcam_rect = dict(job.get("webcam_rect") or {})
     if layout_mode == "irl" and not webcam_rect:
         webcam_rect = {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
@@ -1150,6 +1184,26 @@ def main():
             resolution=requested_resolution,
         )
 
+    ffprobe_path = ffprobe_path_from_ffmpeg(get_ffmpeg_path())
+    source_info = probe_media(source_path, ffprobe_path=ffprobe_path)
+    renderer_name = "GPU/NVENC" if requested_gpu else "CPU/libx264"
+    for line in render_header_lines(
+        source_info,
+        renderer=renderer_name,
+        layout=(
+            "IRL"
+            if layout_mode == "irl"
+            else (
+                "DYNAMIC"
+                if layout_events or layout_state != "NORMAL"
+                else "NORMAL"
+            )
+        ),
+        captions=captions,
+        face_tracking=layout_mode == "stream",
+    ):
+        debug_log(f"[streamer] {line}", flush=True)
+
     effective_gpu = requested_gpu
     core.enable_gpu_acceleration(effective_gpu)
     debug_log(
@@ -1192,7 +1246,34 @@ def main():
     target_before_banner = text_path if banner_enabled else final_path
     turbo_done = False
 
-    if turbo_requested and effective_gpu and layout_mode == "irl":
+    if layout_mode == "stream" and (layout_events or layout_state != "NORMAL"):
+        debug_log(
+            "[progress] Собираю динамический layout 1080x1920... (overall: 55.0%)",
+            flush=True,
+        )
+        render_dynamic_streamer_layout(
+            ffmpeg_path=get_ffmpeg_path(),
+            input_path=str(source_path),
+            output_path=str(target_before_banner),
+            webcam_rect=webcam_rect,
+            encoder_args=encoder_args,
+            ass_file=ass_file,
+            layout_events=layout_events,
+            layout_state=layout_state,
+            output_width=VERTICAL_WIDTH,
+            output_height=VERTICAL_HEIGHT,
+            webcam_height_pct=top_pct,
+            gameplay_center_x=game_center_x,
+            webcam_padding=int(job.get("webcam_padding", 0) or 0),
+            log=lambda m: debug_log(m, flush=True),
+        )
+        turbo_done = True
+        debug_log(
+            "[progress] Динамический layout готов. (overall: 88.0%)",
+            flush=True,
+        )
+
+    if (not turbo_done) and turbo_requested and effective_gpu and layout_mode == "irl":
         if cuda_filters_available(get_ffmpeg_path()):
             try:
                 debug_log(
@@ -1206,6 +1287,8 @@ def main():
                     output_path=str(target_before_banner),
                     encoder_args=encoder_args,
                     ass_file=ass_file,
+                    output_width=VERTICAL_WIDTH,
+                    output_height=VERTICAL_HEIGHT,
                     foreground_y_pct=float(
                         job.get("irl_foreground_y_pct", 0.48) or 0.48
                     ),
@@ -1238,7 +1321,7 @@ def main():
                 flush=True,
             )
 
-    if turbo_requested and effective_gpu and layout_mode == "stream":
+    if (not turbo_done) and turbo_requested and effective_gpu and layout_mode == "stream":
         if cuda_filters_available(get_ffmpeg_path()):
             try:
                 debug_log(
@@ -1253,6 +1336,8 @@ def main():
                     webcam_rect=webcam_rect,
                     encoder_args=encoder_args,
                     ass_file=ass_file,
+                    output_width=VERTICAL_WIDTH,
+                    output_height=VERTICAL_HEIGHT,
                     webcam_height_pct=top_pct,
                     gameplay_center_x=game_center_x,
                     webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1293,6 +1378,8 @@ def main():
             renderer.render(
                 str(source_path),
                 str(layout_path),
+                output_width=VERTICAL_WIDTH,
+                output_height=VERTICAL_HEIGHT,
                 foreground_y_pct=float(job.get("irl_foreground_y_pct", 0.48) or 0.48),
                 background_blur=float(job.get("irl_background_blur", 18.0) or 18.0),
                 background_brightness=float(
@@ -1313,6 +1400,8 @@ def main():
                 str(source_path),
                 str(layout_path),
                 webcam_rect,
+                output_width=VERTICAL_WIDTH,
+                output_height=VERTICAL_HEIGHT,
                 webcam_height_pct=top_pct,
                 gameplay_center_x=game_center_x,
                 webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1363,6 +1452,17 @@ def main():
     if not final_path.exists() or final_path.stat().st_size < 10_000:
         raise RuntimeError("Итоговый 9:16 файл не создан")
 
+    final_validation = validate_vertical_output(
+        final_path,
+        ffprobe_path=ffprobe_path,
+        expected_width=VERTICAL_WIDTH,
+        expected_height=VERTICAL_HEIGHT,
+        require_audio=True,
+        log=lambda line: debug_log(f"[streamer] {line}", flush=True),
+    )
+    debug_log("[streamer] === RENDER COMPLETE ===", flush=True)
+    debug_log(f"[streamer] Output: {final_path}", flush=True)
+
     # Keep a flat folder with ONLY finished clips so they are easy to drag to
     # Telegram/TikTok/Drive without digging through technical render folders.
     export_dir = APP_DIR / "output" / "FINAL_STREAMER_CLIPS"
@@ -1380,6 +1480,9 @@ def main():
         "start_time": start_sec,
         "end_time": end_sec,
         "layout_mode": layout_mode,
+        "layout_state": layout_state,
+        "layout_events": layout_events,
+        "output_validation": final_validation,
         "webcam_rect": webcam_rect,
         "webcam_height_pct": top_pct,
         "gameplay_center_x": game_center_x,
@@ -1432,6 +1535,9 @@ def main():
         "export_path": str(export_path),
         "title_text": title_text,
         "layout_mode": layout_mode,
+        "layout_state": layout_state,
+        "layout_events": layout_events,
+        "output_validation": final_validation,
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
