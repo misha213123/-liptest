@@ -207,6 +207,25 @@ class TranscribeMixin:
             cm_config = self.ai_providers.get("caption_maker", {})
             fw_settings = cm_config.get("faster_whisper", {})
             model_size = fw_settings.get("model_size", "small")
+
+            # The streamer analyzer explicitly asks for GPU-only local Whisper.
+            # _init_faster_whisper_model() normally falls back to CPU when
+            # CTranslate2 does not expose CUDA; for a ~1h VOD that can stall or
+            # be killed while loading/transcribing the medium model. Respect
+            # allow_cpu_fallback=False before initializing the model so the
+            # caller can immediately switch to the configured Whisper API.
+            if not allow_cpu_fallback:
+                try:
+                    import ctranslate2
+                    cuda_devices = int(ctranslate2.get_cuda_device_count() or 0)
+                except Exception:
+                    cuda_devices = 0
+                if cuda_devices <= 0:
+                    raise RuntimeError(
+                        "Faster-Whisper CUDA недоступен в текущем CTranslate2; "
+                        "CPU fallback отключён для длинного VOD."
+                    )
+
             if not self._init_faster_whisper_model(model_size):
                 raise Exception(f"Gagal inisialisasi Faster-Whisper '{model_size}'")
 
