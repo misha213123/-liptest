@@ -40,6 +40,7 @@ from core.streamer_precise_captions import (
 from core.vertical_quality import (
     VERTICAL_WIDTH,
     VERTICAL_HEIGHT,
+    choose_output_fps,
     ffprobe_path_from_ffmpeg,
     probe_media,
     render_header_lines,
@@ -1190,7 +1191,32 @@ def main():
 
     ffprobe_path = ffprobe_path_from_ffmpeg(get_ffmpeg_path())
     source_info = probe_media(source_path, ffprobe_path=ffprobe_path)
-    renderer_name = "GPU/NVENC" if requested_gpu else "CPU/libx264"
+    output_fps = choose_output_fps(float(source_info.get("fps") or 0))
+
+    effective_gpu = requested_gpu
+    core.enable_gpu_acceleration(effective_gpu)
+    debug_log(
+        f"[streamer] GPU mode: requested={requested_gpu}, "
+        f"turbo={turbo_requested}, platform={os.name}",
+        flush=True,
+    )
+    encoder_args = tune_encoder_args(core.get_video_encoder_args())
+    # Keep the original FPS when it is sane; normalize unusual sources to 30.
+    encoder_args = list(encoder_args) + ["-r", f"{output_fps:.6f}"]
+    if _is_hw_encoder_args(encoder_args):
+        renderer_name = "NVENC"
+        debug_log(
+            "[streamer] GPU encode: hardware encoder active (" + " ".join(encoder_args) + ")",
+            flush=True,
+        )
+    else:
+        renderer_name = "CPU/libx264"
+        debug_log(
+            "[streamer] NVENC недоступен: CUDA-фильтры будут работать на GPU, "
+            "а финальное кодирование — libx264 на CPU.",
+            flush=True,
+        )
+
     for line in render_header_lines(
         source_info,
         renderer=renderer_name,
@@ -1207,26 +1233,7 @@ def main():
         face_tracking=layout_mode == "stream",
     ):
         debug_log(f"[streamer] {line}", flush=True)
-
-    effective_gpu = requested_gpu
-    core.enable_gpu_acceleration(effective_gpu)
-    debug_log(
-        f"[streamer] GPU mode: requested={requested_gpu}, "
-        f"turbo={turbo_requested}, platform={os.name}",
-        flush=True,
-    )
-    encoder_args = tune_encoder_args(core.get_video_encoder_args())
-    if _is_hw_encoder_args(encoder_args):
-        debug_log(
-            "[streamer] GPU encode: hardware encoder active (" + " ".join(encoder_args) + ")",
-            flush=True,
-        )
-    else:
-        debug_log(
-            "[streamer] NVENC недоступен: CUDA-фильтры будут работать на GPU, "
-            "а финальное кодирование — libx264 на CPU.",
-            flush=True,
-        )
+    debug_log(f"[streamer] Output FPS target: {output_fps:.3f}", flush=True)
 
     ass_file = None
     if captions or (title_enabled and title_text):
@@ -1462,6 +1469,7 @@ def main():
         expected_width=VERTICAL_WIDTH,
         expected_height=VERTICAL_HEIGHT,
         require_audio=True,
+        expected_fps=output_fps,
         log=lambda line: debug_log(f"[streamer] {line}", flush=True),
     )
     debug_log("[streamer] === RENDER COMPLETE ===", flush=True)
