@@ -681,39 +681,108 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _same_video_info(a: dict, b: dict) -> bool:
+    """Conservative identity check for cache migration across URL variants."""
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    title_a = str(a.get("title") or "").strip().casefold()
+    title_b = str(b.get("title") or "").strip().casefold()
+    if not title_a or title_a != title_b:
+        return False
+
+    channel_a = str(a.get("channel") or "").strip().casefold()
+    channel_b = str(b.get("channel") or "").strip().casefold()
+    if channel_a and channel_b and channel_a != channel_b:
+        return False
+
+    try:
+        dur_a = float(a.get("duration") or 0)
+        dur_b = float(b.get("duration") or 0)
+    except Exception:
+        dur_a = dur_b = 0.0
+    if dur_a > 0 and dur_b > 0 and abs(dur_a - dur_b) > 3.0:
+        return False
+    return True
+
+
+def _prepare_cached_payload(payload: dict, requested: int) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    highlights = payload.get("highlights")
+    alternatives = payload.get("alternatives", [])
+    if not isinstance(highlights, list):
+        return None
+    if not isinstance(alternatives, list):
+        alternatives = []
+
+    combined = []
+    seen = set()
+    for item in list(highlights) + list(alternatives):
+        if not isinstance(item, dict):
+            continue
+        sig = (
+            str(item.get("start_time") or ""),
+            str(item.get("end_time") or ""),
+            str(item.get("title") or ""),
+        )
+        if sig in seen:
+            continue
+        seen.add(sig)
+        row = dict(item)
+        row.setdefault("layout_events", [])
+        combined.append(row)
+
+    if not combined:
+        return None
+
+    requested = max(1, int(requested or 1))
+    out = dict(payload)
+    out["highlights"] = combined[:requested]
+    out["alternatives"] = combined[requested:]
+    out["top_count"] = len(out["highlights"])
+    out["candidate_count"] = len(combined)
+    out["schema_version"] = max(3, int(out.get("schema_version") or 0))
+    return out
+
+
 def load_cached_analysis(
     cache: dict,
     *,
     min_duration: int,
     max_duration: int,
     requested: int,
+    video_info: dict | None = None,
 ) -> tuple[dict | None, Path | None]:
-    """Load current or legacy AI analysis without touching YouTube.
+    """Reuse AI highlights before transcription/download.
 
-    Older app versions used different cache-version suffixes. Reusing those
-    results is safe and avoids paying OpenAI again just because render/layout
-    code changed.
+    Besides the current cache filename, search older version suffixes, runs
+    created with a different TOP-N, URL-variant cache directories, and the
+    historical streamer_analysis folders. This prevents the same YouTube video
+    from being sent through Whisper/OpenAI again merely because its URL form or
+    TOP count changed.
     """
     exact = Path(cache["analysis"])
-    candidates = [exact]
+    candidates: list[Path] = [exact]
+    cache_dir = Path(cache["dir"])
 
-    legacy_pattern = f"analysis_{min_duration}_{max_duration}_{requested}_v*.json"
-    try:
-        legacy = sorted(
-            (
-                p for p in Path(cache["dir"]).glob(legacy_pattern)
-                if p.is_file() and p != exact
-            ),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        candidates.extend(legacy)
-    except OSError:
-        pass
+    patterns = [
+        f"analysis_{min_duration}_{max_duration}_{requested}_v*.json",
+        f"analysis_{min_duration}_{max_duration}_*_v*.json",
+    ]
+    for pattern in patterns:
+        try:
+            found = sorted(
+                (p for p in cache_dir.glob(pattern) if p.is_file() and p != exact),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for path in found:
+                if path not in candidates:
+                    candidates.append(path)
+        except OSError:
+            pass
 
-    for path in candidates:
-        if not path.exists():
-            continue
+    def try_path(path: Path, *, require_info_match: bool = False):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
@@ -721,25 +790,94 @@ def load_cached_analysis(
                 f"[streamer-ai] Не удалось прочитать AI-кэш {path.name}: {exc}",
                 flush=True,
             )
+            return None
+
+        try:
+            cached_min = int(payload.get("min_duration") or min_duration)
+            cached_max = int(payload.get("max_duration") or max_duration)
+        except Exception:
+            return None
+        if cached_min != min_duration or cached_max != max_duration:
+            return None
+
+        if require_info_match and video_info is not None:
+            if not _same_video_info(payload.get("video_info") or {}, video_info):
+                return None
+
+        return _prepare_cached_payload(payload, requested)
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        payload = try_path(path)
+        if payload is not None:
+            return payload, path
+
+    if video_info is None:
+        return None, None
+
+    # Same YouTube video can arrive as watch?v=..., youtu.be/..., or with
+    # tracking/time query params. Older cache keys used the raw URL, so scan
+    # small video_info.json files and recover the matching analysis directory.
+    cache_root = APP_DIR / "output" / "streamer_cache"
+    try:
+        info_files = sorted(
+            cache_root.glob("*/video_info.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        info_files = []
+
+    for info_path in info_files:
+        other_dir = info_path.parent
+        if other_dir == cache_dir:
+            continue
+        try:
+            other_info = json.loads(info_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not _same_video_info(other_info, video_info):
             continue
 
-        highlights = payload.get("highlights")
-        alternatives = payload.get("alternatives", [])
-        if not isinstance(highlights, list):
-            continue
-        if not isinstance(alternatives, list):
-            alternatives = []
+        try:
+            files = sorted(
+                other_dir.glob(f"analysis_{min_duration}_{max_duration}_*_v*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            files = []
+        for path in files:
+            payload = try_path(path, require_info_match=True)
+            if payload is not None:
+                debug_log(
+                    f"[streamer-ai] ♻ Найден AI-анализ того же видео в старом "
+                    f"URL-кэше: {path}",
+                    flush=True,
+                )
+                return payload, path
 
-        # Legacy results did not contain dynamic layout hints. They are still
-        # perfectly valid highlight results; render them with NORMAL layout.
-        for item in highlights + alternatives:
-            if isinstance(item, dict):
-                item.setdefault("layout_events", [])
+    # Very old builds always wrote a per-run analysis.json even before their
+    # streamer_cache entry became stable.
+    history_root = APP_DIR / "output" / "streamer_analysis"
+    try:
+        history_files = sorted(
+            history_root.glob("*/analysis.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        history_files = []
 
-        payload["highlights"] = highlights
-        payload["alternatives"] = alternatives
-        payload["schema_version"] = max(3, int(payload.get("schema_version") or 0))
-        return payload, path
+    for path in history_files:
+        payload = try_path(path, require_info_match=True)
+        if payload is not None:
+            debug_log(
+                f"[streamer-ai] ♻ Найден исторический AI-анализ: {path}",
+                flush=True,
+            )
+            return payload, path
 
     return None, None
 
@@ -789,34 +927,22 @@ def main():
     )
     cache["dir"].mkdir(parents=True, exist_ok=True)
 
-    # Reuse AI results FIRST. A repeated analysis must never wait for a
-    # 1-2 GB YouTube download or spend OpenAI tokens again.
-    cached_payload, cached_analysis_path = load_cached_analysis(
-        cache,
-        min_duration=min_duration,
-        max_duration=max_duration,
-        requested=requested,
-    )
-    if cached_payload is not None:
-        cached_payload["ok"] = True
-        cached_payload["id"] = str(
+    def return_cached(payload: dict, source_path: Path | None):
+        payload["ok"] = True
+        payload["id"] = str(
             job.get("id")
-            or cached_payload.get("id")
+            or payload.get("id")
             or uuid.uuid4().hex[:12]
         )
-        cached_payload["cached"] = True
-        cached_payload["cache_kind"] = "analysis"
-        cached_payload["cache_file"] = (
-            cached_analysis_path.name if cached_analysis_path else ""
-        )
+        payload["cached"] = True
+        payload["cache_kind"] = "analysis"
+        payload["cache_file"] = source_path.name if source_path else ""
 
-        # Migrate an older cache suffix to the current filename so future
-        # opens are instant too.
         try:
-            if cached_analysis_path != cache["analysis"]:
-                write_json(cache["analysis"], cached_payload)
+            if source_path != cache["analysis"]:
+                write_json(cache["analysis"], payload)
                 debug_log(
-                    f"[streamer-ai] ♻ Старый AI-кэш {cached_analysis_path.name} "
+                    f"[streamer-ai] ♻ AI-кэш {source_path.name if source_path else ''} "
                     f"перенесён в {cache['analysis'].name}.",
                     flush=True,
                 )
@@ -828,15 +954,49 @@ def main():
 
         debug_log(
             "[progress] ♻ Использую сохранённый AI-анализ — "
-            "YouTube не скачиваю, OpenAI не вызываю. (overall: 100.0%)",
+            "YouTube/Whisper/OpenAI не вызываю. (overall: 100.0%)",
             flush=True,
         )
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(
-            json.dumps(cached_payload, ensure_ascii=False, indent=2),
+            json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        print(json.dumps(cached_payload, ensure_ascii=False), flush=True)
+        print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+    # Fast path: exact/current cache, no network at all.
+    cached_payload, cached_analysis_path = load_cached_analysis(
+        cache,
+        min_duration=min_duration,
+        max_duration=max_duration,
+        requested=requested,
+    )
+    if cached_payload is not None:
+        return_cached(cached_payload, cached_analysis_path)
+        return
+
+    # We only need light metadata to recover caches created from another URL
+    # form of the same YouTube video.
+    debug_log("[progress] Читаю данные VOD... (overall: 2.0%)", flush=True)
+    if cache["info"].exists():
+        try:
+            info = json.loads(cache["info"].read_text(encoding="utf-8"))
+        except Exception:
+            info = fetch_info(url)
+            write_json(cache["info"], info)
+    else:
+        info = fetch_info(url)
+        write_json(cache["info"], info)
+
+    cached_payload, cached_analysis_path = load_cached_analysis(
+        cache,
+        min_duration=min_duration,
+        max_duration=max_duration,
+        requested=requested,
+        video_info=info,
+    )
+    if cached_payload is not None:
+        return_cached(cached_payload, cached_analysis_path)
         return
 
     cached_source_path = None
@@ -850,17 +1010,6 @@ def main():
     analysis_id = str(job.get("id") or uuid.uuid4().hex[:12])
     analysis_dir = APP_DIR / "output" / "streamer_analysis" / analysis_id
     analysis_dir.mkdir(parents=True, exist_ok=True)
-
-    debug_log("[progress] Читаю данные VOD... (overall: 2.0%)", flush=True)
-    if cache["info"].exists():
-        try:
-            info = json.loads(cache["info"].read_text(encoding="utf-8"))
-        except Exception:
-            info = fetch_info(url)
-            write_json(cache["info"], info)
-    else:
-        info = fetch_info(url)
-        write_json(cache["info"], info)
 
     full_duration = float(info.get("duration") or 0)
     if full_duration > 0 and source_start >= full_duration:
