@@ -22,8 +22,11 @@ jobs:
             core/portrait.py \
             clipper_core.py \
             core/subtitle_generator.py \
+            core/local_media.py \
             core/streamer_dynamic_layout.py \
             webjs/streamer_analyze.py \
+            webjs/streamer_preview.py \
+            webjs/streamer_highlight_preview.py \
             webjs/streamer_render.py \
             core/streamer_layout.py \
             core/caption.py \
