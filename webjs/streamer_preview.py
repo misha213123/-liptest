@@ -17,6 +17,7 @@ from openai import OpenAI
 
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
+from core.local_media import is_local_source, probe_local_source, resolve_local_source
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
 
@@ -67,9 +68,10 @@ def main():
     url = sys.argv[1].strip()
     timestamp = parse_time(sys.argv[2])
     result_json = Path(sys.argv[3]).resolve()
+    local_source = is_local_source(url)
 
-    if not url.startswith(("http://", "https://")):
-        raise ValueError("Нужна ссылка Twitch, Kick или YouTube")
+    if not local_source and not url.startswith(("http://", "https://")):
+        raise ValueError("Нужна ссылка или загруженный локальный видеофайл")
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
@@ -81,26 +83,34 @@ def main():
     sample_path = preview_dir / f"{token}_sample.mp4"
     image_path = preview_dir / f"{token}.jpg"
 
-    # A short section is enough for a stable preview frame and is much cheaper
-    # than downloading the whole VOD.
     start = max(0.0, timestamp)
     end = start + 3.0
 
-    debug_log(f"[streamer-preview] Загружаю 3 сек. с {fmt_time(start)}")
-    downloaded = core.download_video_section(
-        url,
-        fmt_time(start),
-        fmt_time(end),
-        str(sample_path),
-        resolution="720p",
-    )
+    if local_source:
+        downloaded = resolve_local_source(url)
+        seek_in_downloaded = start
+        debug_log(
+            f"[streamer-preview] Локальный файл: беру кадр с {fmt_time(start)} без скачивания."
+        )
+    else:
+        # A short section is enough for a stable preview frame and is much cheaper
+        # than downloading the whole VOD.
+        debug_log(f"[streamer-preview] Загружаю 3 сек. с {fmt_time(start)}")
+        downloaded = core.download_video_section(
+            url,
+            fmt_time(start),
+            fmt_time(end),
+            str(sample_path),
+            resolution="720p",
+        )
+        seek_in_downloaded = 1.0
 
     ffmpeg = get_ffmpeg_path()
     cmd = [
         ffmpeg,
         "-y",
         "-ss",
-        "1.0",
+        f"{seek_in_downloaded:.3f}",
         "-i",
         str(downloaded),
         "-frames:v",
@@ -122,14 +132,15 @@ def main():
 
     info = {}
     try:
-        info = core.fetch_video_info(url)
+        info = probe_local_source(url) if local_source else core.fetch_video_info(url)
     except Exception as exc:
         debug_log(f"[streamer-preview] metadata warning: {exc}")
 
-    try:
-        Path(downloaded).unlink(missing_ok=True)
-    except Exception:
-        pass
+    if not local_source:
+        try:
+            Path(downloaded).unlink(missing_ok=True)
+        except Exception:
+            pass
 
     payload = {
         "ok": True,
