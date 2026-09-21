@@ -122,8 +122,23 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           <span id="sourceState" class="badge text-[11px]">Не загружен</span>
         </div>
         <div class="flex gap-2">
-          <input id="sourceUrl" class="input flex-1" placeholder="YouTube / Twitch / Kick URL">
+          <input id="sourceUrl" class="input flex-1" placeholder="YouTube / Twitch / Kick URL или локальный файл">
           <button id="pasteBtn" class="btn btn-soft shrink-0" type="button">📋 Вставить</button>
+        </div>
+        <div class="soft rounded-xl p-2.5 mt-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="font-bold text-xs">🎬 Фильм / сериал с компьютера</div>
+              <div class="text-[10px] text-zinc-500 mt-0.5">MP4, MKV, MOV, WEBM, AVI, M4V, TS. Файл сохраняется в папку текущего проекта.</div>
+            </div>
+            <span id="localUploadStatus" class="badge text-[10px]">не выбран</span>
+          </div>
+          <div class="grid md:grid-cols-[1fr_auto] gap-2 mt-2">
+            <input id="localVideoFile" type="file" accept="video/*,.mkv,.m4v,.ts,.m2ts,.mts" class="input">
+            <button id="uploadLocalBtn" class="btn btn-primary" type="button">📁 Загрузить видео</button>
+          </div>
+          <progress id="localUploadProgress" max="100" value="0" class="w-full mt-2 hidden"></progress>
+          <div id="localUploadHelp" class="text-[10px] text-zinc-500 mt-1">После загрузки AI сможет анализировать весь фильм/серию без yt-dlp.</div>
         </div>
         <div id="sourceRangePanel" class="soft rounded-xl p-2.5 mt-2">
           <div class="flex items-start justify-between gap-2">
@@ -808,6 +823,68 @@ $('#saveProfile').onclick=()=>{const name=$('#profileName').value.trim(),r=nrect
 function applyProfile(name){const p=profiles()[name];if(!p)return;$('#profileName').value=name;$('#camPct').value=p.camPct||36;$('#gameX').value=p.gameX??50;updateLayoutPreview();if(p.rect){rect={x:p.rect.x*canvas.width,y:p.rect.y*canvas.height,w:p.rect.w*canvas.width,h:p.rect.h*canvas.height};redraw();rectInfo()}}
 $('#profileSelect').onchange=()=>applyProfile($('#profileSelect').value);refreshProfiles();
 
+function isLocalSource(){
+ const u=$('#sourceUrl').value.trim().toLowerCase();
+ return u.startsWith('local://');
+}
+function isValidSource(){
+ const u=$('#sourceUrl').value.trim();
+ return /^https?:\/\//i.test(u)||/^local:\/\/[A-Za-z0-9_-]+\/[^/?#]+$/.test(u);
+}
+function fmtBytes(n){
+ n=Number(n)||0;
+ if(n>=1073741824)return(n/1073741824).toFixed(2)+' GB';
+ if(n>=1048576)return(n/1048576).toFixed(1)+' MB';
+ return Math.max(1,Math.round(n/1024))+' KB';
+}
+async function uploadLocalVideo(){
+ const input=$('#localVideoFile'),file=input.files&&input.files[0];
+ if(!file)return alert('Выбери видеофайл.');
+ const btn=$('#uploadLocalBtn'),bar=$('#localUploadProgress'),status=$('#localUploadStatus'),help=$('#localUploadHelp');
+ btn.disabled=true;bar.classList.remove('hidden');bar.value=0;status.textContent='0%';help.textContent='Загружаю '+file.name+' • '+fmtBytes(file.size);
+ try{
+   const data=await new Promise((resolve,reject)=>{
+     const xhr=new XMLHttpRequest();
+     xhr.open('POST','/api/streamer/upload-local?project_id='+encodeURIComponent(PROJECT_ID));
+     xhr.setRequestHeader('Content-Type','application/octet-stream');
+     xhr.setRequestHeader('X-File-Name',encodeURIComponent(file.name));
+     xhr.upload.onprogress=e=>{
+       if(!e.lengthComputable)return;
+       const pct=Math.max(0,Math.min(100,e.loaded/e.total*100));
+       bar.value=pct;status.textContent=Math.round(pct)+'%';
+       help.textContent='Загружаю '+file.name+' • '+fmtBytes(e.loaded)+' / '+fmtBytes(e.total);
+     };
+     xhr.onerror=()=>reject(new Error('Соединение оборвалось во время загрузки.'));
+     xhr.onabort=()=>reject(new Error('Загрузка отменена.'));
+     xhr.onload=()=>{
+       let d={};try{d=JSON.parse(xhr.responseText||'{}')}catch{}
+       if(xhr.status>=200&&xhr.status<300&&d.ok)resolve(d);
+       else reject(new Error(d.error||('HTTP '+xhr.status)));
+     };
+     xhr.send(file);
+   });
+   $('#sourceUrl').value=data.source;
+   writeProjectState({url:data.source,localFileName:data.original_name||file.name});
+   $('#sourceState').textContent='Локальный файл готов';
+   $('#sourceState').className='badge text-[11px] text-emerald-300';
+   status.textContent='✅ загружено';bar.value=100;
+   help.textContent=(data.original_name||file.name)+' • '+fmtBytes(data.size_bytes)+' • можно запускать AI-анализ';
+   $('#layoutMode').value='irl';
+   syncLayoutMode();
+   syncSourceRangeAvailability();
+ }finally{
+   btn.disabled=false;
+ }
+}
+$('#uploadLocalBtn').onclick=()=>uploadLocalVideo().catch(e=>{
+ $('#localUploadStatus').textContent='❌ ошибка';
+ $('#localUploadHelp').textContent=e.message;
+ $('#uploadLocalBtn').disabled=false;
+});
+$('#localVideoFile').onchange=()=>{
+ const f=$('#localVideoFile').files&&$('#localVideoFile').files[0];
+ if(f){$('#localUploadStatus').textContent='выбран';$('#localUploadHelp').textContent=f.name+' • '+fmtBytes(f.size)}
+};
 $('#pasteBtn').onclick=async()=>{try{$('#sourceUrl').value=await navigator.clipboard.readText();writeProjectState({url:$('#sourceUrl').value.trim()});syncSourceRangeAvailability()}catch{}};
 $('#sourceUrl').addEventListener('change',()=>writeProjectState({url:$('#sourceUrl').value.trim()}));
 $('#sourceUrl').addEventListener('blur',()=>writeProjectState({url:$('#sourceUrl').value.trim()}));
@@ -856,7 +933,7 @@ $('#outputFormat').onchange=syncLayoutMode;
 $('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;syncLayoutMode();
 
 async function loadPreview(){
- const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Вставь ссылку.');
+ const url=$('#sourceUrl').value.trim();if(!isValidSource())return alert('Вставь ссылку или загрузи локальное видео.');
  $('#previewBtn').disabled=true;$('#previewStatus').textContent='⏳ Получаю кадр...';
  const r=await fetch('/api/streamer/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,timestamp:$('#previewTime').value.trim()})});
  const d=await r.json();if(!r.ok){$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+(d.error||'Ошибка');return}
@@ -885,10 +962,10 @@ function isYouTubeSource(){
 }
 function sourceSupportsRange(){
  const u=$('#sourceUrl').value.trim().toLowerCase();
- return u.includes('twitch.tv/')||u.includes('kick.com/');
+ return isLocalSource()||u.includes('twitch.tv/')||u.includes('kick.com/');
 }
 function syncSourceRangeAvailability(){
- const youtube=isYouTubeSource();
+ const youtube=isYouTubeSource(),local=isLocalSource();
  const supports=sourceSupportsRange();
  const start=$('#sourceRangeStart'),end=$('#sourceRangeEnd');
  if(youtube){
@@ -898,7 +975,10 @@ function syncSourceRangeAvailability(){
    $('#sourceRangeHelp').textContent='YouTube всегда анализируется полностью. Диапазон используется только для длинных Twitch/Kick VOD.';
  }else{
    start.disabled=!supports;end.disabled=!supports;
-   if(!supports&&$('#sourceUrl').value.trim()){
+   if(local){
+     $('#sourceRangeBadge').textContent='локальный файл';
+     $('#sourceRangeHelp').textContent='Можно анализировать весь фильм/серию или указать отдельный диапазон.';
+   }else if(!supports&&$('#sourceUrl').value.trim()){
      start.value='00:00:00';end.value='';
      $('#sourceRangeBadge').textContent='весь ролик';
      $('#sourceRangeHelp').textContent='Для этого источника анализируется весь ролик.';
@@ -923,7 +1003,12 @@ function updateSourceRangeUi(){
    badge.textContent='ошибка';help.textContent='Конец диапазона должен быть позже начала.';return;
  }
  if(start<=0&&!endRaw){
-   badge.textContent='весь VOD';help.textContent='Сейчас будет анализироваться весь VOD.';return;
+   if(isLocalSource()){
+     badge.textContent='локальный • весь файл';help.textContent='AI проанализирует весь загруженный фильм/эпизод.';
+   }else{
+     badge.textContent='весь VOD';help.textContent='Сейчас будет анализироваться весь VOD.';
+   }
+   return;
  }
  badge.textContent='отрезок';
  help.textContent='AI скачает и проанализирует только '+fmtUiTime(start)+' → '+(endRaw?fmtUiTime(end):'конец VOD')+'. Финальные таймкоды останутся привязаны к оригинальному VOD.';
@@ -937,7 +1022,7 @@ syncSourceRangeAvailability();
 
 function durationValues(){const p=$('#durationPreset').value.split(',').map(Number);return{min:p[0],max:p[1]}}
 async function analyzeWholeVod(){
- const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Шаг 1: вставь ссылку на VOD/ролик.');
+ const url=$('#sourceUrl').value.trim();if(!isValidSource())return alert('Шаг 1: вставь ссылку или загрузи фильм/серию с компьютера.');
  writeProjectState({url});
  if(!isBlurMode()&&!nrect())return alert('Шаг 2: сначала получи кадр и выдели веб-камеру рамкой. Это делается один раз для стримера.');
  const forceFull=isYouTubeSource()||!sourceSupportsRange();
