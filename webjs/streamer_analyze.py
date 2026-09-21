@@ -1038,16 +1038,17 @@ def main():
         info = probe_local_source(url) if local_source else fetch_info(url)
         write_json(cache["info"], info)
 
-    cached_payload, cached_analysis_path = load_cached_analysis(
-        cache,
-        min_duration=min_duration,
-        max_duration=max_duration,
-        requested=requested,
-        video_info=info,
-    )
-    if cached_payload is not None:
-        return_cached(cached_payload, cached_analysis_path)
-        return
+    if not local_source:
+        cached_payload, cached_analysis_path = load_cached_analysis(
+            cache,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            requested=requested,
+            video_info=info,
+        )
+        if cached_payload is not None:
+            return_cached(cached_payload, cached_analysis_path)
+            return
 
     cached_source_path = None
     if local_source:
