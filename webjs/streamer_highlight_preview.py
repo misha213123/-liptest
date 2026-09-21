@@ -18,6 +18,7 @@ from openai import OpenAI
 
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
+from core.local_media import cut_local_section, is_local_source
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
 
@@ -75,8 +76,9 @@ def main():
     job = json.loads(job_path.read_text(encoding="utf-8"))
 
     url = str(job.get("url") or "").strip()
-    if not url.startswith(("http://", "https://")):
-        raise ValueError("Неверная ссылка Twitch/Kick/YouTube")
+    local_source = is_local_source(url)
+    if not local_source and not url.startswith(("http://", "https://")):
+        raise ValueError("Неверный источник: нужна ссылка или локальный файл")
 
     start_sec = parse_time(job.get("start_time", 0))
     end_sec = parse_time(job.get("end_time", 0))
@@ -93,7 +95,9 @@ def main():
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     preview_path = preview_dir / f"{cache_key}.mp4"
-    temp_source = preview_dir / f".{cache_key}_source.mp4"
+    temp_source = preview_dir / (
+        f".{cache_key}_source.mkv" if local_source else f".{cache_key}_source.mp4"
+    )
 
     if preview_path.exists() and preview_path.stat().st_size > 10_000:
         payload = {
@@ -118,19 +122,32 @@ def main():
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
 
-    debug_log(
-        f"[progress] Загружаю момент {fmt_time(start_sec)} → "
-        f"{fmt_time(end_sec)} для предпросмотра... (overall: 12.0%)",
-        flush=True,
-    )
-    downloaded = core.download_video_section(
-        url,
-        fmt_time(start_sec),
-        fmt_time(end_sec),
-        str(temp_source),
-        resolution="480p",
-    )
-    downloaded_path = Path(downloaded)
+    if local_source:
+        debug_log(
+            f"[progress] Вырезаю локальный момент {fmt_time(start_sec)} → "
+            f"{fmt_time(end_sec)} для предпросмотра... (overall: 12.0%)",
+            flush=True,
+        )
+        downloaded_path = cut_local_section(
+            url,
+            temp_source,
+            start_sec,
+            end_sec,
+        )
+    else:
+        debug_log(
+            f"[progress] Загружаю момент {fmt_time(start_sec)} → "
+            f"{fmt_time(end_sec)} для предпросмотра... (overall: 12.0%)",
+            flush=True,
+        )
+        downloaded = core.download_video_section(
+            url,
+            fmt_time(start_sec),
+            fmt_time(end_sec),
+            str(temp_source),
+            resolution="480p",
+        )
+        downloaded_path = Path(downloaded)
 
     debug_log(
         "[progress] Делаю лёгкий браузерный MP4... (overall: 72.0%)",
