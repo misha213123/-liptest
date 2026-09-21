@@ -21,6 +21,7 @@ from openai import OpenAI
 
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
+from core.local_media import cut_local_section, is_local_source
 from core.streamer_layout import StreamerLayoutRenderer
 from core.streamer_dynamic_layout import (
     VALID_LAYOUT_STATES,
@@ -1130,8 +1131,9 @@ def main():
     )[:40] or "default"
 
     url = str(job.get("url") or "").strip()
-    if not url.startswith(("http://", "https://")):
-        raise ValueError("Неверная ссылка Twitch/Kick/YouTube")
+    local_source = is_local_source(url)
+    if not local_source and not url.startswith(("http://", "https://")):
+        raise ValueError("Неверный источник: нужна ссылка или загруженный локальный файл")
 
     start_sec = parse_time(job.get("start_time", 0))
     end_sec = parse_time(job.get("end_time", 0))
@@ -1231,10 +1233,10 @@ def main():
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    source_path = out_dir / "source_16x9.mp4"
-    layout_path = out_dir / "layout_9x16.mp4"
-    text_path = out_dir / "text_9x16.mp4"
-    final_path = out_dir / "final_9x16.mp4"
+    source_path = out_dir / ("source_local.mkv" if local_source else "source_16x9.mp4")
+    layout_path = out_dir / ("layout_1x1.mp4" if output_format == "square_blur" else "layout_9x16.mp4")
+    text_path = out_dir / ("text_1x1.mp4" if output_format == "square_blur" else "text_9x16.mp4")
+    final_path = out_dir / ("final_1x1.mp4" if output_format == "square_blur" else "final_9x16.mp4")
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
@@ -1283,7 +1285,18 @@ def main():
     except Exception:
         batch_index = -1
 
-    if cached_youtube_source is not None:
+    if local_source:
+        debug_log(
+            "[streamer] 📁 Локальный источник: вырезаю выбранный момент без yt-dlp.",
+            flush=True,
+        )
+        cut_local_section(
+            url,
+            source_path,
+            start_sec,
+            end_sec,
+        )
+    elif cached_youtube_source is not None:
         # YouTube was already downloaded while pressing "Найти лучшие моменты".
         # Every render now cuts only the requested local interval and starts the
         # GPU pipeline immediately; no yt-dlp call is made during rendering.
