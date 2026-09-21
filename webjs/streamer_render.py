@@ -487,22 +487,42 @@ def create_streamer_ass(
     core.subtitle_settings["canvas_height"] = canvas_height
 
     if captions:
-        precise_mode = str(
-            os.environ.get("STREAMER_CAPTION_TIMING", "cache")
+        timing_mode = str(
+            os.environ.get("STREAMER_CAPTION_TIMING", "clip")
         ).strip().lower()
-        precise_requested = precise_mode in (
+
+        # The old "cache" mode rebuilt fake word timings by evenly spreading
+        # words across coarse VOD transcript segments. That made captions lead
+        # speech by ~0.5-1.2s in real renders. Keep exact clip-local word
+        # timestamps as the normal path, even if an older start script still
+        # exports STREAMER_CAPTION_TIMING=cache.
+        if timing_mode == "cache":
+            debug_log(
+                "[streamer] ⚠ STREAMER_CAPTION_TIMING=cache is legacy; "
+                "using exact clip word timestamps instead.",
+                flush=True,
+            )
+            timing_mode = "clip"
+
+        whisperx_requested = timing_mode in (
             "whisperx", "forced", "exact", "1", "true", "on"
         )
+        analysis_cache_requested = timing_mode in (
+            "analysis-cache", "vod-cache", "legacy-cache"
+        )
 
-        # Fast/default path: reuse the transcript produced while finding
-        # highlights. This removes a second WhisperX/Whisper pass for every
-        # 25-45 second clip.
         transcript = None
-        if not precise_requested:
+        if analysis_cache_requested:
             transcript = load_cached_clip_transcript(
                 source_url,
                 clip_start_sec,
                 clip_end_sec,
+            )
+        else:
+            debug_log(
+                "[streamer] 🎯 Caption timing: transcribing THIS rendered clip "
+                "with real word timestamps.",
+                flush=True,
             )
 
         audio_file = None
@@ -526,9 +546,9 @@ def create_streamer_ass(
             if result.returncode != 0 or not audio_file.exists():
                 raise RuntimeError("Не удалось извлечь аудио для субтитров.")
 
-        # WhisperX remains available as an opt-in precision mode:
+        # WhisperX remains available as an opt-in forced-alignment mode:
         # STREAMER_CAPTION_TIMING=whisperx
-        if transcript is None and precise_requested and whisperx_available():
+        if transcript is None and whisperx_requested and whisperx_available():
             try:
                 lang = str(getattr(core, "subtitle_language", "ru") or "ru")
                 lang = lang.split("-", 1)[0].strip().lower() or "ru"
@@ -547,8 +567,9 @@ def create_streamer_ass(
                     flush=True,
                 )
 
-        # Only transcribe the clip again when no analysis transcript is
-        # available (or exact mode was explicitly requested).
+        # Normal path: transcribe the exact rendered clip, not the coarse
+        # full-VOD analysis transcript. This keeps each word tied to the audio
+        # that will actually be burned into the final MP4.
         if transcript is None:
             cm_config = core.ai_providers.setdefault("caption_maker", {})
             fw_settings = cm_config.setdefault("faster_whisper", {})
@@ -556,8 +577,8 @@ def create_streamer_ass(
                 os.environ.get("STREAMER_FASTER_WHISPER_MODEL", "medium") or "medium"
             )
             debug_log(
-                f"[streamer] 🎯 Локальный fallback субтитров: Faster-Whisper "
-                f"{fw_settings['model_size']} + word timestamps.",
+                f"[streamer] 🎯 Точные субтитры клипа: Faster-Whisper "
+                f"{fw_settings['model_size']} + real word timestamps.",
                 flush=True,
             )
             try:
