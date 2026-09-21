@@ -22,6 +22,12 @@ from openai import OpenAI
 
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
+from core.local_media import (
+    extract_local_audio,
+    is_local_source,
+    probe_local_source,
+    resolve_local_source,
+)
 from utils.helpers import get_app_dir, get_deno_path, get_ffmpeg_path, get_ytdlp_path
 from utils.logger import debug_log
 
@@ -92,6 +98,49 @@ def streamer_prompt(min_duration: int, max_duration: int) -> str:
       {{"state": "REACTION", "start": 7.0, "end": 9.2}},
       {{"state": "GAME_FOCUS", "start": 14.0, "end": 17.5}}
     ]
+  }}
+]
+
+{{video_context}}
+
+РАСШИФРОВКА:
+{{transcript}}"""
+
+
+def cinematic_prompt(min_duration: int, max_duration: int) -> str:
+    return f"""Ты — монтажёр коротких вертикальных клипов из фильмов и сериалов.
+Найди САМЫЕ СИЛЬНЫЕ самостоятельные сцены во всей переданной расшифровке.
+
+Что ценить выше всего:
+- напряжённый диалог, конфликт, неожиданное признание или поворот;
+- смешная сцена, панчлайн, неловкий или абсурдный момент;
+- сильная эмоция, спор, шок, страх, удивление;
+- сцена, которая понятна без просмотра всего фильма/серии;
+- законченное мини-событие с понятным началом и завершением.
+
+ЖЁСТКИЕ ПРАВИЛА:
+1. Каждый клип должен быть от {min_duration} до {max_duration} секунд.
+2. Начинай за 1-3 секунды до сути, чтобы сохранить контекст.
+3. Заканчивай после завершения реплики/реакции, не режь фразу посередине.
+4. Не выбирай титры, длинное молчание, проходные разговоры и похожие сцены.
+5. Используй ТОЛЬКО реальные таймкоды из расшифровки.
+6. Заголовок — максимум 6 слов, цепкий, но без выдуманных событий.
+7. timed_title показывается только первые 2.3 секунды.
+8. layout_events верни пустым массивом: композиция должна быть стабильной.
+9. Верни ТОЛЬКО JSON-массив без markdown и пояснений.
+
+ФОРМАТ:
+[
+  {{
+    "start_time": "00:10:15,000",
+    "end_time": "00:10:55,000",
+    "title": "ОН НЕ ОЖИДАЛ ЭТОГО",
+    "description": "Кратко что происходит в сцене",
+    "virality_score": 92,
+    "virality_reason": "Почему сцена удерживает внимание",
+    "hook_text": "Короткий хук",
+    "timed_title": {{"text": "ОН НЕ ОЖИДАЛ ЭТОГО", "start": 0.0, "end": 2.3}},
+    "layout_events": []
   }}
 ]
 
@@ -891,8 +940,9 @@ def main():
     job = json.loads(job_path.read_text(encoding="utf-8"))
 
     url = str(job.get("url") or "").strip()
-    if not url.startswith(("http://", "https://")):
-        raise ValueError("Нужна ссылка Twitch, Kick или YouTube")
+    local_source = is_local_source(url)
+    if not local_source and not url.startswith(("http://", "https://")):
+        raise ValueError("Нужна ссылка Twitch/Kick/YouTube или загруженный локальный файл")
 
     min_duration = max(10, min(180, int(job.get("min_duration") or 25)))
     max_duration = max(min_duration, min(240, int(job.get("max_duration") or 55)))
@@ -905,7 +955,7 @@ def main():
     # YouTube videos are always scanned in full, even if stale UI/template
     # values accidentally send source_start/source_end.
     url_lower = url.lower()
-    is_youtube = "youtube.com/" in url_lower or "youtu.be/" in url_lower
+    is_youtube = (not local_source) and ("youtube.com/" in url_lower or "youtu.be/" in url_lower)
     if is_youtube:
         source_start = 0.0
         source_end_requested = 0.0
@@ -954,7 +1004,7 @@ def main():
 
         debug_log(
             "[progress] ♻ Использую сохранённый AI-анализ — "
-            "YouTube/Whisper/OpenAI не вызываю. (overall: 100.0%)",
+            "источник/Whisper/OpenAI повторно не вызываю. (overall: 100.0%)",
             flush=True,
         )
         result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -982,10 +1032,10 @@ def main():
         try:
             info = json.loads(cache["info"].read_text(encoding="utf-8"))
         except Exception:
-            info = fetch_info(url)
+            info = probe_local_source(url) if local_source else fetch_info(url)
             write_json(cache["info"], info)
     else:
-        info = fetch_info(url)
+        info = probe_local_source(url) if local_source else fetch_info(url)
         write_json(cache["info"], info)
 
     cached_payload, cached_analysis_path = load_cached_analysis(
@@ -1000,12 +1050,22 @@ def main():
         return
 
     cached_source_path = None
-    if is_youtube:
+    if local_source:
+        cached_source_path = resolve_local_source(url)
+        debug_log(
+            f"[streamer-ai] Локальный файл: {cached_source_path.name} — сеть/yt-dlp не используются.",
+            flush=True,
+        )
+    elif is_youtube:
         cached_source_path = download_youtube_source(url, cache["dir"])
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
-    core.system_prompt = streamer_prompt(min_duration, max_duration)
+    core.system_prompt = (
+        cinematic_prompt(min_duration, max_duration)
+        if local_source
+        else streamer_prompt(min_duration, max_duration)
+    )
 
     analysis_id = str(job.get("id") or uuid.uuid4().hex[:12])
     analysis_dir = APP_DIR / "output" / "streamer_analysis" / analysis_id
@@ -1060,7 +1120,18 @@ def main():
             flush=True,
         )
     else:
-        if range_requested:
+        if local_source:
+            debug_log(
+                "[progress] Извлекаю аудио из локального видео — без скачивания... (overall: 8.0%)",
+                flush=True,
+            )
+            audio_path = extract_local_audio(
+                url,
+                analysis_dir / "source_audio.wav",
+                start_sec=source_start if range_requested else 0.0,
+                end_sec=source_end if range_requested else 0.0,
+            )
+        elif range_requested:
             debug_log(
                 "[progress] Загружаю только выбранный диапазон VOD... (overall: 5.0%)",
                 flush=True,
