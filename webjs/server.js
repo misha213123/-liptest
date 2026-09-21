@@ -176,10 +176,38 @@ const STREAMER_MAX_PROJECTS = Math.max(
 // Four independent UI project slots. STREAMER_MAX_PROJECTS remains the
 // concurrency limit, so adding project4 does not increase GPU/RAM load by itself.
 const STREAMER_PROJECT_SLOTS = 4;
+const STREAMER_UPLOAD_MAX_BYTES = Math.max(
+  1,
+  Number(process.env.STREAMER_UPLOAD_MAX_GB || 25) || 25
+) * 1024 * 1024 * 1024;
+const STREAMER_VIDEO_EXTS = new Set([
+  '.mp4', '.mkv', '.mov', '.webm', '.avi', '.m4v', '.ts', '.m2ts', '.mts'
+]);
 
 function streamerProjectId(u) {
   const raw = String((u && u.searchParams && u.searchParams.get('project_id')) || 'default');
   return (raw.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40) || 'default');
+}
+
+function streamerLocalPath(source, projectId) {
+  const raw = String(source || '').trim();
+  const m = raw.match(/^local:\/\/([A-Za-z0-9_-]{1,40})\/([^/?#]+)$/);
+  if (!m || m[1] !== projectId) return null;
+  const file = path.basename(m[2]);
+  if (!file || file !== m[2]) return null;
+  const ext = path.extname(file).toLowerCase();
+  if (!STREAMER_VIDEO_EXTS.has(ext)) return null;
+  const base = path.join(ROOT, 'output', 'streamer_uploads', projectId);
+  const fp = path.join(base, file);
+  if (!fp.startsWith(base + path.sep)) return null;
+  return fp;
+}
+
+function streamerSourceAllowed(source, projectId) {
+  const raw = String(source || '').trim();
+  if (/^https?:\/\//i.test(raw)) return true;
+  const fp = streamerLocalPath(raw, projectId);
+  return !!(fp && fs.existsSync(fp) && fs.statSync(fp).isFile());
 }
 
 function streamerRunningProjectIds() {
@@ -1286,6 +1314,85 @@ except Exception as e:
       return;
     }
 
+    // POST /api/streamer/upload-local — stream a large local movie/episode
+    // directly to disk without buffering the whole file in Node memory.
+    if (p === '/api/streamer/upload-local' && req.method === 'POST') {
+      const projectId = streamerProjectId(u);
+      const rawHeader = String(req.headers['x-file-name'] || 'video.mp4');
+      let originalName = rawHeader;
+      try { originalName = decodeURIComponent(rawHeader); } catch {}
+      originalName = path.basename(originalName || 'video.mp4');
+      const ext = path.extname(originalName).toLowerCase();
+      if (!STREAMER_VIDEO_EXTS.has(ext)) {
+        return json(res, 400, {
+          error: 'Поддерживаются MP4, MKV, MOV, WEBM, AVI, M4V, TS/M2TS/MTS'
+        });
+      }
+
+      const contentLength = Number(req.headers['content-length'] || 0);
+      if (contentLength > STREAMER_UPLOAD_MAX_BYTES) {
+        return json(res, 413, {
+          error: 'Файл больше разрешённого лимита',
+          max_bytes: STREAMER_UPLOAD_MAX_BYTES
+        });
+      }
+
+      const dir = path.join(ROOT, 'output', 'streamer_uploads', projectId);
+      fs.mkdirSync(dir, { recursive: true });
+      const safeStem = path.basename(originalName, ext)
+        .replace(/[^A-Za-z0-9._-]+/g, '_')
+        .replace(/^[_\.]+|[_\.]+$/g, '')
+        .slice(0, 80) || 'video';
+      const stored = Date.now().toString(36) + '_' + crypto.randomBytes(5).toString('hex') + '_' + safeStem + ext;
+      const fp = path.join(dir, stored);
+      const out = fs.createWriteStream(fp, { flags: 'wx' });
+      let received = 0;
+      let finished = false;
+
+      const failUpload = (code, message) => {
+        if (finished) return;
+        finished = true;
+        try { out.destroy(); } catch {}
+        try { fs.unlinkSync(fp); } catch {}
+        try { req.resume(); } catch {}
+        return json(res, code, { error: message });
+      };
+
+      out.on('error', err => failUpload(500, 'Не удалось сохранить видео: ' + String(err.message || err)));
+      req.on('error', err => failUpload(400, 'Ошибка загрузки: ' + String(err.message || err)));
+      req.on('aborted', () => failUpload(499, 'Загрузка отменена'));
+
+      req.on('data', chunk => {
+        if (finished) return;
+        received += chunk.length;
+        if (received > STREAMER_UPLOAD_MAX_BYTES) {
+          failUpload(413, 'Файл превысил лимит во время загрузки');
+          return;
+        }
+        if (!out.write(chunk)) {
+          req.pause();
+          out.once('drain', () => req.resume());
+        }
+      });
+      req.on('end', () => {
+        if (finished) return;
+        out.end(() => {
+          if (finished) return;
+          finished = true;
+          const source = 'local://' + projectId + '/' + stored;
+          return json(res, 200, {
+            ok: true,
+            project_id: projectId,
+            source,
+            file: stored,
+            original_name: originalName,
+            size_bytes: received
+          });
+        });
+      });
+      return;
+    }
+
     // POST /api/streamer/preview — download a tiny range and extract one frame.
     if (p === '/api/streamer/preview' && req.method === 'POST') {
       const projectId = streamerProjectId(u);
@@ -1306,7 +1413,7 @@ except Exception as e:
         try { o = JSON.parse(body || '{}'); } catch {}
         const url = String(o.url || '').trim();
         const timestamp = String(o.timestamp || '00:00:10').trim();
-        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!streamerSourceAllowed(url, projectId)) return json(res, 400, { error: 'Источник не найден или недоступен' });
 
         const stamp = Date.now();
         const logPath = path.join(ROOT, 'output', `streamer_preview_${projectId}_${stamp}.log`);
@@ -1373,7 +1480,7 @@ except Exception as e:
         const url = String(o.url || '').trim();
         const startTime = String(o.start_time || '').trim();
         const endTime = String(o.end_time || '').trim();
-        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!streamerSourceAllowed(url, projectId)) return json(res, 400, { error: 'Источник не найден или недоступен' });
         if (!startTime || !endTime) return json(res, 400, { error: 'Нет таймкодов предпросмотра' });
 
         const stamp = Date.now();
@@ -1452,7 +1559,7 @@ except Exception as e:
         try { o = JSON.parse(body || '{}'); } catch {}
 
         const url = String(o.url || '').trim();
-        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!streamerSourceAllowed(url, projectId)) return json(res, 400, { error: 'Источник не найден или недоступен' });
 
         const minDuration = Math.max(10, Math.min(180, parseInt(o.min_duration) || 25));
         const maxDuration = Math.max(minDuration, Math.min(240, parseInt(o.max_duration) || 55));
@@ -1539,7 +1646,7 @@ except Exception as e:
         const rawMode = String(o.layout_mode || 'stream').trim().toLowerCase();
         const layoutMode = ['irl', 'irl_blur', 'irl_vertical'].includes(rawMode) ? 'irl' : 'stream';
         let rect = o.webcam_rect;
-        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!streamerSourceAllowed(url, projectId)) return json(res, 400, { error: 'Источник не найден или недоступен' });
         const validRect = rect && ['x','y','w','h'].every(k => Number.isFinite(Number(rect[k])));
         if (layoutMode === 'stream' && !validRect) {
           return json(res, 400, { error: 'Сначала выдели веб-камеру рамкой' });
