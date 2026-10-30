@@ -387,6 +387,10 @@ class TranscribeMixin:
             lang = getattr(self, "subtitle_language", None)
             if lang == "none":
                 lang = None
+            elif lang:
+                # yt-dlp language tags such as ru-orig / en-orig are valid for
+                # YouTube subtitles but Faster-Whisper expects ISO language codes.
+                lang = str(lang).split("-", 1)[0].strip().lower() or None
             
             # Run transcription with VAD and word timestamps
             segments_gen, info = self.faster_whisper_model.transcribe(

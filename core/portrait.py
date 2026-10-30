@@ -103,6 +103,130 @@ class PortraitMixin:
             target = np.arange(total_frames, dtype=float)
             return np.interp(target, x, y).tolist()
 
+        def _extract_voice_activity_envelope(self, input_path: str):
+            """Build a lightweight audio activity envelope for active-speaker gating."""
+            try:
+                sample_rate = 16000
+                cmd = [
+                    self.ffmpeg_path, "-v", "error", "-i", input_path,
+                    "-vn", "-ac", "1", "-ar", str(sample_rate),
+                    "-f", "s16le", "pipe:1",
+                ]
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=120,
+                    creationflags=SUBPROCESS_FLAGS,
+                )
+                if result.returncode != 0 or not result.stdout:
+                    return None
+
+                samples = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32)
+                if samples.size < sample_rate // 2:
+                    return None
+
+                bin_samples = max(1, int(sample_rate * 0.05))  # 50 ms
+                n = samples.size // bin_samples
+                if n < 2:
+                    return None
+
+                arr = samples[:n * bin_samples].reshape(n, bin_samples)
+                rms = np.sqrt(np.mean(arr * arr, axis=1) + 1.0)
+                if rms.size >= 5:
+                    rms = np.convolve(
+                        rms,
+                        np.ones(5, dtype=np.float32) / 5.0,
+                        mode="same",
+                    )
+
+                noise = float(np.percentile(rms, 20))
+                speech = float(np.percentile(rms, 80))
+                span = max(150.0, speech - noise)
+                norm = np.clip((rms - noise) / span, 0.0, 1.5)
+
+                self.log(
+                    f"  Voice gate ready (noise={noise:.0f}, speech={speech:.0f})"
+                )
+                return {
+                    "values": norm,
+                    "bin_sec": 0.05,
+                    "threshold": 0.18,
+                }
+            except Exception as e:
+                self.log(f"  ⚠ Voice gate unavailable: {e}")
+                return None
+
+        @staticmethod
+        def _voice_activity_at(envelope, time_sec: float) -> float:
+            if not envelope:
+                return 1.0
+            values = envelope.get("values")
+            if values is None or len(values) == 0:
+                return 1.0
+            step = float(envelope.get("bin_sec", 0.05) or 0.05)
+            idx = int(max(0.0, time_sec) / step)
+            idx = max(0, min(idx, len(values) - 1))
+            return float(values[idx])
+
+        @staticmethod
+        def _interpolate_tracking_with_cuts(sampled_values: list, sampled_indices: list,
+                                            total_frames: int, cut_threshold: float) -> list:
+            """Smooth movement of one face but hard-cut large speaker changes."""
+            if not sampled_values:
+                return []
+            if total_frames <= 0:
+                return list(sampled_values)
+            if len(sampled_values) == 1:
+                return [float(sampled_values[0])] * total_frames
+
+            out = [float(sampled_values[0])] * total_frames
+            for i in range(len(sampled_values) - 1):
+                start = max(0, min(int(sampled_indices[i]), total_frames - 1))
+                end = max(start + 1, min(int(sampled_indices[i + 1]), total_frames))
+                a = float(sampled_values[i])
+                b = float(sampled_values[i + 1])
+
+                if abs(b - a) >= cut_threshold:
+                    for j in range(start, end):
+                        out[j] = a
+                else:
+                    span = max(1, end - start)
+                    for j in range(start, end):
+                        t = (j - start) / span
+                        out[j] = a + (b - a) * t
+
+            last_idx = max(0, min(int(sampled_indices[-1]), total_frames))
+            last_val = float(sampled_values[-1])
+            for j in range(last_idx, total_frames):
+                out[j] = last_val
+            return out
+
+        def _ffmpeg_filter_file_args(self, script_path: str) -> list:
+            """Use FFmpeg 9+ file-option syntax, with legacy fallback."""
+            cached = getattr(self, "_ffmpeg_filter_file_mode", None)
+            if cached is None:
+                mode = "modern"
+                try:
+                    probe = subprocess.run(
+                        [self.ffmpeg_path, "-hide_banner", "-h", "full"],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        creationflags=SUBPROCESS_FLAGS,
+                    )
+                    help_text = (probe.stdout or "") + (probe.stderr or "")
+                    if "filter_complex_script" in help_text:
+                        mode = "legacy"
+                except Exception:
+                    mode = "modern"
+                self._ffmpeg_filter_file_mode = mode
+                cached = mode
+
+            if cached == "legacy":
+                return ["-filter_complex_script", script_path]
+            return ["-/filter_complex", script_path]
+
         def _build_portrait_filter_script(self, crop_positions, crop_w, crop_h,
                                           out_w, out_h, min_run=20, quantize=4,
                                           crop_ys=None) -> str:
@@ -184,7 +308,7 @@ class PortraitMixin:
                 cmd = [
                     self.ffmpeg_path, "-y",
                     "-i", input_path,
-                    "-filter_complex_script", script_path,
+                    *self._ffmpeg_filter_file_args(script_path),
                     "-map", "[v]", "-map", "0:a?",
                     *encoder_args,
                     "-c:a", "aac", "-b:a", "192k",
@@ -237,10 +361,23 @@ class PortraitMixin:
             crop_w, crop_h = self._get_crop_window(orig_w, orig_h)
             out_w, out_h = self._get_ratio_dimensions()
         
-            # Face detector
-            face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            # Face detector. Some OpenCV 5 Windows wheels omit Haar XML.
+            cascade_path = ""
+            try:
+                cascade_path = os.path.join(
+                    cv2.data.haarcascades,
+                    "haarcascade_frontalface_default.xml",
+                )
+            except Exception:
+                pass
+            face_cascade = (
+                cv2.CascadeClassifier(cascade_path)
+                if cascade_path and os.path.exists(cascade_path)
+                else cv2.CascadeClassifier()
             )
+            haar_available = not face_cascade.empty()
+            if not haar_available:
+                self.log("  ⚠ Haar cascade unavailable — using center crop fallback.")
         
             # First pass: analyze frames
             self.log("  Pass 1: Analyzing frames (fast mode: every 5th frame)...")
@@ -265,7 +402,7 @@ class PortraitMixin:
                     else:
                         small = frame
                     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-                    faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+                    faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50)) if haar_available else []
                 
                     if len(faces) > 0:
                         # Find largest face (coordinates in downscaled space -> map back)
@@ -651,40 +788,19 @@ class PortraitMixin:
             )
             cap.release()
 
-        def _calculate_lip_activity(self, face_landmarks, frame_width, frame_height, prev_lip_distance=None):
-            """Calculate lip movement activity score"""
-        
-            # Key lip landmarks (MediaPipe Face Landmarker indices)
-            # Upper lip: 13, Lower lip: 14
+        def _calculate_lip_activity(self, face_landmarks, frame_width, frame_height, prev_lip_ratio=None):
+            """Estimate speaking-related mouth motion from normalized lip geometry."""
             upper_lip = face_landmarks[13]
             lower_lip = face_landmarks[14]
-        
-            # Mouth corners: 61 (left), 291 (right)
             mouth_left = face_landmarks[61]
             mouth_right = face_landmarks[291]
-        
-            # Calculate mouth openness (vertical distance)
+
             mouth_height = abs(upper_lip.y - lower_lip.y)
-        
-            # Calculate mouth width (horizontal distance)
-            mouth_width = abs(mouth_left.x - mouth_right.x)
-        
-            # Aspect ratio (height/width) - higher when mouth is open
-            if mouth_width > 0:
-                aspect_ratio = mouth_height / mouth_width
-            else:
-                aspect_ratio = 0
-        
-            # Calculate movement delta (change from previous frame)
-            delta = 0
-            if prev_lip_distance is not None:
-                delta = abs(mouth_height - prev_lip_distance)
-        
-            # Activity score: combination of openness and movement
-            # Weight movement more heavily (0.6) than static openness (0.4)
-            activity_score = (aspect_ratio * 0.4) + (delta * 0.6)
-        
-            return activity_score
+            mouth_width = max(1e-6, abs(mouth_left.x - mouth_right.x))
+            ratio = mouth_height / mouth_width
+
+            delta = abs(ratio - prev_lip_ratio) if prev_lip_ratio is not None else 0.0
+            return float((delta * 0.90) + (max(0.0, ratio - 0.10) * 0.10))
 
         def _stabilize_positions_with_activity(self, positions, activities, min_shot_duration, switch_threshold, orig_w):
             """Stabilize crop positions based on activity scores.
@@ -1003,7 +1119,7 @@ class PortraitMixin:
                 cmd = [
                     self.ffmpeg_path, "-y",
                     "-i", input_path,
-                    "-filter_complex_script", script_path,
+                    *self._ffmpeg_filter_file_args(script_path),
                     "-map", "[v]", "-map", "0:a?",
                     *encoder_args,
                     "-c:a", "aac", "-b:a", "192k",
@@ -1074,10 +1190,23 @@ class PortraitMixin:
             crop_w, crop_h = self._get_crop_window(orig_w, orig_h)
             out_w, out_h = self._get_ratio_dimensions()
         
-            # Face detector
-            face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            # Face detector. Some OpenCV 5 Windows wheels omit Haar XML.
+            cascade_path = ""
+            try:
+                cascade_path = os.path.join(
+                    cv2.data.haarcascades,
+                    "haarcascade_frontalface_default.xml",
+                )
+            except Exception:
+                pass
+            face_cascade = (
+                cv2.CascadeClassifier(cascade_path)
+                if cascade_path and os.path.exists(cascade_path)
+                else cv2.CascadeClassifier()
             )
+            haar_available = not face_cascade.empty()
+            if not haar_available:
+                self.log("  ⚠ Haar cascade unavailable — using center crop fallback.")
         
             # First pass: analyze frames (0-40%)
             debug_log("[DEBUG] Pass 1: Analyzing frames... (fast mode: every 5th frame)")
@@ -1119,7 +1248,7 @@ class PortraitMixin:
                 else:
                     small = frame
                 gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-                faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50))
+                faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(50, 50)) if haar_available else []
             
                 if len(faces) > 0:
                     # Find largest face
@@ -1173,116 +1302,378 @@ class PortraitMixin:
             sys.stdout.flush()
 
         def convert_to_portrait_mediapipe_with_progress(self, input_path: str, output_path: str, progress_callback):
-            """Convert landscape to 9:16 portrait with active speaker detection and progress (MediaPipe).
-            Updated: Tracks X+Y center and uses 75% zoom for better vertical centering.
+            """Stable 9:16 active-speaker reframing.
+
+            The tracker keeps persistent face IDs, smooths lip-motion over time,
+            waits for sustained dominance before switching speaker, and uses hard
+            cuts between speakers. Camera position stays static while the same
+            person is speaking.
             """
             self._init_mediapipe()
-            debug_log("[DEBUG] Starting MediaPipe portrait conversion (X+Y Center + Zoom)...")
-            
+            debug_log("[DEBUG] Starting stable MediaPipe active-speaker tracking...")
+
             cap = cv2.VideoCapture(input_path)
             if not cap.isOpened():
                 raise Exception(f"Failed to open video: {input_path}")
-            
+
             orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # Zoom-in: use 75% of height to allow vertical movement
-            zoom_factor = 0.75
-            crop_w, crop_h = self._get_crop_window(orig_w, orig_h, zoom_factor=zoom_factor)
+            if orig_w <= 0 or orig_h <= 0 or total_frames <= 0:
+                cap.release()
+                raise Exception("Invalid source video for portrait tracking")
+
+            crop_w, crop_h = self._get_crop_window(orig_w, orig_h, zoom_factor=1.0)
             out_w, out_h = self._get_ratio_dimensions()
-            
-            lip_threshold = self.mediapipe_settings.get("lip_activity_threshold", 0.08)
-            center_weight = self.mediapipe_settings.get("center_weight", 0.15)
-            
+
             analyzed_indices = []
             analyzed_positions_x = []
-            analyzed_positions_y = []
-            analyzed_activities = []
             frames_read = 0
-            prev_lip_distances = {}
-            prev_best_face = None
-            
-            ANALYSIS_STEP = 5
-            scale = min(1.0, 640 / orig_w)
-            import time
-            last_log_time = 0
+
+            voice_envelope = self._extract_voice_activity_envelope(input_path)
+
+            # Old configs used ~0.08 for a different activity formula. Convert
+            # that scale to the new normalized mouth-motion scale automatically.
+            configured_lip = float(
+                self.mediapipe_settings.get("lip_activity_threshold", 0.08) or 0.08
+            )
+            lip_threshold = configured_lip * 0.20 if configured_lip > 0.05 else configured_lip
+            lip_threshold = max(0.008, min(0.035, lip_threshold))
+
+            ANALYSIS_STEP = 4
+            scale = min(1.0, 720 / orig_w)
+            last_log_time = 0.0
+
+            # Persistent visual tracks.
+            tracks = {}
+            next_track_id = 1
+            locked_track_id = None
+            locked_face_x = None
+
+            pending_track_id = None
+            pending_switch_count = 0
+            switch_cooldown_until = 0
+
+            switch_confirm_samples = max(
+                3,
+                int(self.mediapipe_settings.get("speaker_switch_confirm", 4) or 4),
+            )
+            switch_ratio = max(
+                1.25,
+                float(self.mediapipe_settings.get("speaker_score_ratio", 1.65) or 1.65),
+            )
+            cooldown_frames = int(
+                fps * max(
+                    0.35,
+                    float(self.mediapipe_settings.get("speaker_switch_cooldown", 0.80) or 0.80),
+                )
+            )
+            dead_zone_ratio = max(
+                0.05,
+                min(
+                    0.30,
+                    float(self.mediapipe_settings.get("speaker_dead_zone", 0.18) or 0.18),
+                ),
+            )
+
+            def _match_track(face_x, used_ids):
+                best_id = None
+                best_dist = None
+                max_dist = max(crop_w * 0.60, orig_w * 0.12)
+                for tid, tr in tracks.items():
+                    if tid in used_ids:
+                        continue
+                    if frames_read - tr.get("last_seen", -99999) > int(fps * 0.8):
+                        continue
+                    dist = abs(tr.get("x", face_x) - face_x)
+                    if dist <= max_dist and (best_dist is None or dist < best_dist):
+                        best_id = tid
+                        best_dist = dist
+                return best_id
 
             while True:
                 if self.is_cancelled():
                     cap.release()
                     raise Exception("Cancelled by user")
-                
+
                 if frames_read % ANALYSIS_STEP != 0:
-                    if not cap.grab(): break
+                    if not cap.grab():
+                        break
                     frames_read += 1
                     continue
-                
+
                 ret, frame = cap.read()
-                if not ret: break
-                
-                small = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1.0 else frame
+                if not ret:
+                    break
+
+                voice_level = self._voice_activity_at(
+                    voice_envelope,
+                    frames_read / fps,
+                )
+                voice_threshold = (
+                    float(voice_envelope.get("threshold", 0.18))
+                    if voice_envelope else 0.0
+                )
+                voice_active = voice_level >= voice_threshold
+
+                small = (
+                    cv2.resize(
+                        frame,
+                        None,
+                        fx=scale,
+                        fy=scale,
+                        interpolation=cv2.INTER_AREA,
+                    )
+                    if scale < 1.0
+                    else frame
+                )
                 rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+                mp_image = mp.Image(
+                    image_format=mp.ImageFormat.SRGB,
+                    data=rgb_frame,
+                )
                 results = self.mp_face_landmarker.detect(mp_image)
-                
-                best_face_x = orig_w / 2
-                best_face_y = orig_h / 2
-                max_activity = 0
-                
+
+                detections = []
                 if results.face_landmarks:
-                    faces_data = []
-                    sorted_faces = sorted(results.face_landmarks, key=lambda lm: lm[1].x)
-                    for face_id, face_landmarks in enumerate(sorted_faces):
-                        activity = self._calculate_lip_activity(face_landmarks, orig_w, orig_h, prev_lip_distances.get(face_id))
-                        face_x = face_landmarks[1].x * orig_w
-                        face_y = face_landmarks[1].y * orig_h
-                        center_score = 1.0 - abs(face_x - orig_w / 2) / (orig_w / 2)
-                        combined_score = (activity * (1 - center_weight)) + (center_score * center_weight)
-                        
-                        faces_data.append({'x': face_x, 'y': face_y, 'activity': activity, 'score': combined_score})
-                        prev_lip_distances[face_id] = abs(face_landmarks[13].y - face_landmarks[14].y)
-                    
-                    active = [f for f in faces_data if f['activity'] > lip_threshold]
-                    if active:
-                        best_face = max(active, key=lambda f: f['activity'])
+                    for face_landmarks in results.face_landmarks:
+                        xs = [lm.x for lm in face_landmarks]
+                        ys = [lm.y for lm in face_landmarks]
+                        face_x = ((min(xs) + max(xs)) * 0.5) * orig_w
+                        face_y = ((min(ys) + max(ys)) * 0.5) * orig_h
+                        face_w = max(1.0, (max(xs) - min(xs)) * orig_w)
+                        face_h = max(1.0, (max(ys) - min(ys)) * orig_h)
+
+                        mouth_w = max(
+                            1e-6,
+                            abs(face_landmarks[61].x - face_landmarks[291].x),
+                        )
+                        mouth_ratio = (
+                            abs(face_landmarks[13].y - face_landmarks[14].y)
+                            / mouth_w
+                        )
+
+                        detections.append({
+                            "x": float(face_x),
+                            "y": float(face_y),
+                            "mouth_ratio": float(mouth_ratio),
+                            "area": float(face_w * face_h),
+                        })
+
+                # Match detections to persistent face tracks by position.
+                visible = []
+                used_ids = set()
+                for det in sorted(detections, key=lambda d: d["x"]):
+                    tid = _match_track(det["x"], used_ids)
+                    if tid is None:
+                        tid = next_track_id
+                        next_track_id += 1
+                        tracks[tid] = {
+                            "x": det["x"],
+                            "mouth_ratio": None,
+                            "motion_ema": 0.0,
+                            "speech_ema": 0.0,
+                            "last_seen": frames_read,
+                        }
+
+                    used_ids.add(tid)
+                    tr = tracks[tid]
+
+                    prev_ratio = tr.get("mouth_ratio")
+                    motion = (
+                        abs(det["mouth_ratio"] - prev_ratio)
+                        if prev_ratio is not None
+                        else 0.0
+                    )
+
+                    # Stable face position is for identity only; camera framing is
+                    # deliberately NOT tied frame-by-frame to this value.
+                    tr["x"] = tr.get("x", det["x"]) * 0.72 + det["x"] * 0.28
+                    tr["mouth_ratio"] = det["mouth_ratio"]
+                    tr["motion_ema"] = tr.get("motion_ema", 0.0) * 0.68 + motion * 0.32
+
+                    speech_sample = motion * max(0.0, min(1.5, voice_level)) if voice_active else 0.0
+                    tr["speech_ema"] = tr.get("speech_ema", 0.0) * 0.72 + speech_sample * 0.28
+                    tr["last_seen"] = frames_read
+                    tr["area"] = det["area"]
+
+                    # Score favours sustained lip movement during actual speech,
+                    # not a single noisy landmark jump.
+                    score = (tr["speech_ema"] * 0.72) + (tr["motion_ema"] * 0.28)
+                    visible.append({
+                        "id": tid,
+                        "x": float(det["x"]),
+                        "score": float(score),
+                        "motion": float(motion),
+                        "area": float(det["area"]),
+                    })
+
+                # Decay stale tracks and remove very old ones.
+                stale_ids = []
+                for tid, tr in tracks.items():
+                    if tid not in used_ids:
+                        tr["motion_ema"] = tr.get("motion_ema", 0.0) * 0.75
+                        tr["speech_ema"] = tr.get("speech_ema", 0.0) * 0.65
+                    if frames_read - tr.get("last_seen", 0) > int(fps * 2.0):
+                        stale_ids.append(tid)
+                for tid in stale_ids:
+                    tracks.pop(tid, None)
+
+                visible_by_id = {f["id"]: f for f in visible}
+                candidate = max(visible, key=lambda f: f["score"]) if visible else None
+                current = visible_by_id.get(locked_track_id)
+
+                def _set_lock(face, reason):
+                    nonlocal locked_track_id, locked_face_x
+                    nonlocal pending_track_id, pending_switch_count
+                    nonlocal switch_cooldown_until
+
+                    if not face:
+                        return
+                    changed = locked_track_id != face["id"]
+                    locked_track_id = face["id"]
+                    locked_face_x = face["x"]
+                    pending_track_id = None
+                    pending_switch_count = 0
+                    if changed:
+                        switch_cooldown_until = frames_read + cooldown_frames
+                        self.log(
+                            f"  🎙 {reason}: face={locked_track_id}, "
+                            f"x={locked_face_x:.0f}, score={face['score']:.4f}"
+                        )
+
+                if visible:
+                    if len(visible) == 1:
+                        only = visible[0]
+                        # If there is only one visible person, never keep framing a
+                        # different missing face.
+                        if locked_track_id != only["id"]:
+                            _set_lock(only, "Single visible speaker")
+                        elif locked_face_x is None:
+                            locked_face_x = only["x"]
+
+                    elif locked_track_id is None:
+                        # Multi-person scene: wait for sustained speech before
+                        # choosing the first speaker instead of guessing the center.
+                        if voice_active and candidate and candidate["score"] >= lip_threshold * 0.45:
+                            if pending_track_id == candidate["id"]:
+                                pending_switch_count += 1
+                            else:
+                                pending_track_id = candidate["id"]
+                                pending_switch_count = 1
+
+                            if pending_switch_count >= 3:
+                                _set_lock(candidate, "Initial active speaker")
+                        else:
+                            pending_track_id = None
+                            pending_switch_count = 0
+
+                    elif current is None:
+                        # Current speaker disappeared from the shot. Confirm the new
+                        # face briefly to avoid bouncing on a one-frame detection miss.
+                        if candidate:
+                            if pending_track_id == candidate["id"]:
+                                pending_switch_count += 1
+                            else:
+                                pending_track_id = candidate["id"]
+                                pending_switch_count = 1
+                            if pending_switch_count >= 2:
+                                _set_lock(candidate, "Speaker/shot change")
+
                     else:
-                        best_face = prev_best_face or min(faces_data, key=lambda f: abs(f['x'] - orig_w/2))
-                    
-                    prev_best_face = best_face
-                    best_face_x, best_face_y = best_face['x'], best_face['y']
-                    max_activity = best_face['activity']
-                
-                crop_x = int(best_face_x - crop_w / 2)
-                crop_y = int(best_face_y - crop_h / 2)
+                        # Current speaker is still visible. Keep the frame static.
+                        if locked_face_x is None:
+                            locked_face_x = current["x"]
+
+                        # Rare reframe only when the same face has moved far enough
+                        # that it approaches the edge of the crop.
+                        offset = current["x"] - locked_face_x
+                        if abs(offset) > crop_w * dead_zone_ratio:
+                            locked_face_x = current["x"]
+
+                        can_switch = (
+                            voice_active
+                            and frames_read >= switch_cooldown_until
+                            and candidate is not None
+                            and candidate["id"] != locked_track_id
+                        )
+
+                        if can_switch:
+                            current_score = max(current["score"], 0.001)
+                            candidate_score = candidate["score"]
+                            clearly_stronger = (
+                                candidate_score >= max(
+                                    lip_threshold * 0.55,
+                                    current_score * switch_ratio,
+                                )
+                                and (candidate_score - current_score) >= 0.0025
+                            )
+
+                            if clearly_stronger:
+                                if pending_track_id == candidate["id"]:
+                                    pending_switch_count += 1
+                                else:
+                                    pending_track_id = candidate["id"]
+                                    pending_switch_count = 1
+
+                                if pending_switch_count >= switch_confirm_samples:
+                                    _set_lock(candidate, "Confirmed active speaker")
+                            else:
+                                pending_track_id = None
+                                pending_switch_count = 0
+                        else:
+                            pending_track_id = None
+                            pending_switch_count = 0
+
+                # Until an initial speaker is confirmed, use a stable center crop.
+                frame_center_x = locked_face_x if locked_face_x is not None else (orig_w / 2)
+                crop_x = int(round((frame_center_x - crop_w / 2) / 8.0) * 8)
+                crop_x = max(0, min(crop_x, orig_w - crop_w))
                 analyzed_indices.append(frames_read)
-                analyzed_positions_x.append(max(0, min(crop_x, orig_w - crop_w)))
-                analyzed_positions_y.append(max(0, min(crop_y, orig_h - crop_h)))
-                analyzed_activities.append(max_activity)
+                analyzed_positions_x.append(crop_x)
+
                 frames_read += 1
 
-                if frames_read % 150 == 0 or (time.time() - last_log_time) > 2:
-                    progress_callback((frames_read / total_frames) * 0.4 if total_frames else 0.4)
-                    last_log_time = time.time()
+                now = time.time()
+                if frames_read % 160 == 0 or (now - last_log_time) > 2.0:
+                    if total_frames:
+                        progress_callback(
+                            min(0.40, (frames_read / total_frames) * 0.40)
+                        )
+                    last_log_time = now
 
-            crop_positions = self._interpolate_sampled(analyzed_positions_x, analyzed_indices, frames_read)
-            crop_ys = self._interpolate_sampled(analyzed_positions_y, analyzed_indices, frames_read)
-            face_activities = self._interpolate_sampled(analyzed_activities, analyzed_indices, frames_read)
-            
-            if self.mediapipe_settings.get("smooth_follow", True):
-                pan_limit = self.mediapipe_settings.get("pan_speed_limit", 1.8)
-                crop_positions = self._smooth_follow_positions(crop_positions, pan_limit)
-                crop_ys = self._smooth_follow_positions(crop_ys, pan_limit * 0.8)
-            
-            self._encode_portrait_single_pass(
-                input_path, output_path, crop_positions, crop_w, crop_h, out_w, out_h,
-                crop_ys=crop_ys, progress_callback=lambda p: progress_callback(0.45 + p * 0.4),
-                duration=frames_read / fps,
-                **({"min_run": 3, "quantize": 2} if self.mediapipe_settings.get("smooth_follow", True) else {})
-            )
             cap.release()
+
+            if not analyzed_positions_x:
+                raise Exception("MediaPipe did not produce any face tracking samples")
+
+            # Any camera change is a cut. Never pan between two speakers.
+            crop_positions = self._interpolate_tracking_with_cuts(
+                analyzed_positions_x,
+                analyzed_indices,
+                frames_read,
+                cut_threshold=1.0,
+            )
+            crop_ys = [0] * len(crop_positions)
+
+            progress_callback(0.45)
+            self._encode_portrait_single_pass(
+                input_path,
+                output_path,
+                crop_positions,
+                crop_w,
+                crop_h,
+                out_w,
+                out_h,
+                crop_ys=crop_ys,
+                progress_callback=lambda p: progress_callback(0.45 + p * 0.50),
+                duration=frames_read / fps if fps else 0,
+                min_run=ANALYSIS_STEP,
+                quantize=8,
+            )
             progress_callback(1.0)
+
         def enable_gpu_acceleration(self, enabled: bool = True):
             """Enable or disable GPU acceleration for video encoding"""
             self.gpu_enabled = enabled

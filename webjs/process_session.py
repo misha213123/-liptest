@@ -52,6 +52,7 @@ def main():
         face_tracking_mode=cfg.get("face_tracking_mode", "opencv"),
         portrait_mode=cfg.get("portrait_mode", "crop"),
         subtitle_style=cfg.get("subtitle_style", "pop"),
+        subtitle_settings=cfg.get("subtitle_settings"),
         aspect_ratio=cfg.get("aspect_ratio", "9:16"),
         mediapipe_settings=cfg.get("mediapipe_settings"),
         ai_providers=prov or None,
@@ -60,7 +61,7 @@ def main():
         thumbnail_settings=cfg.get("thumbnail"),
         metadata_settings=cfg.get("metadata_settings"),
         auto_broll_settings=dict(cfg.get("auto_broll") or {}),
-                subtitle_language=cfg.get("subtitle_language", "id"),
+                subtitle_language=cfg.get("subtitle_language", "ru-orig"),
         subtitle_sync_offset=cfg.get("subtitle_sync_offset", -0.3),
     )
     # Per-clip override: BGM mood + B-roll query (dari UI)
@@ -88,7 +89,25 @@ def main():
         add_captions=add_caps, add_hook=add_hook,
         resolution=str(cfg.get("resolution", "1080p")),
     )
-    debug_log("[progress] Process complete (overall: 100.0%)", flush=True)
+
+    # Не считаем задачу успешной только потому, что Python дошёл до конца.
+    # В библиотеке отображаются только реально созданные финальные MP4.
+    clips_dir = Path(SESSION_DIR) / "clips"
+    final_mp4 = []
+    if clips_dir.exists():
+        for p in clips_dir.glob("*/*.mp4"):
+            if p.name.lower() not in {"landscape.mp4", "hook.mp4"} and p.stat().st_size > 0:
+                final_mp4.append(p)
+
+    if not final_mp4:
+        raise RuntimeError(
+            "Рендер завершился без итогового видео. "
+            "В папках клипов найден только исходный/промежуточный файл или файлов нет."
+        )
+
+    debug_log(f"[progress] Process complete: {len(final_mp4)} video file(s) (overall: 100.0%)", flush=True)
+    for p in final_mp4:
+        debug_log(f"[output] {p}", flush=True)
     debug_log("PHASE2_OK")
 
 
@@ -97,3 +116,4 @@ if __name__ == "__main__":
         main()
     except Exception:
         traceback.print_exc()
+        sys.exit(1)
