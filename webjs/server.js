@@ -165,6 +165,9 @@ let CREATE_JOB = null;
 const PROCESS_JOBS = new Map();
 const REFIND_JOBS = new Map();
 let TRANS_JOB = null;
+let STREAMER_PREVIEW_JOB = null;
+let STREAMER_ANALYZE_JOB = null;
+let STREAMER_RENDER_JOB = null;
 // job story clip & facebook upload
 let STORY_JOBS = new Map(); // key "run" -> job (biar /api/tasks legible)
 const FB_JOBS = new Map();  // key "run" -> job
@@ -472,6 +475,89 @@ const server = http.createServer((req, res) => {
       if (user) return json(res, 200, { id: user.id, name: user.name });
       return json(res, 401, { error: 'unauthorized' });
     }
+    // Streamer preview JPEG (authenticated)
+    const mStreamerPreview = p.match(/^\/streamer-preview\/([^/]+\.jpg)$/i);
+    if (mStreamerPreview && req.method === 'GET') {
+      const name = path.basename(mStreamerPreview[1]);
+      const fp = path.join(ROOT, 'output', 'streamer_previews', name);
+      if (!fp.startsWith(path.join(ROOT, 'output', 'streamer_previews')) || !fs.existsSync(fp)) {
+        return json(res, 404, { error: 'preview not found' });
+      }
+      const st = fs.statSync(fp);
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': st.size,
+        'Cache-Control': 'no-store'
+      });
+      fs.createReadStream(fp).pipe(res);
+      return;
+    }
+
+    // Streamer advertising assets (authenticated): images + video creatives.
+    const mStreamerAsset = p.match(/^\/streamer-asset\/([^/]+\.(?:png|jpe?g|webp|mp4|m4v|mov|webm))$/i);
+    if (mStreamerAsset && req.method === 'GET') {
+      const name = path.basename(mStreamerAsset[1]);
+      const base = path.join(ROOT, 'output', 'streamer_assets');
+      const fp = path.join(base, name);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'streamer asset not found' });
+      }
+      const ext = path.extname(fp).toLowerCase();
+      const mime = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+        '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm'
+      }[ext] || 'application/octet-stream';
+      const st = fs.statSync(fp);
+      const range = req.headers.range;
+      const baseHeaders = {
+        'Content-Type': mime,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-store',
+        'Content-Disposition': 'inline'
+      };
+      if (range && mime.startsWith('video/')) {
+        const m = range.match(/bytes=(\d*)-(\d*)/);
+        let start = m && m[1] ? parseInt(m[1]) : 0;
+        let end = m && m[2] ? parseInt(m[2]) : st.size - 1;
+        end = Math.min(end, st.size - 1);
+        res.writeHead(206, {
+          ...baseHeaders,
+          'Content-Range': `bytes ${start}-${end}/${st.size}`,
+          'Content-Length': end - start + 1
+        });
+        fs.createReadStream(fp, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, { ...baseHeaders, 'Content-Length': st.size });
+        fs.createReadStream(fp).pipe(res);
+      }
+      return;
+    }
+
+    // Flat folder with finished Streamer Clips only.
+    const mStreamerReady = p.match(/^\/download\/streamer-ready\/([^/]+)$/);
+    if (mStreamerReady) {
+      const file = path.basename(mStreamerReady[1]);
+      const base = path.join(ROOT, 'output', 'FINAL_STREAMER_CLIPS');
+      const fp = path.join(base, file);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'finished streamer clip not found' });
+      }
+      return sendFile(req, res, fp, true);
+    }
+
+    // Streamer output video / download
+    const mStreamerVideo = p.match(/^\/(video|download)\/streamer\/([^/]+)\/([^/]+)$/);
+    if (mStreamerVideo) {
+      const clipId = safe(mStreamerVideo[2]);
+      const file = path.basename(mStreamerVideo[3]);
+      const base = path.join(ROOT, 'output', 'streamer_clips', clipId);
+      const fp = path.join(base, file);
+      if (!fp.startsWith(base) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'streamer video not found' });
+      }
+      return sendFile(req, res, fp, mStreamerVideo[1] === 'download');
+    }
+
     if (p === '/api/sessions') return json(res, 200, listSessions());
     // GET /api/sessions/:session/clip/:clipDir — detail 1 klip (ringan, tanpa scan semua sesi)
     const mClip = p.match(/^\/api\/sessions\/([^/]+)\/clip\/([^/]+)$/);
@@ -1047,6 +1133,329 @@ except Exception as e:
         progress: parseOverall(log),
       });
     }
+    // POST /api/streamer/banner-video — raw video upload (MP4/MOV/WEBM/M4V), reused in every clip.
+    if (p === '/api/streamer/banner-video' && req.method === 'POST') {
+      const rawName = String(req.headers['x-filename'] || 'banner.mp4');
+      let decodedName = rawName;
+      try { decodedName = decodeURIComponent(rawName); } catch {}
+      const ext = path.extname(decodedName).toLowerCase();
+      const allowed = new Set(['.mp4', '.m4v', '.mov', '.webm']);
+      if (!allowed.has(ext)) return json(res, 400, { error: 'Нужен видеофайл MP4, MOV, WEBM или M4V.' });
+
+      const maxBytes = 250 * 1024 * 1024;
+      const declared = parseInt(req.headers['content-length'] || '0');
+      if (declared > maxBytes) return json(res, 413, { error: 'Видео рекламы больше 250 МБ.' });
+
+      const chunks = [];
+      let size = 0, tooLarge = false;
+      req.on('data', chunk => {
+        if (tooLarge) return;
+        size += chunk.length;
+        if (size > maxBytes) { tooLarge = true; return; }
+        chunks.push(chunk);
+      });
+      req.on('end', () => {
+        if (tooLarge) return json(res, 413, { error: 'Видео рекламы больше 250 МБ.' });
+        const buf = Buffer.concat(chunks);
+        if (!buf.length) return json(res, 400, { error: 'Пустой видеофайл.' });
+
+        const dir = path.join(ROOT, 'output', 'streamer_assets');
+        fs.mkdirSync(dir, { recursive: true });
+        const name = 'banner_video_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + ext;
+        fs.writeFileSync(path.join(dir, name), buf);
+        return json(res, 200, {
+          ok: true,
+          file: name,
+          url: '/streamer-asset/' + encodeURIComponent(name),
+          size_bytes: buf.length,
+          original_name: path.basename(decodedName)
+        });
+      });
+      return;
+    }
+
+    // POST /api/streamer/banner — save one PNG/JPG/WEBP banner for reuse in every rendered clip.
+    if (p === '/api/streamer/banner' && req.method === 'POST') {
+      let body = '';
+      let tooLarge = false;
+      req.on('data', chunk => {
+        if (tooLarge) return;
+        body += chunk;
+        if (body.length > 16 * 1024 * 1024) tooLarge = true;
+      });
+      req.on('end', () => {
+        if (tooLarge) return json(res, 413, { error: 'Баннер слишком большой. Максимум около 10 МБ.' });
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+        const dataUrl = String(o.data_url || '');
+        const match = dataUrl.match(/^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i);
+        if (!match) return json(res, 400, { error: 'Нужен PNG, JPG или WEBP.' });
+
+        let ext = match[1].toLowerCase();
+        if (ext === 'jpeg') ext = 'jpg';
+        let buf;
+        try { buf = Buffer.from(match[2].replace(/\s/g, ''), 'base64'); }
+        catch { return json(res, 400, { error: 'Не удалось прочитать изображение.' }); }
+        if (!buf.length || buf.length > 10 * 1024 * 1024) {
+          return json(res, 413, { error: 'Баннер должен быть не больше 10 МБ.' });
+        }
+
+        const dir = path.join(ROOT, 'output', 'streamer_assets');
+        fs.mkdirSync(dir, { recursive: true });
+        const name = 'banner_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + '.' + ext;
+        fs.writeFileSync(path.join(dir, name), buf);
+        return json(res, 200, {
+          ok: true,
+          file: name,
+          url: '/streamer-asset/' + encodeURIComponent(name),
+          size_bytes: buf.length
+        });
+      });
+      return;
+    }
+
+    // POST /api/streamer/preview — download a tiny range and extract one frame.
+    if (p === '/api/streamer/preview' && req.method === 'POST') {
+      if (STREAMER_PREVIEW_JOB && STREAMER_PREVIEW_JOB.code === undefined) {
+        return json(res, 409, { error: 'Превью уже загружается' });
+      }
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+        const url = String(o.url || '').trim();
+        const timestamp = String(o.timestamp || '00:00:10').trim();
+        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+
+        const stamp = Date.now();
+        const logPath = path.join(ROOT, 'output', 'streamer_preview_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.streamer_preview_' + stamp + '.json');
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+
+        const child = spawn(
+          PY,
+          [path.join(__dirname, 'streamer_preview.py'), url, timestamp, resultFile],
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+        );
+        child.stdout.pipe(out);
+        child.stderr.pipe(out);
+
+        STREAMER_PREVIEW_JOB = {
+          proc: child,
+          code: undefined,
+          startedAt: Date.now(),
+          logPath,
+          resultFile,
+          url,
+          timestamp
+        };
+        child.on('close', code => {
+          STREAMER_PREVIEW_JOB.code = code;
+          STREAMER_PREVIEW_JOB.finishedAt = Date.now();
+          out.end();
+        });
+        return json(res, 200, { ok: true, started: true });
+      });
+      return;
+    }
+
+    if (p === '/api/streamer/preview/status' && req.method === 'GET') {
+      const job = STREAMER_PREVIEW_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+          if (result && result.ok && result.image_name) {
+            result.image_url = '/streamer-preview/' + encodeURIComponent(result.image_name);
+          }
+        }
+      } catch {}
+      const log = job && job.logPath ? tailFile(job.logPath) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        log,
+        progress: parseOverall(log),
+        result
+      });
+    }
+
+    // POST /api/streamer/analyze — transcribe the whole VOD and let OpenAI rank the best moments.
+    if (p === '/api/streamer/analyze' && req.method === 'POST') {
+      if (STREAMER_ANALYZE_JOB && STREAMER_ANALYZE_JOB.code === undefined) {
+        return json(res, 409, { error: 'AI уже анализирует ролик' });
+      }
+
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+
+        const url = String(o.url || '').trim();
+        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+
+        const minDuration = Math.max(10, Math.min(180, parseInt(o.min_duration) || 25));
+        const maxDuration = Math.max(minDuration, Math.min(240, parseInt(o.max_duration) || 55));
+        const numClips = Math.max(1, Math.min(30, parseInt(o.num_clips) || 5));
+
+        const id = crypto.randomBytes(6).toString('hex');
+        const stamp = Date.now();
+        const logPath = path.join(ROOT, 'output', 'streamer_analyze_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.streamer_analyze_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.streamer_analyze_job_' + stamp + '.json');
+        fs.writeFileSync(jobFile, JSON.stringify({
+          id,
+          url,
+          min_duration: minDuration,
+          max_duration: maxDuration,
+          num_clips: numClips
+        }, null, 2), 'utf8');
+
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+        const child = spawn(
+          PY,
+          [path.join(__dirname, 'streamer_analyze.py'), jobFile, resultFile],
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+        );
+        child.stdout.pipe(out);
+        child.stderr.pipe(out);
+
+        STREAMER_ANALYZE_JOB = {
+          proc: child,
+          code: undefined,
+          startedAt: Date.now(),
+          logPath,
+          resultFile,
+          jobFile,
+          id,
+          url
+        };
+        child.on('close', code => {
+          STREAMER_ANALYZE_JOB.code = code;
+          STREAMER_ANALYZE_JOB.finishedAt = Date.now();
+          out.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+
+        return json(res, 200, { ok: true, started: true, id });
+      });
+      return;
+    }
+
+    if (p === '/api/streamer/analyze/status' && req.method === 'GET') {
+      const job = STREAMER_ANALYZE_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+        }
+      } catch {}
+      const log = job && job.logPath ? tailFile(job.logPath, 30000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
+        log,
+        progress: parseOverall(log),
+        result
+      });
+    }
+
+    // POST /api/streamer/render — render selected webcam box + gameplay.
+    if (p === '/api/streamer/render' && req.method === 'POST') {
+      if (STREAMER_RENDER_JOB && STREAMER_RENDER_JOB.code === undefined) {
+        return json(res, 409, { error: 'Streamer Clip уже рендерится' });
+      }
+
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        let o = {};
+        try { o = JSON.parse(body || '{}'); } catch {}
+
+        const url = String(o.url || '').trim();
+        const rect = o.webcam_rect;
+        if (!/^https?:\/\//.test(url)) return json(res, 400, { error: 'Неверная ссылка' });
+        if (!rect || !['x','y','w','h'].every(k => Number.isFinite(Number(rect[k])))) {
+          return json(res, 400, { error: 'Сначала выдели веб-камеру рамкой' });
+        }
+
+        const id = crypto.randomBytes(6).toString('hex');
+        const stamp = Date.now();
+        const logPath = path.join(ROOT, 'output', 'streamer_render_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.streamer_render_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.streamer_job_' + stamp + '.json');
+
+        const payload = {
+          ...o,
+          id,
+          url,
+          webcam_rect: {
+            x: Number(rect.x), y: Number(rect.y),
+            w: Number(rect.w), h: Number(rect.h)
+          }
+        };
+        fs.writeFileSync(jobFile, JSON.stringify(payload, null, 2), 'utf8');
+
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+        const child = spawn(
+          PY,
+          [path.join(__dirname, 'streamer_render.py'), jobFile, resultFile],
+          { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }
+        );
+        child.stdout.pipe(out);
+        child.stderr.pipe(out);
+
+        STREAMER_RENDER_JOB = {
+          proc: child,
+          code: undefined,
+          startedAt: Date.now(),
+          logPath,
+          resultFile,
+          jobFile,
+          id
+        };
+        child.on('close', code => {
+          STREAMER_RENDER_JOB.code = code;
+          STREAMER_RENDER_JOB.finishedAt = Date.now();
+          out.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+        return json(res, 200, { ok: true, started: true, id });
+      });
+      return;
+    }
+
+    if (p === '/api/streamer/render/status' && req.method === 'GET') {
+      const job = STREAMER_RENDER_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+          if (result && result.ok) {
+            const id = encodeURIComponent(result.id);
+            result.video_url = '/video/streamer/' + id + '/' + encodeURIComponent(result.final_file);
+            result.download_url = result.export_file
+              ? '/download/streamer-ready/' + encodeURIComponent(result.export_file)
+              : '/download/streamer/' + id + '/' + encodeURIComponent(result.final_file);
+            result.source_download_url = '/download/streamer/' + id + '/' + encodeURIComponent(result.source_file);
+            result.ready_folder = 'output\\FINAL_STREAMER_CLIPS';
+          }
+        }
+      } catch {}
+      const log = job && job.logPath ? tailFile(job.logPath, 24000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        elapsed_s: job ? Math.round(((job.code !== undefined && job.finishedAt ? job.finishedAt : Date.now()) - job.startedAt) / 1000) : null,
+        log,
+        progress: parseOverall(log),
+        result
+      });
+    }
+
     // POST /api/create — phase 1: subtitle + AI highlights (seperti bot)
     if (p === '/api/create' && req.method === 'POST') {
       if (CREATE_JOB && CREATE_JOB.code === undefined) return json(res, 409, { error: 'Analisis masih berjalan' });
