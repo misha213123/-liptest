@@ -25,12 +25,18 @@ function prepareRuntime() {
       fs.cpSync(src, root, { recursive: true, force: true, filter: file => {
         const rel = path.relative(src, file).replace(/\\/g, '/');
         if (!rel) return true;
-        if (rel === 'output' || rel.startsWith('output/') || rel.startsWith('faster_whisper_models/')) return false;
+        if (['python', 'ffmpeg', 'bin', 'output', 'faster_whisper_models'].some(name => rel === name || rel.startsWith(name + '/'))) return false;
         const basename = path.basename(file).toLowerCase();
         if (['config.json', 'cookies.txt', 'client_secret.json', 'youtube_credentials.json', 'custom_presets.json'].includes(basename)) return false;
         if (basename.endsWith('.session') || basename === '.env' || basename.startsWith('.env.')) return false;
         return true;
       }});
+      const sourceModel = path.join(sourceRoot(), 'bin', 'face_landmarker.task');
+      const targetModel = path.join(root, 'bin', 'face_landmarker.task');
+      if (fs.existsSync(sourceModel)) {
+        fs.mkdirSync(path.dirname(targetModel), { recursive: true });
+        fs.copyFileSync(sourceModel, targetModel);
+      }
       fs.writeFileSync(marker, app.getVersion(), 'utf8');
     }
   }
@@ -99,10 +105,10 @@ else {
   app.whenReady().then(() => {
     const root = prepareRuntime();
     const secureEnvironment = {};
-    const pythonExe = path.join(root, 'python', 'python.exe');
+    const pythonExe = path.join(sourceRoot(), 'python', 'python.exe');
     if (fs.existsSync(pythonExe)) secureEnvironment.CLIPPER_PY = pythonExe;
-    const ffmpegDir = path.join(root, 'ffmpeg');
-    const binaryDir = path.join(root, 'bin');
+    const ffmpegDir = path.join(sourceRoot(), 'ffmpeg');
+    const binaryDir = path.join(sourceRoot(), 'bin');
     secureEnvironment.PATH = [ffmpegDir, binaryDir, process.env.PATH || ''].join(path.delimiter);
     try { Object.assign(secureEnvironment, vault.environment()); }
     catch (e) { console.warn('Secure credentials unavailable:', e.message); }
