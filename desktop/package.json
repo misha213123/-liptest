@@ -50,6 +50,20 @@
           "!**/.env.*",
           "!**/*.session"
         ]
+      },
+      {
+        "from": "runtime/python",
+        "to": "clipper/python",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "runtime/ffmpeg",
+        "to": "clipper/ffmpeg",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
