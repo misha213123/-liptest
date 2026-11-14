@@ -1144,7 +1144,7 @@ except Exception as e:
         if (!fs.existsSync(COOKIES_FILE)) return json(res, 400, { error: 'Belum ada cookies' });
         const url = String(o.url || 'https://www.youtube.com/watch?v=jNQXAC9IVRw').trim() || 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
         const args = ['--cookies', COOKIES_FILE, '--dump-single-json', '--no-warnings', '--skip-download', '--socket-timeout', '15', url];
-        const child = execFile('/usr/local/bin/yt-dlp', args, { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+        const child = execFile(PY, ['-m', 'yt_dlp', ...args], { timeout: 60000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
           if (err) {
             const msg = String(stderr || err.message || '');
             const needsAuth = /Sign in to confirm|confirm your identity|Sign in to YouTube|LOGIN_REQUIRED|"status": *"fail"/i.test(msg);
