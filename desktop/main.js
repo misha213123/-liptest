@@ -99,6 +99,11 @@ else {
   app.whenReady().then(() => {
     const root = prepareRuntime();
     const secureEnvironment = {};
+    const pythonExe = path.join(root, 'python', 'python.exe');
+    if (fs.existsSync(pythonExe)) secureEnvironment.CLIPPER_PY = pythonExe;
+    const ffmpegDir = path.join(root, 'ffmpeg');
+    const binaryDir = path.join(root, 'bin');
+    secureEnvironment.PATH = [ffmpegDir, binaryDir, process.env.PATH || ''].join(path.delimiter);
     try { Object.assign(secureEnvironment, vault.environment()); }
     catch (e) { console.warn('Secure credentials unavailable:', e.message); }
     Menu.setApplicationMenu(Menu.buildFromTemplate([
