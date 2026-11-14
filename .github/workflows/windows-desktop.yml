@@ -3,26 +3,34 @@ on:
   workflow_dispatch:
   push:
     branches: [feature/windows-desktop-installer]
-    paths: ['desktop/**', '.github/workflows/windows-desktop.yml']
+    paths:
+      - 'desktop/**'
+      - 'webjs/server.js'
+      - '.github/workflows/windows-desktop.yml'
+permissions:
+  contents: read
 jobs:
-  build:
+  build-preview:
     runs-on: windows-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install desktop build tools
+      - name: Check desktop JavaScript syntax
+        shell: pwsh
+        run: |
+          $files = @('main.js','preload.js','vault.js','updater.js','settings.js')
+          foreach ($f in $files) { node --check "desktop/$f"; if ($LASTEXITCODE -ne 0) { throw "Syntax error in $f" } }
+      - name: Install desktop build dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
-      - name: Build installer
+      - name: Build unsigned preview (not a production release)
         working-directory: desktop
-        run: npm run dist:win
-      - name: Upload installer
+        run: npm run dist:win -- --publish never
+      - name: Upload preview Setup.exe
         uses: actions/upload-artifact@v4
         with:
-          name: gta6-clip-studio-installer-experimental
+          name: gta6-clip-studio-setup-preview
           path: desktop-dist/*.exe
           if-no-files-found: error
