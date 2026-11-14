@@ -641,7 +641,7 @@ const server = http.createServer((req, res) => {
           temperature: cfg.temperature ?? 1.0,
           subtitle_language: cfg.subtitle_language || 'id',
           hf_system_message: ((ap.highlight_finder || {}).system_message) || '',
-          hf_api_key: (ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY || '',
+          hf_api_key: process.env.CLIPPER_DESKTOP === '1' ? '' : ((ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY || ''),
           hf_api_key_set: !!((ap.highlight_finder || {}).api_key || cfg.api_key || process.env.HF_API_KEY || process.env.OPENAI_API_KEY),
           // Pro video editing features
           pro_settings: cfg.pro_settings || {},
@@ -765,7 +765,10 @@ const server = http.createServer((req, res) => {
         if (typeof o.subtitle_language === 'string' && o.subtitle_language.trim()) cfg.subtitle_language = o.subtitle_language.trim();
         cfg.ai_providers.highlight_finder = cfg.ai_providers.highlight_finder || {};
         if (typeof o.hf_system_message === 'string' && o.hf_system_message.trim()) cfg.ai_providers.highlight_finder.system_message = o.hf_system_message;
-        if (typeof o.hf_api_key === 'string' && o.hf_api_key.trim()) cfg.ai_providers.highlight_finder.api_key = o.hf_api_key.trim();
+        if (typeof o.hf_api_key === 'string' && o.hf_api_key.trim()) {
+          if (process.env.CLIPPER_DESKTOP === '1') return json(res, 400, { error: 'API-ключ сохраняется через меню Приложение → Настройки и токены.' });
+          cfg.ai_providers.highlight_finder.api_key = o.hf_api_key.trim();
+        }
         try {
           const tmp = fp + '.tmp';
           fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
@@ -912,7 +915,7 @@ except Exception as e:
       const hf = cfg.ai_providers && cfg.ai_providers.highlight_finder;
       if (hf) { savedUrl = hf.base_url || ''; savedKey = hf.api_key || ''; }
     } catch {}
-    const env = { ...process.env, TC_URL: String(o.server_url || savedUrl || '').trim(), TC_KEY: String(o.api_key || o.hf_api_key || savedKey || '') };
+    const env = { ...process.env, TC_URL: String(o.server_url || savedUrl || '').trim(), TC_KEY: String(o.api_key || o.hf_api_key || savedKey || process.env.HF_API_KEY || process.env.OPENAI_API_KEY || '') };
     execFile(PY, ['-c', TC_SRC], { env }, (err, stdout, stderr) => {
       const out = (stdout || '').toString().trim().split('\n').pop();
       try { return json(res, 200, JSON.parse(out)); } catch { return json(res, 200, { ok: false, error: (stderr || stdout || '').toString().slice(-300) }); }
