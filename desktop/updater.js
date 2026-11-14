@@ -26,6 +26,23 @@ function setup(onChange) {
   autoUpdater.on('error', err => emit('error', 'Ошибка проверки: ' + err.message));
   autoUpdater.on('update-downloaded', async info => {
     emit('ready', 'Версия ' + info.version + ' готова к установке.');
+    const busy = await new Promise(resolve => {
+      const http = require('node:http');
+      const req = http.get('http://127.0.0.1:31876/api/tasks', res => {
+        let body = '';
+        res.on('data', c => { if (body.length < 500000) body += c; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(body).some(task => !!task.running)); }
+          catch { resolve(true); }
+        });
+      });
+      req.setTimeout(3000, () => req.destroy());
+      req.on('error', () => resolve(true));
+    });
+    if (busy) {
+      emit('deferred', 'Обновление скачано. Сначала завершите рендер, затем перезапустите приложение.');
+      return;
+    }
     const result = await dialog.showMessageBox({
       type: 'question', title: 'Обновление GTA 6 Clip Studio',
       message: 'Скачана версия ' + info.version + '. Установить сейчас?',
@@ -36,6 +53,8 @@ function setup(onChange) {
   });
   // Startup check, without blocking render/startup.
   setTimeout(() => check(false), 8000);
+  // Recheck while the app stays open, without disrupting the UI or renders.
+  setInterval(() => check(false), 60 * 60 * 1000);
 }
 async function check(manual = true) {
   if (!app.isPackaged || process.platform !== 'win32') {
