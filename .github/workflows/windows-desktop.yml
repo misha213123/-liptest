@@ -32,6 +32,9 @@ jobs:
       - name: Package portable media runtime
         shell: pwsh
         run: ./desktop/scripts/stage-windows.ps1
+      - name: Smoke test runtime, disk and downloader on Windows
+        shell: pwsh
+        run: ./desktop/scripts/smoke-windows.ps1
       - name: Install desktop build dependencies
         working-directory: desktop
         run: npm install --no-audit --no-fund
