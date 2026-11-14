@@ -94,18 +94,26 @@ function checkLoginLimit(ip) {
 // Statistik disk partisi root (satuan byte), dipakai widget sidebar /api/disk
 function getDiskStats() {
   const def = { total: 0, used: 0, free: 0, usedPercent: 0, error: null };
-  return new Promise(res => {
-    execFile('df', ['-B1', '/'], { timeout: 5000 }, (err, stdout) => {
-      if (err) return res({ ...def, error: String(err.message || err) });
-      const line = String(stdout || '').split('\n').filter(l => l.trim() && !/^Filesystem/i.test(l.trim()))[0];
-      if (!line) return res({ ...def, error: 'df: output kosong' });
-      const parts = line.trim().split(/\s+/);
-      if (parts.length < 5) return res({ ...def, error: 'df: format tidak dikenal' });
-      const total = parseInt(parts[1], 10) || 0;
-      const used = parseInt(parts[2], 10) || 0;
-      const free = parseInt(parts[3], 10) || 0;
-      return res({ total, used, free, usedPercent: total ? Math.round((used / total) * 100) : 0, error: null });
-    });
+  return new Promise(resolve => {
+    const done = (err, stdout) => {
+      if (err) return resolve({ ...def, error: String(err.message || err) });
+      const numbers = String(stdout || '').trim().split(/\s+/).map(Number);
+      if (numbers.length < 2 || !numbers.slice(0, 2).every(Number.isFinite) || numbers[0] <= 0)
+        return resolve({ ...def, error: 'Disk stats unavailable' });
+      const total = numbers[0], free = numbers[1], used = total - free;
+      resolve({ total, used, free, usedPercent: Math.round(100 * used / total), error: null });
+    };
+    if (isWin) {
+      const drive = (path.parse(process.env.APPDATA || os.homedir()).root || 'C:\\').replace(/'/g, '');
+      const ps = "$d = [System.IO.DriveInfo]::new('" + drive.replace(/\\/g, '\\\\') + "'); [Console]::WriteLine('{0} {1}' -f $d.TotalSize, $d.AvailableFreeSpace)";
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 8000, windowsHide: true }, done);
+    } else {
+      execFile('df', ['-B1', '/'], { timeout: 5000 }, (err, stdout) => {
+        if (err) return done(err);
+        const parts = String(stdout || '').split('\n').filter(x => x.trim() && !/^Filesystem/i.test(x.trim()))[0]?.trim().split(/\s+/) || [];
+        done(null, parts.length >= 4 ? parts[1] + ' ' + parts[3] : '');
+      });
+    }
   });
 }
 
@@ -153,6 +161,15 @@ function injectDiskScript(html) {
 
 // final-output preference order inside each clip folder
 const VARIANTS = ['credit.mp4', 'watermark.mp4', 'captioned.mp4', 'portrait.mp4'];
+
+// Desktop-only Russian language and visual theme; conventional web deployment unchanged.
+function injectDesktopUi(html) {
+  if (process.env.CLIPPER_DESKTOP !== '1') return html;
+  return html.replace(/<html\b([^>]*)lang=["']id["']/i, '<html$1lang="ru"')
+    .replace(/<\/head>/i,
+      '<link rel="stylesheet" href="/desktop-theme.css">\n' +
+      '<script defer src="/ru.js"></script>\n</head>');
+}
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
 
@@ -1811,7 +1828,7 @@ except Exception as e:
           'Content-Type': MIME['.html'],
           'Cache-Control': 'no-cache',
         });
-        res.end(html);
+        res.end(injectDesktopUi(html));
       });
       return;
     }
@@ -1820,9 +1837,9 @@ except Exception as e:
     // static fallback: login.html & semua aset non-HTML (css/js/img) tanpa inject
     res.writeHead(200, {
       'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream',
-      'Cache-Control': fp.endsWith('.html') ? 'no-cache' : 'max-age=86400',
+      'Cache-Control': process.env.CLIPPER_DESKTOP === '1' ? 'no-cache' : (fp.endsWith('.html') ? 'no-cache' : 'max-age=86400'),
     });
-    res.end(fs.readFileSync(fp));
+    res.end(fp.endsWith('.html') ? injectDesktopUi(fs.readFileSync(fp, 'utf8')) : fs.readFileSync(fp));
   } catch (e) {
     json(res, e.message === 'bad path' ? 400 : 500, { error: e.message });
   }
