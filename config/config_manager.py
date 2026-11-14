@@ -4,6 +4,8 @@ Configuration manager for Auto Clipper
 
 import json
 import uuid
+import os
+import copy
 from pathlib import Path
 
 
@@ -96,7 +98,7 @@ class ConfigManager:
                 
                 config = self._ensure_new_feature_defaults(config)
                 
-                return config
+                return self._runtime_config(config)
         
         # Default config with system prompt
         from clipper_core import AutoClipperCore
@@ -140,8 +142,25 @@ class ConfigManager:
         }
         config = self._ensure_new_feature_defaults(config)
         self.save_config(config)
-        return config
+        return self._runtime_config(config)
     
+    def _runtime_config(self, config):
+        """Apply vault-backed runtime keys from process environment without
+        writing them to the JSON configuration on disk."""
+        if os.environ.get("CLIPPER_DESKTOP") != "1":
+            return config
+        cfg = copy.deepcopy(config)
+        key = os.environ.get("HF_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if key:
+            cfg.setdefault("ai_providers", {})
+            for feature in ("highlight_finder", "youtube_title_maker", "hook_maker"):
+                cfg["ai_providers"].setdefault(feature, {})
+                if not cfg["ai_providers"][feature].get("api_key"):
+                    cfg["ai_providers"][feature]["api_key"] = key
+            if not cfg.get("api_key"):
+                cfg["api_key"] = key
+        return cfg
+
     def _ensure_new_feature_defaults(self, config):
         """Isi default untuk fitur baru (opensource-clipping adaptations) —
         tanpa menimpa nilai yang sudah diatur user."""
@@ -277,9 +296,19 @@ class ConfigManager:
         self.save_config(self.config)
     
     def save_config(self, config):
-        """Save configuration dict to file"""
+        """Save settings without copying runtime vault keys to disk."""
+        data = copy.deepcopy(config)
+        if os.environ.get("CLIPPER_DESKTOP") == "1":
+            protected = {os.environ.get("HF_API_KEY"), os.environ.get("OPENAI_API_KEY")}
+            protected.discard(None)
+            protected.discard("")
+            if data.get("api_key") in protected:
+                data["api_key"] = ""
+            for item in data.get("ai_providers", {}).values():
+                if isinstance(item, dict) and item.get("api_key") in protected:
+                    item["api_key"] = ""
         with open(self.config_file, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
+            json.dump(data, f, indent=2)
     
     def get(self, key, default=None):
         """Get configuration value"""
