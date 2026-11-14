@@ -19,7 +19,12 @@
     },
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "settings.html",
+      "settings.js",
+      "settings.css",
+      "vault.js",
+      "updater.js"
     ],
     "extraResources": [
       {
@@ -39,17 +44,34 @@
           "!**/config.json",
           "!**/*credentials*",
           "!**/*secret*",
-          "!**/output/**"
+          "!**/output/**",
+          "!**/config.example.json",
+          "!**/cookies.txt",
+          "!**/.env.*",
+          "!**/*.session"
         ]
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "GTA6-Clip-Studio-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
-    }
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "misha213123",
+        "repo": "-liptest",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   }
 }
