@@ -41,6 +41,9 @@ jobs:
             node --check "desktop/$f"
             if ($LASTEXITCODE -ne 0) { throw "Syntax error in $f" }
           }
+      - name: Smoke test Windows Python FFmpeg Deno and health endpoints
+        shell: pwsh
+        run: ./desktop/scripts/smoke-windows.ps1
       - name: Install desktop build tools
         working-directory: desktop
         run: npm install --no-audit --no-fund
