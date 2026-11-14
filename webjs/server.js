@@ -774,7 +774,7 @@ except Exception as e:
     if (p === '/api/tts/9router' && req.method === 'POST') {
       let body=''; req.on('data',c=>body+=c); req.on('end',()=>{
         let o={}; try{o=JSON.parse(body||'{}')}catch{}
-        const pwd=String(o.password||'123456').trim();
+        const pwd=String(o.password||'').trim();
         const serverUrl=String(o.server_url||'').trim().replace(/\/v1\/?$/,'').replace(/\/$/,'') || 'http://localhost:20128';
         const http = require('http'); const https=require('https');
         const loginUrl=new URL('/api/auth/login', serverUrl+'/');
@@ -841,7 +841,7 @@ except Exception as e:
         let apiKey=String(o.api_key||o.hf_api_key||'').trim();
         // TTS Edge butuh key eleven/sk-624..., fb-shared tidak bisa -> fallback ke hook_maker key di config
         if(!apiKey || apiKey==='fb-shared-040826'){
-          try{ const cfg=JSON.parse(require('fs').readFileSync(require('path').join(__dirname,'..','config.json'),'utf8')); apiKey=(cfg.ai_providers&&cfg.ai_providers.hook_maker&&cfg.ai_providers.hook_maker.api_key)||'sk-624626b7f6d25002-7pluyc-35e01fba'; }catch{ apiKey='sk-624626b7f6d25002-7pluyc-35e01fba'; }
+          try{ const cfg=JSON.parse(require('fs').readFileSync(require('path').join(__dirname,'..','config.json'),'utf8')); apiKey=(cfg.ai_providers&&cfg.ai_providers.hook_maker&&cfg.ai_providers.hook_maker.api_key)||''; }catch{ apiKey=''; }
         }
         const model=String(o.model||'gemini/gemini-2.5-flash-preview-tts/Erinome').trim();
         const input=String(o.input||'Hello, this is a text to speech test.').slice(0,500);
@@ -864,7 +864,7 @@ except Exception as e:
     // GET /api/tts/preview?model=... -> proxy audio mp3 untuk preview di browser
     if (p.startsWith('/api/tts/preview')) {
       const model = u.searchParams.get('model') || 'edge-tts/id-ID-GadisNeural';
-      const apiKey = (()=>{ try{ return JSON.parse(require('fs').readFileSync(require('path').join(ROOT,'config.json'),'utf8')).ai_providers.hook_maker.api_key; }catch{ return 'sk-624626b7f6d25002-7pluyc-35e01fba'; } })();
+      const apiKey = (()=>{ try{ return JSON.parse(require('fs').readFileSync(require('path').join(ROOT,'config.json'),'utf8')).ai_providers.hook_maker.api_key; }catch{ return ''; } })();
       const serverUrl = (()=>{ try{ return JSON.parse(require('fs').readFileSync(require('path').join(ROOT,'config.json'),'utf8')).ai_providers.hook_maker.base_url || 'http://localhost:20128/v1'; }catch{ return 'http://localhost:20128/v1'; } })().replace(/\/$/,'');
       const input=(new URL(req.url,'http://x').searchParams.get('input')||'Hello, this is a text to speech test.').slice(0,500);
       const language=new URL(req.url,'http://x').searchParams.get('language')||'Indonesian';
@@ -1828,4 +1828,4 @@ except Exception as e:
   }
 });
 
-server.listen(PORT, () => console.log(`http://localhost:${PORT}  (auth: password)`));
+server.listen(PORT, process.env.CLIPPER_DESKTOP === '1' ? '127.0.0.1' : undefined, () => console.log(`http://localhost:${PORT}  (auth: password)`));
