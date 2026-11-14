@@ -1,0 +1,49 @@
+name: Windows desktop installer (experimental)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/windows-desktop-installer]
+    paths:
+      - 'desktop/**'
+      - 'webjs/**'
+      - 'requirements.txt'
+      - '.github/workflows/windows-desktop.yml'
+concurrency:
+  group: windows-preview-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build-preview:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check desktop JavaScript syntax
+        shell: pwsh
+        run: |
+          $files = @('main.js','preload.js','vault.js','updater.js','settings.js')
+          foreach ($f in $files) { node --check "desktop/$f"; if ($LASTEXITCODE -ne 0) { throw "Syntax error in $f" } }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Package portable media runtime
+        shell: pwsh
+        run: ./desktop/scripts/stage-windows.ps1
+      - name: Smoke test runtime, disk and downloader on Windows
+        shell: pwsh
+        run: ./desktop/scripts/smoke-windows.ps1
+      - name: Install desktop build dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Build unsigned preview (not a production release)
+        working-directory: desktop
+        run: npm run dist:win -- --publish never
+      - name: Upload preview Setup.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta6-clip-studio-setup-preview
+          path: desktop-dist/*.exe
+          if-no-files-found: error

@@ -1,0 +1,103 @@
+{
+  "name": "gta6-clip-studio",
+  "version": "0.2.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.personal.gta6clipstudio",
+    "productName": "GTA 6 Clip Studio",
+    "directories": {
+      "output": "../desktop-dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "settings.html",
+      "settings.js",
+      "settings.css",
+      "vault.js",
+      "updater.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../",
+        "to": "clipper",
+        "filter": [
+          "webjs/**/*",
+          "core/**/*",
+          "config/**/*",
+          "utils/**/*",
+          "assets/**/*",
+          "clipper_core.py",
+          "requirements.txt",
+          "*.py",
+          "!**/__pycache__/**",
+          "!**/.env",
+          "!**/config.json",
+          "!**/*credentials*",
+          "!**/*secret*",
+          "!**/output/**",
+          "!**/config.example.json",
+          "!**/cookies.txt",
+          "!**/.env.*",
+          "!**/*.session"
+        ]
+      },
+      {
+        "from": "runtime/python",
+        "to": "clipper/python",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "runtime/ffmpeg",
+        "to": "clipper/ffmpeg",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "runtime/bin",
+        "to": "clipper/bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "GTA6-Clip-Studio-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "misha213123",
+        "repo": "-liptest",
+        "releaseType": "release"
+      }
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "description": "Private desktop short-video clipping and publishing studio",
+  "author": "Personal"
+}

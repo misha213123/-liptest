@@ -1,0 +1,122 @@
+/* GTA 6 Clip Studio — desktop visual system. Safe overlay on existing UI. */
+:root, html.light {
+  --font-heading: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --bg-page: #f3f5fb;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #eef2fa;
+  --bg-inset: #f8faff;
+  --border: #dce3ee;
+  --border-hover: #b5c4db;
+  --text-primary: #111827;
+  --text-secondary: #43526b;
+  --text-muted: #64748b;
+  --accent: #6265e8;
+  --accent-hover: #4e4dcc;
+  --accent-text: #ffffff;
+  --accent-bg-subtle: #eff0ff;
+  --focus-ring: #6568eb;
+  --shadow-card: 0 8px 30px rgba(25,37,66,.035), 0 1px 3px rgba(25,37,66,.045);
+}
+html.dark {
+  --bg-page: #0d1019;
+  --bg-surface: #171c29;
+  --bg-surface-2: #202737;
+  --bg-inset: #111726;
+  --border: #30394b;
+  --border-hover: #536079;
+  --text-primary: #eff4ff;
+  --text-secondary: #bec8db;
+  --text-muted: #9aa7bc;
+  --accent: #9ff6a9;
+  --accent-hover: #bcffbb;
+  --accent-text: #111c17;
+  --accent-bg-subtle: #223e35;
+  --focus-ring: #9ff6a9;
+  --shadow-card: 0 12px 36px rgba(0,0,0,.13), 0 2px 4px rgba(0,0,0,.08);
+}
+html, body { min-height:100%; font-family: var(--font-body); }
+body { background:var(--bg-page); color:var(--text-primary); line-height:1.5; }
+aside {
+  background:linear-gradient(175deg,#141b2d 0%,#101423 52%,#15162b 100%) !important;
+  color:#d9e4f3;
+  border-color:#2a3447 !important;
+  box-shadow:8px 0 34px rgba(7,17,29,.055);
+  z-index:4;
+}
+aside > div:first-child { min-height:76px; border-color:rgba(255,255,255,.08) !important; }
+aside nav { padding:14px 10px !important; }
+aside nav a {
+  font-size:13px !important; min-height:44px !important;
+  border-radius:10px !important; font-weight:600 !important;
+  letter-spacing:.005em; padding:10px 13px !important;
+  transition: transform .16s ease, background .16s ease !important;
+}
+aside nav a:not([data-active="true"]):not(.nav-active) { color:#bfcbdf !important; }
+aside nav a:not([data-active="true"]):not(.nav-active):hover {
+  color:#fff !important; background:rgba(146,161,208,.13) !important;
+  transform:translateX(3px);
+}
+aside nav a.bg-\[var\(--accent\)\],
+aside nav a.nav-active,
+aside nav a[data-active="true"] {
+  background:linear-gradient(110deg,#a4f4b0,#a6fcda) !important;
+  color:#123327 !important;
+  box-shadow:0 8px 18px rgba(75,207,146,.16) !important;
+}
+aside nav a span:first-child { font-size:15px; width:20px; flex-shrink:0; text-align:center; }
+aside .logo-mark {
+  background:linear-gradient(140deg,#9df9bf,#64dfe6) !important;
+  color:#0c2324 !important; box-shadow:0 4px 16px rgba(98,239,207,.19);
+}
+aside .font-heading { color:#f8fbff !important; font-size:15px !important; letter-spacing:.035em; }
+aside .font-heading span { color:#a4f4b0 !important; }
+aside .disk-widget { padding:12px 16px; background:rgba(255,255,255,.015); border-color:#2a3447 !important; }
+aside .disk-label { color:#a9b9d1 !important; }
+aside .disk-bar { background:#2b3649; }
+aside .disk-fill { background:linear-gradient(90deg,#8ef7a1,#62ded9); }
+aside .border-zinc-800, aside .border-zinc-800\/80 { border-color:#293548 !important; }
+aside .bg-zinc-950\/40, aside .bg-zinc-950\/60 { background:transparent !important; }
+header { border-color:var(--border) !important; }
+body > .flex-1 > header,
+body > div.flex-1 > header {
+  min-height:76px; background:var(--bg-surface) !important;
+  border-bottom:1px solid var(--border) !important;
+  box-shadow:0 3px 22px rgba(14,27,56,.018);
+}
+main { color:var(--text-primary); }
+main .rounded-lg, main .rounded-xl, main .rounded-2xl,
+#dash > *, .shadow-sm { box-shadow:var(--shadow-card); }
+main .border { border-color:var(--border); }
+main .bg-white, html.dark main .bg-white { background:var(--bg-surface) !important; }
+main .text-zinc-400 { color:var(--text-muted) !important; }
+main .text-zinc-300 { color:var(--text-secondary) !important; }
+main .text-zinc-500 { color:var(--text-muted) !important; }
+main .bg-zinc-950, main .bg-zinc-900 { background:var(--bg-surface-2) !important; }
+main .text-white, main .placeholder-zinc-400 { color:var(--text-primary) !important; }
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  border-radius:10px !important; border-color:var(--border-hover) !important;
+  font-family:var(--font-body); outline:none;
+}
+input:focus, select:focus, textarea:focus {
+  border-color:var(--focus-ring) !important;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--focus-ring) 18%,transparent);
+}
+button, a { -webkit-tap-highlight-color:transparent; }
+button:not([disabled]):active { transform:scale(.99); }
+button:focus-visible, a:focus-visible {
+  outline:2px solid var(--focus-ring) !important; outline-offset:3px;
+}
+.rounded-lg { border-radius:12px !important; }
+.rounded-xl { border-radius:15px !important; }
+.rounded-2xl { border-radius:18px !important; }
+.logo-mark { border-radius:10px !important; }
+@media(min-width:768px){
+  aside.md\:w-64 { width:258px !important; }
+}
+@media(max-width:767px){
+  aside nav a { min-height:38px !important; font-size:12px !important; }
+}
+@media(prefers-reduced-motion: reduce){
+  aside nav a, button { transition:none !important; }
+}
