@@ -18,6 +18,12 @@ jobs:
         run: |
           $v = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
           if ("v$v" -ne $env:GITHUB_REF_NAME) { throw "Git tag and desktop/package.json version differ" }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Stage portable Python FFmpeg Deno and media dependencies
+        shell: pwsh
+        run: ./desktop/scripts/stage-windows.ps1
       - name: Block incomplete release builds
         shell: pwsh
         run: |
