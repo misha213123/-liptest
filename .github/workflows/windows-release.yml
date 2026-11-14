@@ -3,6 +3,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version in desktop/package.json, e.g. 0.2.0'
+        required: true
+        type: string
 permissions:
   contents: write
 jobs:
@@ -17,7 +23,11 @@ jobs:
         shell: pwsh
         run: |
           $v = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
-          if ("v$v" -ne $env:GITHUB_REF_NAME) { throw "Git tag and desktop/package.json version differ" }
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            if ($v -ne '${{ inputs.version }}') { throw "Manual release version doesn't match desktop/package.json" }
+          } elseif ("v$v" -ne $env:GITHUB_REF_NAME) {
+            throw "Git tag and desktop/package.json version differ"
+          }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
