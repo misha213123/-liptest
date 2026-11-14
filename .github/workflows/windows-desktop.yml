@@ -1,0 +1,28 @@
+name: Windows desktop installer (experimental)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/windows-desktop-installer]
+    paths: ['desktop/**', '.github/workflows/windows-desktop.yml']
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install desktop build tools
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Build installer
+        working-directory: desktop
+        run: npm run dist:win
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta6-clip-studio-installer-experimental
+          path: desktop-dist/*.exe
+          if-no-files-found: error
