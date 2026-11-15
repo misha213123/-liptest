@@ -89,7 +89,7 @@
         "owner": "misha213123",
         "repo": "-liptest",
         "releaseType": "release",
-        "private": false
+        "private": true
       }
     ],
     "asarUnpack": [
@@ -99,6 +99,6 @@
   "dependencies": {
     "electron-updater": "6.8.11"
   },
-  "description": "Personal desktop short-video clipping and publishing studio",
+  "description": "Private personal desktop clipping studio with authenticated auto-updates",
   "author": "Personal"
 }
