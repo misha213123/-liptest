@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "electron": "^33.4.11",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "26.18.1"
   },
   "build": {
     "appId": "com.personal.gta6clipstudio",
@@ -88,7 +88,8 @@
         "provider": "github",
         "owner": "misha213123",
         "repo": "-liptest",
-        "releaseType": "release"
+        "releaseType": "release",
+        "private": true
       }
     ],
     "asarUnpack": [
@@ -96,7 +97,7 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.6.2"
+    "electron-updater": "6.8.11"
   },
   "description": "Private desktop short-video clipping and publishing studio",
   "author": "Personal"
