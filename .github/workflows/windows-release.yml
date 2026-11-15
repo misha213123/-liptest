@@ -16,13 +16,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Refuse public release publishing
+      - name: Require public repository for token-free update downloads
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $isPrivate = gh api "repos/$env:GITHUB_REPOSITORY" --jq '.private'
-          if ($isPrivate -ne 'true') { throw 'STOP: public repository. Switch repository visibility to Private before publishing release assets.' }
+          if ($isPrivate -ne 'false') { throw 'STOP: repository is still private. Change visibility to Public before creating a token-free GitHub Release.' }
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
