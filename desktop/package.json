@@ -1,6 +1,6 @@
 {
   "name": "gta6-clip-studio",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -89,7 +89,7 @@
         "owner": "misha213123",
         "repo": "-liptest",
         "releaseType": "release",
-        "private": true
+        "private": false
       }
     ],
     "asarUnpack": [
@@ -99,6 +99,6 @@
   "dependencies": {
     "electron-updater": "6.8.11"
   },
-  "description": "Private desktop short-video clipping and publishing studio",
+  "description": "Personal desktop short-video clipping and publishing studio",
   "author": "Personal"
 }
