@@ -88,10 +88,10 @@ ipcMain.handle('settings:status', event => {
   return { ...vault.status(), keys: vault.keys, update: updater.getState(), version: app.getVersion() };
 });
 ipcMain.handle('settings:save', (event, key, value) => {
-  authorized(event); vault.set(key, value); if (key === 'github_updates') updater.refreshCredentials(); return vault.status();
+  authorized(event); vault.set(key, value); return vault.status();
 });
 ipcMain.handle('settings:remove', (event, key) => {
-  authorized(event); vault.remove(key); if (key === 'github_updates') updater.refreshCredentials(); return vault.status();
+  authorized(event); vault.remove(key); return vault.status();
 });
 ipcMain.handle('settings:checkUpdates', async event => {
   authorized(event);
@@ -103,6 +103,7 @@ else {
     if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.focus(); }
   });
   app.whenReady().then(() => {
+    try { vault.removeLegacyGithubUpdates(); } catch { /* Leave other credentials unchanged. */ }
     const root = prepareRuntime();
     const secureEnvironment = {};
     const pythonExe = path.join(sourceRoot(), 'python', 'python.exe');
