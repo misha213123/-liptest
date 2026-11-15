@@ -106,7 +106,7 @@ def add_youtube_runtime(opts: dict, url: str) -> None:
         opts["js_runtimes"] = {"deno": {"path": deno}}
         opts["remote_components"] = ["ejs:github"]
     opts["extractor_args"] = {
-        "youtube": {"player_client": ["web", "web_embedded", "web_safari", "mweb"]}
+        "youtube": {"player_client": ["default", "-web_embedded"]}
     }
 
 

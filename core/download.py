@@ -965,7 +965,7 @@ class DownloadMixin:
             # token). Use clients that don't require one.
             ydl_opts['extractor_args'] = {
                 'youtube': {
-                    'player_client': ['web', 'web_embedded', 'web_safari', 'mweb']
+                    'player_client': ['default', '-web_embedded']
                 }
             }
         
@@ -1101,7 +1101,7 @@ class DownloadMixin:
             # token). Use clients that don't require one.
             cmd.extend([
                 "--extractor-args",
-                                "youtube:player_client=web,web_embedded,web_safari,mweb"
+                                "youtube:player_client=default,-web_embedded"
             ])
         
             cmd.append(url)
@@ -1204,7 +1204,7 @@ class DownloadMixin:
 
             cmd.extend([
                 "--extractor-args",
-                "youtube:player_client=web,web_embedded,web_safari,mweb",
+                "youtube:player_client=default,-web_embedded",
             ])
 
             deno_path = get_deno_path()
@@ -1366,7 +1366,7 @@ class DownloadMixin:
             # token). Use clients that don't require one.
             opts['extractor_args'] = {
                 'youtube': {
-                    'player_client': ['web', 'web_embedded', 'web_safari', 'mweb']
+                    'player_client': ['default', '-web_embedded']
                 }
             }
 
@@ -1409,7 +1409,7 @@ class DownloadMixin:
             # token). Use clients that don't require one.
             opts['extractor_args'] = {
                 'youtube': {
-                    'player_client': ['web', 'web_embedded', 'web_safari', 'mweb']
+                    'player_client': ['default', '-web_embedded']
                 }
             }
         
@@ -1562,7 +1562,7 @@ class DownloadMixin:
                 # token). Use clients that don't require one.
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['web', 'web_embedded', 'web_safari', 'mweb']
+                        'player_client': ['default', '-web_embedded']
                     }
                 },
             }
@@ -1740,7 +1740,7 @@ class DownloadMixin:
                 # token). Use clients that don't require one.
                 cmd.extend([
                     "--extractor-args",
-                    "youtube:player_client=web,web_embedded,web_safari,mweb"
+                    "youtube:player_client=default,-web_embedded"
                 ])
 
                 # Streamer Studio downloads sections through the yt-dlp subprocess.
@@ -1892,7 +1892,7 @@ class DownloadMixin:
                 # (needs PO token). Use clients that don't require one.
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['web', 'web_embedded', 'web_safari', 'mweb']
+                        'player_client': ['default', '-web_embedded']
                     }
                 },
             }
@@ -2032,7 +2032,7 @@ class DownloadMixin:
                 # need one. tv/android/ios/web_safari are safe choices.
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['web', 'web_embedded', 'web_safari', 'mweb']
+                        'player_client': ['default', '-web_embedded']
                     }
                 },
             }

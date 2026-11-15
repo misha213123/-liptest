@@ -75,6 +75,7 @@ def intermediate_encoder_args(gpu_args: list[str], quality: str) -> list[str]:
 
 
 def probe_fps(ffmpeg_path: str, video: Path) -> float:
+    """Detect source FPS with ffprobe, or OpenCV if ffprobe is not installed."""
     ffmpeg = Path(ffmpeg_path)
     ffprobe = ffmpeg.with_name("ffprobe.exe" if os.name == "nt" else "ffprobe")
     executable = str(ffprobe) if ffprobe.exists() else "ffprobe"
@@ -84,16 +85,25 @@ def probe_fps(ffmpeg_path: str, video: Path) -> float:
             "-show_entries", "stream=avg_frame_rate,r_frame_rate",
             "-of", "json", str(video)
         ], capture_output=True, text=True, timeout=20)
-        if p.returncode != 0:
-            return 0.0
-        streams = json.loads(p.stdout or "{}").get("streams") or []
-        if streams:
-            frame_rate = streams[0].get("avg_frame_rate") or streams[0].get("r_frame_rate")
-            fps = float(Fraction(str(frame_rate)))
-            return fps if 1 <= fps <= 240 else 0.0
+        if p.returncode == 0:
+            streams = json.loads(p.stdout or "{}").get("streams") or []
+            if streams:
+                frame_rate = streams[0].get("avg_frame_rate") or streams[0].get("r_frame_rate")
+                fps = float(Fraction(str(frame_rate)))
+                if 1 <= fps <= 240:
+                    return fps
     except (OSError, ValueError, ZeroDivisionError, subprocess.TimeoutExpired, json.JSONDecodeError):
         pass
-    return 0.0
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(video))
+        try:
+            fps = float(cap.get(cv2.CAP_PROP_FPS))
+        finally:
+            cap.release()
+        return fps if 1 <= fps <= 240 else 0.0
+    except (ImportError, OSError, ValueError):
+        return 0.0
 
 
 def final_export(
