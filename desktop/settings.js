@@ -3,14 +3,16 @@ const names = {
   openai: 'OpenAI API Key', hf: 'HF API Key',
   tiktok_client_key: 'TikTok Client Key', tiktok_client_secret: 'TikTok Client Secret',
   instagram_access_token: 'Instagram Access Token',
-  cloudflare_tunnel_token: 'Cloudflare Tunnel Token'
+  cloudflare_tunnel_token: 'Cloudflare Tunnel Token',
+  github_updates: 'GitHub — ключ для приватных обновлений (Contents: Read)'
 };
 let current = null;
 const $ = id => document.getElementById(id);
 function notice(text) { $('notice').textContent = text; }
 function updateText(state) {
   const captions = { idle: 'Ожидание', unavailable: 'Недоступно', checking: 'Проверка',
-    downloading: 'Загрузка', current: 'Последняя версия', ready: 'Готово', error: 'Ошибка' };
+    downloading: 'Загрузка', current: 'Последняя версия', ready: 'Готово', error: 'Ошибка',
+    needs_auth: 'Нужно подключить GitHub', deferred: 'Обновление отложено' };
   $('update-status').textContent = (captions[state.status] || state.status) + ': ' + (state.detail || '');
 }
 async function refresh() {
