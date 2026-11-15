@@ -23,6 +23,7 @@ from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
 from core.streamer_export import export_settings, intermediate_encoder_args, final_export
+from streamer_batch import get_cached_section
 from core.irl_layout import IRLLayoutRenderer
 from core.streamer_gpu_turbo import cuda_filters_available, render_streamer_gpu_turbo
 from core.streamer_precise_captions import (
@@ -987,47 +988,19 @@ def main():
         batch_index = -1
 
     if batch_id and batch_sections and 0 <= batch_index < len(batch_sections):
+        # yt-dlp can merge repeated --download-sections into ONE file.
+        # That file cannot be mapped safely to four different highlights.
+        # Download each requested range separately and cache by its index/times.
         batch_dir = APP_DIR / "output" / "streamer_batches" / batch_id
-        batch_dir.mkdir(parents=True, exist_ok=True)
-        allowed = {".mp4", ".mkv", ".webm", ".mov"}
-        batch_files = sorted(
-            p for p in batch_dir.glob("batch_*")
-            if p.is_file() and p.suffix.lower() in allowed and ".part" not in p.name
+        selected_source = get_cached_section(
+            core, url, batch_sections, batch_index, batch_dir,
+            requested_resolution,
+            log=lambda m: debug_log(m, flush=True),
         )
-
-        if len(batch_files) != len(batch_sections):
-            debug_log(
-                f"[streamer] Batch source: скачиваю {len(batch_sections)} выбранных моментов "
-                "одним yt-dlp запуском.",
-                flush=True,
-            )
-            batch_files = [
-                Path(p) for p in core.download_video_sections_batch(
-                    url,
-                    batch_sections,
-                    batch_dir,
-                    resolution=requested_resolution,
-                )
-            ]
-        else:
-            debug_log(
-                f"[streamer] Batch source: использую уже скачанные секции "
-                f"({len(batch_files)} шт.), без нового запроса к YouTube.",
-                flush=True,
-            )
-
-        if len(batch_files) != len(batch_sections):
-            raise RuntimeError(
-                f"Batch source mismatch: ожидалось {len(batch_sections)}, "
-                f"получено {len(batch_files)}"
-            )
-
-        selected_source = batch_files[batch_index]
-        if not selected_source.exists():
-            raise RuntimeError(f"Batch section не найден: {selected_source}")
         shutil.copy2(selected_source, source_path)
         debug_log(
-            f"[streamer] Batch section {batch_index + 1}/{len(batch_sections)} -> {source_path.name}",
+            f"[streamer] Секция {batch_index + 1}/{len(batch_sections)} "
+            f"-> {source_path.name} (индивидуальная загрузка)",
             flush=True,
         )
     else:
