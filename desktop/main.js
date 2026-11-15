@@ -136,6 +136,19 @@ else {
     server.on('error', e => dialog.showErrorBox('Ошибка сервера', e.message));
     waitForServer();
     updater.setup(state => {
+      if (window && !window.isDestroyed()) {
+        if (state.status === 'downloading' || state.status === 'stalled') {
+          const amount = Number.isFinite(state.percent) ? Math.min(0.99, Math.max(0.01, state.percent / 100)) : 2;
+          window.setProgressBar(amount);
+          window.setTitle('GTA 6 Clip Studio — обновление ' + (Number.isFinite(state.percent) ? state.percent.toFixed(0) + '%' : 'загружается'));
+        } else if (state.status === 'ready' || state.status === 'deferred') {
+          window.setProgressBar(1);
+          window.setTitle('GTA 6 Clip Studio — обновление готово');
+        } else {
+          window.setProgressBar(-1);
+          window.setTitle('GTA 6 Clip Studio');
+        }
+      }
       if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings:updateStatus', state);
     });
   }).catch(e => dialog.showErrorBox('Ошибка запуска', e.message));
