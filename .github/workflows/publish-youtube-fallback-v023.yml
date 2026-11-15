@@ -2,7 +2,7 @@ name: Publish GTA 6 Clip Studio 0.2.3 YouTube fallback
 on:
   push:
     branches: [feature/windows-desktop-installer]
-    paths: ['.github/workflows/publish-progress-v023.yml']
+    paths: ['.github/workflows/publish-youtube-fallback-v023.yml']
 permissions:
   contents: write
 concurrency:
