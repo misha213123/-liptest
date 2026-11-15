@@ -46,11 +46,13 @@ jobs:
         run: |
           if (-not (Test-Path 'desktop/runtime/python/python.exe')) { throw 'Portable Python runtime not packaged yet. Do not publish an incomplete installer.' }
           if (-not (Test-Path 'desktop/runtime/ffmpeg/ffmpeg.exe')) { throw 'FFmpeg not packaged yet. Do not publish an incomplete installer.' }
-      - name: Check for accidentally embedded credentials
+      - name: Check tracked project source for embedded credentials
         shell: pwsh
         run: |
-          $matches = Get-ChildItem -Path desktop,webjs,core,config -Recurse -File -Include *.js,*.py,*.json | Select-String -Pattern 'sk-[a-zA-Z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}' -Quiet
-          if ($matches) { throw 'Possible hard-coded credential in source; release blocked.' }
+          # Search committed files only; generated Python packages can contain harmless test keys.
+          git grep --quiet -E 'sk-[a-zA-Z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}' -- desktop webjs core config
+          if ($LASTEXITCODE -eq 0) { throw 'Possible committed credential in source; release blocked. Rotate any exposed token before making repo public.' }
+          if ($LASTEXITCODE -ne 1) { throw 'Unable to complete credential scan.' }
       - name: Check syntax
         shell: pwsh
         run: |
