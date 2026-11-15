@@ -354,6 +354,41 @@ html[data-theme="light"] .bg-black\/30,html[data-theme="light"] .bg-black\/40{ba
           </div>
         </div>
 
+
+        <div class="soft rounded-xl p-3 mt-3">
+          <div class="font-bold text-sm mb-1">🎞 Экспорт: Ultra HD / плавность</div>
+          <p class="text-[10px] text-zinc-500 mb-2">High-quality кодирование и Lanczos; не фирменный AI Super Resolution CapCut.</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div><label class="text-[11px] text-zinc-500">Формат кадра</label><select id="outputRatio" class="input mt-1">
+              <option value="9:16" selected>9:16 — Reels / Shorts</option>
+              <option value="4:5">4:5 — Instagram</option>
+              <option value="5:4">5:4 — горизонтальный пост</option>
+              <option value="1:1">1:1 — квадрат</option>
+              <option value="3:4">3:4 — вертикальный пост</option>
+              <option value="2:3">2:3 — вертикальный</option>
+              <option value="4:3">4:3 — классика</option>
+              <option value="16:9">16:9 — YouTube</option>
+              <option value="21:9">21:9 — широкий</option>
+            </select></div>
+            <div><label class="text-[11px] text-zinc-500">Размер (короткая сторона)</label><select id="outputSize" class="input mt-1">
+              <option value="1080" selected>1080 — Full HD</option>
+              <option value="1440">1440 — 2K (дольше)</option>
+              <option value="2160">2160 — 4K (очень долго)</option>
+            </select></div>
+            <div><label class="text-[11px] text-zinc-500">Частота кадров</label><select id="outputFps" class="input mt-1">
+              <option value="source" selected>FPS источника</option><option value="30">30 FPS</option><option value="60">60 FPS</option>
+            </select></div>
+            <div><label class="text-[11px] text-zinc-500">Качество кодирования</label><select id="outputQuality" class="input mt-1">
+              <option value="ultra" selected>Ultra — максимальное</option><option value="high">High — меньше файлы</option>
+            </select></div>
+            <div class="col-span-2"><label class="text-[11px] text-zinc-500">Улучшение плавности</label><select id="motionMode" class="input mt-1">
+              <option value="off" selected>Оригинальные кадры — без артефактов</option>
+              <option value="optical">Optical Flow до 60 FPS (CPU, медленно)</option>
+            </select></div>
+          </div>
+          <div id="outputInfo" class="text-[10px] text-zinc-400 mt-2"></div>
+        </div>
+
         <div class="border-t border-zinc-800 mt-4 pt-4">
           <label class="flex items-center justify-between gap-3">
             <span>
@@ -1596,7 +1631,12 @@ function fullTemplateSnapshot(){
    },
    render:{
      gpu:$('#gpu').checked,
-     layoutMode:$('#layoutMode').value
+     layoutMode:$('#layoutMode').value,
+     outputRatio:$('#outputRatio').value,
+     outputSize:$('#outputSize').value,
+     outputFps:$('#outputFps').value,
+     outputQuality:$('#outputQuality').value,
+     motionMode:$('#motionMode').value
    },
    banner:{
      enabled:$('#bannerEnabled').checked,
@@ -1675,6 +1715,11 @@ function applyFullTemplate(t,name=''){
 
  setVal('gpu',t.render?.gpu);
  setVal('layoutMode',t.render?.layoutMode);
+ setVal('outputRatio',t.render?.outputRatio);
+ setVal('outputSize',t.render?.outputSize);
+ setVal('outputFps',t.render?.outputFps);
+ setVal('outputQuality',t.render?.outputQuality);
+ setVal('motionMode',t.render?.motionMode);
 
  setVal('bannerEnabled',t.banner?.enabled);
  setVal('bannerContinue',t.banner?.continueMode);
@@ -1760,13 +1805,45 @@ if($('#templateAutoLoad').checked&&autoTemplateName&&streamerTemplates()[autoTem
  applyFullTemplate(streamerTemplates()[autoTemplateName],autoTemplateName);
 }
 
+
+const STREAMER_FORMATS={
+  '9:16':[1080,1920],'4:5':[1080,1350],'5:4':[1350,1080],
+  '1:1':[1080,1080],'3:4':[1080,1440],'2:3':[1080,1620],
+  '4:3':[1440,1080],'16:9':[1920,1080],'21:9':[2520,1080]
+};
+function syncOutputPreview(){
+  const ratio=$('#outputRatio').value,wh=STREAMER_FORMATS[ratio]||STREAMER_FORMATS['9:16'];
+  const [w,h]=wh,size=Number($('#outputSize').value)||1080,fps=$('#outputFps').value;
+  const editor=$('#overlayEditor');
+  editor.style.aspectRatio=w+' / '+h;
+  editor.style.width=Math.round(Math.min(330,Math.max(170,230*(w/h)/(9/16))))+'px';
+  $('#resultVideo').style.aspectRatio=w+' / '+h;
+  const overlay=$('#layoutBannerCanvas');
+  overlay.width=540;overlay.height=Math.round(540*h/w);
+  const bannerCanvas=$('#bannerEditor');
+  if(bannerCanvas){
+    bannerCanvas.width=540;bannerCanvas.height=Math.round(540*h/w);
+    if(bannerCanvas.parentElement)bannerCanvas.parentElement.style.aspectRatio=w+' / '+h;
+  }
+  $('#outputInfo').textContent='Экспорт: '+Math.round(w*size/1080)+'×'+Math.round(h*size/1080)
+    +' • '+(fps==='source'?'FPS источника':fps+' FPS')
+    +($('#motionMode').value==='optical'&&fps!=='source'?' • Optical Flow: возможны артефакты':'')
+    +(size>1080?' • апскейл не создаёт реальные детали':'');
+  updateLayoutPreview();
+  if(typeof updateBannerUi==='function')updateBannerUi();
+}
+['outputRatio','outputSize','outputFps','outputQuality','motionMode'].forEach(id=>
+  $('#'+id).addEventListener('change',syncOutputPreview)
+);
+syncOutputPreview();
+
 function renderPayload(h){
  const irl=isIrlMode();
  const webcam=irl?{x:0,y:0,w:1,h:1}:nrect();
  if(!webcam)throw new Error('Сначала выдели веб-камеру рамкой.');
  const bannerOn=$('#bannerEnabled').checked;
  if(bannerOn&&(!bannerAsset||!bannerAsset.file))throw new Error('Реклама включена, но рекламное видео ещё не загружено.');
- return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),layout_mode:irl?'irl':'stream',webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,irl_foreground_y_pct:.48,irl_background_blur:18,irl_background_brightness:-.08,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
+ return{url:$('#sourceUrl').value.trim(),start_time:h?h.start_time:$('#startTime').value.trim(),end_time:h?h.end_time:$('#endTime').value.trim(),layout_mode:irl?'irl':'stream',webcam_rect:webcam,webcam_height_pct:+$('#camPct').value/100,gameplay_center_x:+$('#gameX').value/100,webcam_enhance:$('#webcamEnhance').value,irl_foreground_y_pct:.48,irl_background_blur:18,irl_background_brightness:-.08,captions:$('#captions').checked,subtitle_style:subtitleStyle,subtitle_settings:subtitleSettings(),gpu:$('#gpu').checked,resolution:$('#resolution').value,output_ratio:$('#outputRatio').value,output_size:$('#outputSize').value,output_fps:$('#outputFps').value,output_quality:$('#outputQuality').value,motion_mode:$('#motionMode').value,title_enabled:$('#titleEnabled').checked,title_text:h?((h.timed_title&&h.timed_title.text)||h.title||''):$('#titleText').value.trim(),title_duration:$('#titleDuration').value,title_settings:titleSettings(),banner_enabled:bannerOn,banner_file:bannerOn?bannerAsset.file:'',banner_at_pct:+$('#bannerAt').value/100,banner_width_pct:+$('#bannerWidth').value/100,banner_height_pct:+$('#bannerHeight').value/100,banner_x_pct:+$('#bannerX').value/100,banner_y_pct:+$('#bannerY').value/100,banner_blur:+$('#bannerBlur').value,banner_fade:.20,banner_keep_aspect:$('#bannerKeepAspect').checked,banner_mode:$('#bannerContinue').checked?'overlay':'pause',banner_chroma_key:$('#bannerChroma').checked,banner_chroma_color:$('#bannerChromaColor').value,banner_chroma_similarity:+$('#bannerSimilarity').value/100,banner_chroma_blend:+$('#bannerBlend').value/100,banner_source_crop:$('#bannerAutoCrop').checked?bannerCropNorm:{x:0,y:0,w:1,h:1},banner_speed:+$('#bannerSpeed').value,banner_black_key:$('#bannerBlackKey').checked,banner_black_similarity:+$('#bannerBlackKeyStrength').value/100};
 }
 async function runRender(payload,label){
  $('#renderBtn').disabled=true;$('#renderStatus').textContent='⏳ '+label;$('#renderProgress').value=2;

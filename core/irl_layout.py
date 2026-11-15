@@ -137,9 +137,9 @@ class IRLLayoutRenderer:
                 "-c:v",
                 "libx264",
                 "-preset",
-                "ultrafast",
+                "medium",
                 "-crf",
-                "23",
+                "16",
                 "-threads",
                 "0",
             ]

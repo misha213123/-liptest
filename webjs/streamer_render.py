@@ -22,6 +22,7 @@ from openai import OpenAI
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
 from core.streamer_layout import StreamerLayoutRenderer
+from core.streamer_export import export_settings, intermediate_encoder_args, final_export
 from core.irl_layout import IRLLayoutRenderer
 from core.streamer_gpu_turbo import cuda_filters_available, render_streamer_gpu_turbo
 from core.streamer_precise_captions import (
@@ -77,30 +78,9 @@ def build_core(cfg: dict) -> AutoClipperCore:
     )
 
 
-def tune_encoder_args(args: list[str]) -> list[str]:
-    """Use visibly higher quality for the webcam crop and final text burn."""
-    out = list(args or [])
-    joined = " ".join(out)
-
-    def replace_value(flag: str, value: str):
-        if flag in out:
-            idx = out.index(flag)
-            if idx + 1 < len(out):
-                out[idx + 1] = value
-
-    if "h264_nvenc" in joined or "hevc_nvenc" in joined:
-        replace_value("-cq", "16")
-        replace_value("-b:v", "10M")
-        replace_value("-maxrate", "16M")
-        replace_value("-bufsize", "24M")
-        replace_value("-preset", "p4")
-    elif "libx264" in joined:
-        # Fast fallback: on RunPod NVENC may be unavailable even with a 4090.
-        # Keep CPU encoding quick instead of silently switching to the very slow
-        # "medium" preset for every clip.
-        replace_value("-crf", "23")
-        replace_value("-preset", "ultrafast")
-    return out
+def tune_encoder_args(args: list[str], quality: str = "ultra") -> list[str]:
+    """Quality-first intermediate encode; never use ultrafast CRF23 here."""
+    return intermediate_encoder_args(args, quality)
 
 
 def _is_hw_encoder_args(args: list[str]) -> bool:
@@ -109,12 +89,7 @@ def _is_hw_encoder_args(args: list[str]) -> bool:
 
 
 def _cpu_encoder_args() -> list[str]:
-    return [
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "23",
-        "-threads", "0",
-    ]
+    return ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
 
 
 def split_title(text: str) -> tuple[str, str]:
@@ -435,6 +410,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return ass_file
 
 
+
+def adapt_ass_canvas(ass_file: Path, width: int, height: int) -> None:
+    """Retarget ASS coordinates so non-9:16 clips keep centered readable text."""
+    raw = ass_file.read_text(encoding="utf-8-sig")
+    old_w_match = re.search(r"(?m)^PlayResX:\s*(\d+)\s*$", raw)
+    old_h_match = re.search(r"(?m)^PlayResY:\s*(\d+)\s*$", raw)
+    if not (old_w_match and old_h_match):
+        return
+    old_w, old_h = int(old_w_match.group(1)), int(old_h_match.group(1))
+    if old_w <= 0 or old_h <= 0:
+        return
+    new_w = max(2, int(round(old_h * width / height)))
+    if new_w == old_w:
+        return
+    ratio = new_w / old_w
+    raw = re.sub(r"(?m)^PlayResX:[ \t]*\d+[ \t]*$", f"PlayResX: {new_w}", raw, count=1)
+    raw = re.sub(
+        r"(\\pos\()(\d+(?:\.\d+)?)(,)",
+        lambda m: m.group(1) + str(int(round(float(m.group(2)) * ratio))) + m.group(3),
+        raw,
+    )
+    ass_file.write_text(raw, encoding="utf-8")
+
+
 def burn_ass(core: AutoClipperCore, input_path: Path, output_path: Path, ass_file: Path, encoder_args: list[str]) -> None:
     escaped = str(ass_file).replace("\\", "/").replace(":", "\\:")
 
@@ -534,6 +533,8 @@ def insert_ad_banner(
     black_key: bool = True,
     black_similarity: float = 0.05,
     black_blend: float = 0.02,
+    target_frame_width: int = 1080,
+    target_frame_height: int = 1920,
 ) -> float:
     """Pause main clip, blur it, play the whole ad video, then resume exactly where it stopped."""
     if not banner_path.exists():
@@ -561,8 +562,8 @@ def insert_ad_banner(
     fade_duration = min(fade_duration, banner_duration / 3.0)
     fade_out_start = max(0.0, banner_duration - fade_duration)
 
-    target_w = max(64, int(round(1080 * width_pct)))
-    target_h = max(64, int(round(1920 * height_pct)))
+    target_w = max(64, int(round(target_frame_width * width_pct)))
+    target_h = max(64, int(round(target_frame_height * height_pct)))
     post_duration = max(0.0, clip_duration - pause_at)
 
     # Optional normalized crop from the browser editor. This removes black
@@ -940,14 +941,18 @@ def main():
     banner_black_key = bool(job.get("banner_black_key", True))
     banner_black_similarity = float(job.get("banner_black_similarity", 0.05) or 0.05)
 
+    export_cfg = export_settings(job)
+    output_width, output_height = export_cfg["width"], export_cfg["height"]
+    ratio_tag = export_cfg["ratio"].replace(":", "x")
     clip_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out_dir = APP_DIR / "output" / "streamer_clips" / clip_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     source_path = out_dir / "source_16x9.mp4"
-    layout_path = out_dir / "layout_9x16.mp4"
-    text_path = out_dir / "text_9x16.mp4"
-    final_path = out_dir / "final_9x16.mp4"
+    layout_path = out_dir / f"layout_{ratio_tag}.mp4"
+    text_path = out_dir / f"text_{ratio_tag}.mp4"
+    composed_path = out_dir / f"composed_{ratio_tag}.mp4"
+    final_path = out_dir / f"final_{ratio_tag}_{export_cfg['size']}p.mp4"
 
     cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
     core = build_core(cfg)
@@ -962,7 +967,7 @@ def main():
         "1", "true", "yes", "on"
     )
     requested_resolution = str(job.get("resolution") or "best")
-    if turbo_requested and requested_resolution.strip().lower() in ("best", "auto"):
+    if turbo_requested and export_cfg["quality"] != "ultra" and requested_resolution.strip().lower() in ("best", "auto"):
         requested_resolution = str(
             os.environ.get("STREAMER_GPU_TURBO_SOURCE", "1080p") or "1080p"
         )
@@ -1042,7 +1047,7 @@ def main():
             flush=True,
         )
     core.enable_gpu_acceleration(effective_gpu)
-    encoder_args = tune_encoder_args(core.get_video_encoder_args())
+    encoder_args = tune_encoder_args(core.get_video_encoder_args(), export_cfg["quality"])
     if _is_hw_encoder_args(encoder_args):
         debug_log(
             "[streamer] GPU encode: hardware encoder active (" + " ".join(encoder_args) + ")",
@@ -1073,8 +1078,11 @@ def main():
             clip_end_sec=end_sec,
         )
 
+    if ass_file:
+        adapt_ass_canvas(ass_file, output_width, output_height)
+
     banner_duration_actual = 0.0
-    target_before_banner = text_path if banner_enabled else final_path
+    target_before_banner = text_path if banner_enabled else composed_path
     turbo_done = False
 
     if turbo_requested and layout_mode == "irl":
@@ -1099,6 +1107,8 @@ def main():
                     webcam_rect=webcam_rect,
                     encoder_args=encoder_args,
                     ass_file=ass_file,
+                    output_width=output_width,
+                    output_height=output_height,
                     webcam_height_pct=top_pct,
                     gameplay_center_x=game_center_x,
                     webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1139,6 +1149,8 @@ def main():
             renderer.render(
                 str(source_path),
                 str(layout_path),
+                output_width=output_width,
+                output_height=output_height,
                 foreground_y_pct=float(job.get("irl_foreground_y_pct", 0.48) or 0.48),
                 background_blur=float(job.get("irl_background_blur", 18.0) or 18.0),
                 background_brightness=float(
@@ -1159,6 +1171,8 @@ def main():
                 str(source_path),
                 str(layout_path),
                 webcam_rect,
+                output_width=output_width,
+                output_height=output_height,
                 webcam_height_pct=top_pct,
                 gameplay_center_x=game_center_x,
                 webcam_padding=int(job.get("webcam_padding", 0) or 0),
@@ -1182,7 +1196,7 @@ def main():
         banner_duration_actual = insert_ad_banner(
             core,
             target_before_banner,
-            final_path,
+            composed_path,
             banner_path,
             encoder_args,
             clip_duration=end_sec - start_sec,
@@ -1204,10 +1218,14 @@ def main():
             black_key=banner_black_key,
             black_similarity=banner_black_similarity,
             black_blend=0.02,
+            target_frame_width=output_width,
+            target_frame_height=output_height,
         )
 
+    debug_log("[progress] Финальный экспорт MP4 / FPS... (overall: 96.0%)", flush=True)
+    export_result = final_export(get_ffmpeg_path(), composed_path, final_path, export_cfg, log=lambda m: debug_log(m, flush=True))
     if not final_path.exists() or final_path.stat().st_size < 10_000:
-        raise RuntimeError("Итоговый 9:16 файл не создан")
+        raise RuntimeError("Итоговый файл не создан")
 
     # Keep a flat folder with ONLY finished clips so they are easy to drag to
     # Telegram/TikTok/Drive without digging through technical render folders.
@@ -1215,7 +1233,7 @@ def main():
     export_dir.mkdir(parents=True, exist_ok=True)
     base_name = re.sub(r'[<>:"/\\|?*]+', "_", title_text or "streamer_clip")
     base_name = re.sub(r"\s+", "_", base_name).strip(" ._")[:80] or "streamer_clip"
-    export_name = f"{base_name}_{clip_id}.mp4"
+    export_name = f"{base_name}_{ratio_tag}_{export_cfg['size']}p_{clip_id}.mp4"
     export_path = export_dir / export_name
     shutil.copy2(final_path, export_path)
     debug_log(f"[export] {export_path}", flush=True)
@@ -1227,6 +1245,8 @@ def main():
         "end_time": end_sec,
         "layout_mode": layout_mode,
         "webcam_rect": webcam_rect,
+        "output": export_cfg,
+        "export_result": export_result,
         "webcam_height_pct": top_pct,
         "gameplay_center_x": game_center_x,
         "captions": captions,
@@ -1278,6 +1298,8 @@ def main():
         "export_path": str(export_path),
         "title_text": title_text,
         "layout_mode": layout_mode,
+        "output": export_cfg,
+        "export_result": export_result,
     }
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
