@@ -1,10 +1,25 @@
 'use strict';
 const { app, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const vault = require('./vault');
+const PRIVATE_FEED = Object.freeze({ provider: 'github', owner: 'misha213123', repo: '-liptest', private: true });
+
 
 let initiated = false;
 let state = { status: 'idle', detail: '' };
 let showNotice = null;
+let feedConfigured = false;
+function configureFeed() {
+  feedConfigured = false;
+  let token;
+  try { token = vault.updaterToken(); }
+  catch { emit('needs_auth', 'Хранилище Windows недоступно.'); return false; }
+  if (!token) { emit('needs_auth', 'Добавьте ключ GitHub (только чтение) в настройках приложения.'); return false; }
+  autoUpdater.setFeedURL({ ...PRIVATE_FEED, token });
+  feedConfigured = true;
+  return true;
+}
+
 function emit(status, detail = '') {
   state = { status, detail };
   if (showNotice) showNotice(state);
@@ -18,12 +33,14 @@ function setup(onChange) {
     return;
   }
   autoUpdater.autoDownload = true;
+  autoUpdater.logger = null;
+  configureFeed();
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on('checking-for-update', () => emit('checking', 'Проверяю GitHub Releases…'));
   autoUpdater.on('update-available', info => emit('downloading', 'Скачивается версия ' + info.version));
   autoUpdater.on('download-progress', p => emit('downloading', 'Загружено ' + Math.round(p.percent) + '%'));
   autoUpdater.on('update-not-available', () => emit('current', 'Установлена последняя версия.'));
-  autoUpdater.on('error', err => emit('error', 'Ошибка проверки: ' + err.message));
+  autoUpdater.on('error', () => emit('error', 'Не удалось получить приватное обновление. Проверьте права ключа GitHub и соединение.'));
   autoUpdater.on('update-downloaded', async info => {
     emit('ready', 'Версия ' + info.version + ' готова к установке.');
     const busy = await new Promise(resolve => {
@@ -61,13 +78,18 @@ async function check(manual = true) {
     emit('unavailable', 'Обновления доступны только в Windows Setup.exe');
     return state;
   }
+  if (!feedConfigured && !configureFeed()) return state;
   try {
     await autoUpdater.checkForUpdates();
   } catch (e) {
-    emit('error', 'Проверка не удалась: ' + e.message);
+    emit('error', 'Проверка не удалась. Убедитесь, что GitHub-репозиторий приватный и ключ имеет Contents: Read.');
     if (manual) await dialog.showMessageBox({ type: 'warning', message: state.detail });
   }
   return state;
 }
+function refreshCredentials() {
+  if (!initiated) return;
+  if (configureFeed()) check(false);
+}
 function getState() { return state; }
-module.exports = { setup, check, getState };
+module.exports = { setup, check, getState, refreshCredentials };
