@@ -30,6 +30,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Check Python syntax for download, transcription and AI workflow
+        shell: pwsh
+        run: |
+          python -m py_compile core/download.py core/highlight.py core/transcribe.py webjs/phase1_create.py
+          if ($LASTEXITCODE -ne 0) { throw 'Python processing source syntax check failed.' }
       - name: Package portable media runtime
         shell: pwsh
         run: ./desktop/scripts/stage-windows.ps1
