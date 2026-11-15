@@ -106,7 +106,7 @@ function getDiskStats() {
     if (isWin) {
       const drive = (path.parse(process.env.APPDATA || os.homedir()).root || 'C:\\').replace(/'/g, '');
       const ps = "$d = [System.IO.DriveInfo]::new('" + drive + "'); Write-Output ($d.TotalSize.ToString() + ' ' + $d.AvailableFreeSpace.ToString())";
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { timeout: 8000, windowsHide: true }, done);
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')], { timeout: 8000, windowsHide: true }, done);
     } else {
       execFile('df', ['-B1', '/'], { timeout: 5000 }, (err, stdout) => {
         if (err) return done(err);
