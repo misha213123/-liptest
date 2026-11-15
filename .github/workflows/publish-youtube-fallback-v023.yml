@@ -1,0 +1,92 @@
+name: Publish GTA 6 Clip Studio 0.2.3 YouTube fallback
+on:
+  push:
+    branches: [feature/windows-desktop-installer]
+    paths: ['.github/workflows/publish-progress-v023.yml']
+permissions:
+  contents: write
+concurrency:
+  group: gta6-private-release-v023
+  cancel-in-progress: false
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify private repo and release version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $private = gh api repos/$env:GITHUB_REPOSITORY --jq '.private'
+          if ($private -ne 'true') { throw 'STOP: repository must remain private.' }
+          $p = Get-Content desktop/package.json -Raw | ConvertFrom-Json
+          if ($p.version -ne '0.2.3') { throw 'Unexpected version.' }
+          if (-not $p.build.publish[0].private) { throw 'STOP: updater feed must remain private.' }
+          $releasedTags = @(gh api repos/$env:GITHUB_REPOSITORY/releases --jq '.[].tag_name')
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check existing releases.' }
+          if ($releasedTags -contains 'v0.2.3') { throw 'v0.2.3 is already released; refusing to overwrite.' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate tracked source and UI JavaScript
+        shell: pwsh
+        run: |
+          git grep --quiet -E 'sk-[a-zA-Z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}' -- desktop webjs core config
+          if ($LASTEXITCODE -eq 0) { throw 'Possible credential in tracked source; do not ship.' }
+          if ($LASTEXITCODE -ne 1) { throw 'Unable to complete credential scan.' }
+          foreach ($f in @('main.js','preload.js','vault.js','updater.js','settings.js')) {
+            node --check "desktop/$f"
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax error in $f" }
+          }
+      - name: Check Python pipeline syntax
+        shell: pwsh
+        run: |
+          python -m py_compile core/download.py core/highlight.py core/transcribe.py webjs/phase1_create.py
+          if ($LASTEXITCODE -ne 0) { throw 'Python source syntax failed.' }
+      - name: Stage portable runtime
+        shell: pwsh
+        run: ./desktop/scripts/stage-windows.ps1
+      - name: Smoke test packaged Windows dependencies and local server
+        shell: pwsh
+        run: ./desktop/scripts/smoke-windows.ps1
+      - name: Install Electron builder
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Create immutable release tag after successful tests
+        shell: pwsh
+        run: |
+          $existing = git ls-remote --tags origin refs/tags/v0.2.3
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to query existing tag.' }
+          if ($existing) {
+            Write-Host 'Tag v0.2.3 exists; reusing it for this same source commit.'
+            git fetch origin tag v0.2.3
+            $tagSha = git rev-parse 'v0.2.3^{}'
+            if ($tagSha -ne $env:GITHUB_SHA) { throw 'Tag v0.2.3 points to a different commit.' }
+          } else {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a v0.2.3 -m 'GTA 6 Clip Studio v0.2.3 — YouTube subtitle HTTP 429 audio fallback'
+            git push origin v0.2.3
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to push the release tag.' }
+          }
+      - name: Build and upload private Setup.exe and latest.yml
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win nsis --publish always
+      - name: Verify private release files
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $assets = gh release view v0.2.3 --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name'
+          if ($LASTEXITCODE -ne 0) { throw 'v0.2.3 Release missing.' }
+          if (-not ($assets | Where-Object { $_ -eq 'latest.yml' })) { throw 'latest.yml missing.' }
+          if (-not ($assets | Where-Object { $_ -eq 'GTA6-Clip-Studio-Setup-0.2.3.exe' })) { throw 'Installer missing.' }
+          Write-Host 'Private in-app update 0.2.3 is published.'
