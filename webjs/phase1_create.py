@@ -115,10 +115,21 @@ if __name__ == "__main__":
         main()
     except SystemExit:
         raise
-    except Exception:
+    except Exception as exc:
+        # Full traceback belongs in the processing log, not in the user alert.
         traceback.print_exc()
+        message = str(exc).strip()
+        if "429" in message or "Too Many Requests" in message:
+            message = (
+                "YouTube временно ограничил запросы (HTTP 429). "
+                "Субтитры или аудио сейчас недоступны. "
+                "Не запускайте анализ многократно подряд; попробуйте позже "
+                "или используйте другой доступный исходник."
+            )
+        elif not message:
+            message = "Неизвестная ошибка анализа видео. Подробности доступны в журнале."
         try:
-            write_result({"ok": False, "error": traceback.format_exc()[-1500:]})
+            write_result({"ok": False, "error": message[:900]})
         except Exception:
             pass
         sys.exit(1)
