@@ -11,7 +11,8 @@ const KEY_TO_ENV = Object.freeze({
   instagram_access_token: 'INSTAGRAM_ACCESS_TOKEN',
   cloudflare_tunnel_token: 'CLOUDFLARE_TUNNEL_TOKEN'
 });
-const keys = Object.keys(KEY_TO_ENV);
+const PRIVATE_KEYS = Object.freeze(['github_updates']);
+const keys = [...Object.keys(KEY_TO_ENV), ...PRIVATE_KEYS];
 function storageFile() { return path.join(app.getPath('userData'), 'vault.json'); }
 function assertAvailable() {
   if (process.platform !== 'win32' || !safeStorage.isEncryptionAvailable())
@@ -60,13 +61,12 @@ function environment() {
   }
   return env;
 }
-// Drop the now-unnecessary GitHub token when updating from the private preview.
-function removeLegacyGithubUpdates() {
+// Only the Electron main process reads this key. Never inject into Python/Node backend.
+function updaterToken() {
+  assertAvailable();
   const data = load();
-  if (Object.prototype.hasOwnProperty.call(data, 'github_updates')) {
-    delete data.github_updates;
-    persist(data);
-  }
+  if (!data.github_updates) return null;
+  return safeStorage.decryptString(Buffer.from(data.github_updates, 'base64'));
 }
 function status() {
   const data = load();
@@ -75,4 +75,4 @@ function status() {
     entries: Object.fromEntries(keys.map(key => [key, typeof data[key] === 'string']))
   };
 }
-module.exports = { keys, set, remove, environment, status, removeLegacyGithubUpdates };
+module.exports = { keys, set, remove, environment, status, updaterToken };
