@@ -16,7 +16,7 @@ jobs:
         run: |
           $private = gh api repos/$env:GITHUB_REPOSITORY --jq '.private'
           if ($private -ne 'true') { throw 'Stopped: repo is not private' }
-          $release = gh release view v0.2.1 --json tagName 2>$null
+          $release = gh release view v0.2.1 --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
           if ($LASTEXITCODE -eq 0) { throw 'Release v0.2.1 already exists. Do not overwrite.' }
           exit 0
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $assets = gh release view v0.2.1 --json assets --jq '.assets[].name'
+          $assets = gh release view v0.2.1 --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name'
           if ($LASTEXITCODE -ne 0) { throw 'Release was not created' }
           if (-not ($assets | Where-Object { $_ -eq 'latest.yml' })) { throw 'Update manifest missing' }
           if (-not ($assets | Where-Object { $_ -match 'GTA6-Clip-Studio-Setup-0.2.1\.exe$' })) { throw 'Setup.exe missing' }
