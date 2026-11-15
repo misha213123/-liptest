@@ -692,6 +692,52 @@ class HighlightMixin:
                 return max(fulls, key=lambda p: p.stat().st_size)
             return max(cands, key=lambda p: p.stat().st_size)
 
+        def _transcribe_youtube_audio_to_srt(self, url: str) -> tuple:
+            """Use a single audio-only fetch and transcribe locally when captions fail.
+
+            The AI highlight pipeline still receives a normal SRT, so clip
+            snapping, selection and later rendering keep working unchanged.
+            """
+            self.set_progress("Downloading audio for speech recognition...", 0.16)
+            audio_path, video_info = self.download_audio_for_transcription(url)
+            self.set_progress("Recognizing speech locally...", 0.3)
+            previous_language = self.subtitle_language
+            try:
+                # YouTube videos may be in any language even when the user's
+                # subtitle setting references a missing YouTube caption.
+                self.subtitle_language = None
+                try:
+                    transcript = self._transcribe_full_faster_whisper(audio_path)
+                except Exception as local_error:
+                    self.log(f"  Локальное распознавание недоступно ({local_error}); пробую Whisper API.")
+                    transcript = self.transcribe_full_video(audio_path)
+            finally:
+                self.subtitle_language = previous_language
+
+            pattern = re.compile(
+                r"^\\[(\\d{2}:\\d{2}:\\d{2},\\d{3}) - "
+                r"(\\d{2}:\\d{2}:\\d{2},\\d{3})\\]\\s*(.+)$"
+            )
+            cues = []
+            for line in (transcript or "").splitlines():
+                match = pattern.match(line.strip())
+                if match:
+                    start, end, content = match.groups()
+                    if content.strip():
+                        cues.append((start, end, content.strip()))
+            if len(cues) < 2 or len((transcript or "").split()) < 15:
+                raise RuntimeError("В аудио недостаточно распознанной речи для поиска моментов.")
+
+            srt_path = self._srt_output_dir() / "source.auto.srt"
+            srt_path.parent.mkdir(parents=True, exist_ok=True)
+            srt_data = "\\n\\n".join(
+                f"{index}\\n{start} --> {end}\\n{content}"
+                for index, (start, end, content) in enumerate(cues, 1)
+            ) + "\\n"
+            srt_path.write_text(srt_data, encoding="utf-8")
+            self.log(f"  ✓ Созданы локальные субтитры: {len(cues)} фраз.")
+            return str(srt_path), video_info
+
         def find_highlights_only(self, url: str, num_clips = "auto", title: str = None,
                                  session_dir: Path = None, progress_callback=None) -> dict:
             """Phase 1: Download subtitle only and find highlights (no video download)
@@ -811,7 +857,20 @@ class HighlightMixin:
                     if not video_info:
                         video_info = self.fetch_video_info(url)
                 else:
-                    srt_path, video_info = self.download_subtitle_only(url)
+                    try:
+                        srt_path, video_info = self.download_subtitle_only(url)
+                    except Exception as subtitle_error:
+                        error_text = str(subtitle_error)
+                        if "429" not in error_text and "Too Many Requests" not in error_text:
+                            raise
+                        self.log("  ⚠ YouTube ограничил запросы субтитров (HTTP 429).")
+                        self.log("  Переключаюсь на загрузку аудио и локальное распознавание.")
+                        srt_path, video_info = self._transcribe_youtube_audio_to_srt(url)
+
+                    if not srt_path:
+                        self.log("  ⚠ Субтитров нужного языка нет. Использую распознавание аудио.")
+                        srt_path, fallback_info = self._transcribe_youtube_audio_to_srt(url)
+                        video_info = {**(video_info or {}), **(fallback_info or {})}
             
                 # Persist video metadata (title, channel, etc.) so the session
                 # browser and credit watermark can use it later.
