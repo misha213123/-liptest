@@ -916,6 +916,97 @@ class DownloadMixin:
             else:
                 return self._download_subtitle_only_subprocess(url)
 
+        def download_audio_for_transcription(self, url: str) -> tuple:
+            """Download audio only, once, when YouTube subtitles are unavailable.
+
+            This does not try to bypass YouTube restrictions. If media access is
+            also rate-limited, propagate a clear message and stop.
+            """
+            if not YTDLP_MODULE_AVAILABLE:
+                raise RuntimeError("Для анализа без субтитров нужен модуль yt-dlp.")
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+            cache = sorted(
+                item for item in self.temp_dir.glob("source_audio.*")
+                if item.is_file() and item.suffix.lower() in (".m4a", ".webm", ".mp3", ".opus", ".aac", ".mp4")
+                and item.stat().st_size > 10000
+            )
+            if cache:
+                self.log(f"  ✓ Использую сохранённое аудио: {cache[0].name}")
+                metadata_file = self.temp_dir / "source_audio.info.json"
+                try:
+                    video_info = json.loads(metadata_file.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    video_info = {}
+                return str(cache[0]), video_info
+
+            self.log("  🎧 Субтитры недоступны. Пробую скачать только аудиодорожку для распознавания речи.")
+            opts = {
+                "format": "bestaudio/best",
+                "outtmpl": str(self.temp_dir / "source_audio.%(ext)s"),
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": False,
+                "writesubtitles": False,
+                "writeautomaticsub": False,
+                "retries": 0,
+                "fragment_retries": 0,
+                "extractor_retries": 0,
+                "extractor_args": {
+                    "youtube": {"player_client": ["web", "web_embedded", "web_safari", "mweb"]}
+                },
+            }
+            deno_path = get_deno_path()
+            if deno_path and Path(deno_path).exists():
+                opts["js_runtimes"] = {"deno": {"path": deno_path}}
+                opts["remote_components"] = ["ejs:github"]
+            ffmpeg_path = get_ffmpeg_path()
+            if ffmpeg_path and Path(ffmpeg_path).exists():
+                opts["ffmpeg_location"] = str(Path(ffmpeg_path).parent)
+
+            from utils.helpers import get_app_dir
+            app_dir = get_app_dir()
+            for loc in (Path("cookies.txt"), app_dir / "cookies.txt"):
+                if loc.exists() and loc.stat().st_size > 0:
+                    opts["cookiefile"] = str(loc)
+                    break
+
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                if not info:
+                    raise RuntimeError("Не удалось получить аудио.")
+            except Exception as exc:
+                message = str(exc)
+                if "429" in message or "Too Many Requests" in message:
+                    raise RuntimeError(
+                        "YouTube ограничил не только субтитры, но и скачивание аудио (429). "
+                        "Подождите, пока ограничение снимется, либо используйте другой доступный источник. "
+                        "Не запускайте анализ многократно подряд."
+                    ) from None
+                raise RuntimeError(f"Не удалось скачать аудио для распознавания: {message[:250]}") from None
+
+            audio_files = sorted(
+                item for item in self.temp_dir.glob("source_audio.*")
+                if item.is_file() and item.suffix.lower() in (".m4a", ".webm", ".mp3", ".opus", ".aac", ".mp4")
+                and item.stat().st_size > 10000
+            )
+            if not audio_files:
+                raise RuntimeError("Аудиодорожка не найдена после скачивания.")
+            video_info = {
+                "title": info.get("title", "") or "Видео",
+                "description": (info.get("description", "") or "")[:2000],
+                "channel": info.get("channel", ""),
+                "duration": float(info.get("duration") or 0),
+            }
+            try:
+                (self.temp_dir / "source_audio.info.json").write_text(
+                    json.dumps(video_info, ensure_ascii=False), encoding="utf-8"
+                )
+            except OSError:
+                pass
+            self.log(f"  ✓ Аудио для распознавания готово: {audio_files[0].name}")
+            return str(audio_files[0]), video_info
+
         def _download_subtitle_only_module(self, url: str) -> tuple:
             """Download subtitle only using yt-dlp Python module API"""
             self.log(f"  Using yt-dlp module v{yt_dlp.version.__version__}")
