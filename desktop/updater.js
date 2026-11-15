@@ -1,32 +1,32 @@
 'use strict';
 const { app, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
-const vault = require('./vault');
-const PRIVATE_FEED = Object.freeze({ provider: 'github', owner: 'misha213123', repo: '-liptest', private: true });
-
+// Public GitHub Releases feed: no personal token or login required.
+const PUBLIC_FEED = Object.freeze({ provider: 'github', owner: 'misha213123', repo: '-liptest' });
 
 let initiated = false;
 let state = { status: 'idle', detail: '' };
 let showNotice = null;
 let feedConfigured = false;
 function configureFeed() {
-  feedConfigured = false;
-  let token;
-  try { token = vault.updaterToken(); }
-  catch { emit('needs_auth', 'Хранилище Windows недоступно.'); return false; }
-  if (!token) { emit('needs_auth', 'Добавьте ключ GitHub (только чтение) в настройках приложения.'); return false; }
-  autoUpdater.setFeedURL({ ...PRIVATE_FEED, token });
-  feedConfigured = true;
-  return true;
+  try {
+    autoUpdater.setFeedURL(PUBLIC_FEED);
+    feedConfigured = true;
+    return true;
+  } catch {
+    feedConfigured = false;
+    emit('error', 'Не удалось настроить публичный канал обновлений GitHub.');
+    return false;
+  }
 }
 
 function classifyUpdateError(err) {
   const message = String(err && err.message || err || '');
   if (/\b404\b|not found|No published versions|Cannot find latest\.yml|release.*not found/i.test(message)) {
-    return { status: 'no_release', detail: 'Пока нет опубликованных обновлений в приватном GitHub Releases. Установлена версия ' + app.getVersion() + '.' };
+    return { status: 'no_release', detail: 'Пока нет опубликованных обновлений в GitHub Releases. Установлена версия ' + app.getVersion() + '.' };
   }
   if (/\b401\b|\b403\b|Bad credentials|Resource not accessible|Unauthorized|Forbidden/i.test(message)) {
-    return { status: 'needs_auth', detail: 'GitHub не разрешил доступ. Проверьте срок действия токена и Contents: Read-only.' };
+    return { status: 'error', detail: 'GitHub не разрешил доступ. Убедитесь, что репозиторий публичный и доступен без входа.' };
   }
   return { status: 'error', detail: 'Не удалось проверить обновления. Проверьте соединение с GitHub и повторите попытку.' };
 }
@@ -98,9 +98,5 @@ async function check(manual = true) {
   }
   return state;
 }
-function refreshCredentials() {
-  if (!initiated) return;
-  if (configureFeed()) check(false);
-}
 function getState() { return state; }
-module.exports = { setup, check, getState, refreshCredentials };
+module.exports = { setup, check, getState };
