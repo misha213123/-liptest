@@ -715,8 +715,8 @@ class HighlightMixin:
                 self.subtitle_language = previous_language
 
             pattern = re.compile(
-                r"^\\[(\\d{2}:\\d{2}:\\d{2},\\d{3}) - "
-                r"(\\d{2}:\\d{2}:\\d{2},\\d{3})\\]\\s*(.+)$"
+                r"^\[(\d{2}:\d{2}:\d{2},\d{3}) - "
+                r"(\d{2}:\d{2}:\d{2},\d{3})\]\s*(.+)$"
             )
             cues = []
             for line in (transcript or "").splitlines():
@@ -730,10 +730,10 @@ class HighlightMixin:
 
             srt_path = self._srt_output_dir() / "source.auto.srt"
             srt_path.parent.mkdir(parents=True, exist_ok=True)
-            srt_data = "\\n\\n".join(
-                f"{index}\\n{start} --> {end}\\n{content}"
+            srt_data = "\n\n".join(
+                f"{index}\n{start} --> {end}\n{content}"
                 for index, (start, end, content) in enumerate(cues, 1)
-            ) + "\\n"
+            ) + "\n"
             srt_path.write_text(srt_data, encoding="utf-8")
             self.log(f"  ✓ Созданы локальные субтитры: {len(cues)} фраз.")
             return str(srt_path), video_info
