@@ -1,6 +1,7 @@
 import unittest
 
 from core.streamer_export import ASPECT_PRESETS, export_settings, intermediate_encoder_args
+from core.streamer_layout import gameplay_crop
 
 
 class StreamerExportTests(unittest.TestCase):
@@ -32,6 +33,16 @@ class StreamerExportTests(unittest.TestCase):
         ]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 export_settings(bad)
+
+    def test_gameplay_crop_preserves_geometry(self):
+        for ratio in [(1080, 1250), (1350, 686), (1920, 686), (2520, 686)]:
+            with self.subTest(ratio=ratio):
+                cw, ch, x, y = gameplay_crop(1920, 1080, *ratio)
+                self.assertEqual(cw % 2, 0)
+                self.assertEqual(ch % 2, 0)
+                self.assertLessEqual(cw + x, 1920)
+                self.assertLessEqual(ch + y, 1080)
+                self.assertAlmostEqual(cw / ch, ratio[0] / ratio[1], delta=0.02)
 
     def test_intermediate_encoding_no_ultrafast(self):
         gpu = intermediate_encoder_args(["-c:v", "h264_nvenc"], "ultra")

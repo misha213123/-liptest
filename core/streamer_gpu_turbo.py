@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Dict
 
-from core.streamer_layout import normalize_rect, probe_video_size
+from core.streamer_layout import normalize_rect, probe_video_size, gameplay_crop
 
 
 class StreamerGpuTurboError(RuntimeError):
@@ -95,12 +95,9 @@ def render_streamer_gpu_turbo(
     scaled_w = max(inner_w, scaled_w)
     scaled_h = max(inner_h, scaled_h)
 
-    game_aspect = output_width / float(game_h)
-    game_crop_w = _even(min(source_w, round(source_h * game_aspect)))
-    max_game_x = max(0, source_w - game_crop_w)
-    game_x = int(round(max_game_x * gameplay_center_x))
-    game_x = max(0, min(max_game_x, game_x))
-    game_x -= game_x % 2
+    game_crop_w, game_crop_h, game_x, game_y = gameplay_crop(
+        source_w, source_h, output_width, game_h, gameplay_center_x
+    )
 
     graph = [
         "[0:v]split=2[cam0][game0]",
@@ -113,7 +110,7 @@ def render_streamer_gpu_turbo(
             f"pad={output_width}:{top_h}:{pad}:{pad}:black[cam]"
         ),
         (
-            f"[game0]crop={game_crop_w}:{source_h}:{game_x}:0,"
+            f"[game0]crop={game_crop_w}:{game_crop_h}:{game_x}:{game_y},"
             "format=nv12,hwupload_cuda,"
             f"scale_cuda=w={output_width}:h={game_h}:interp_algo=lanczos,"
             "hwdownload,format=nv12[game]"
@@ -153,7 +150,7 @@ def render_streamer_gpu_turbo(
     log(
         "  🚀 GPU TURBO: one-pass CUDA scale + NVENC "
         f"(source={source_w}x{source_h}, cam={cam_w}x{cam_h}, "
-        f"game_crop={game_crop_w}x{source_h})"
+        f"game_crop={game_crop_w}x{game_crop_h})"
     )
     log("  FFmpeg GPU TURBO: " + " ".join(cmd))
 

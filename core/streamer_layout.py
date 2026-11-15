@@ -50,6 +50,26 @@ def probe_video_size(video_path: str) -> Tuple[int, int]:
         raise StreamerLayoutError("OpenCV не установлен.") from exc
 
 
+
+def gameplay_crop(
+    source_w: int, source_h: int, target_w: int, target_h: int,
+    center_x: float = 0.5,
+) -> Tuple[int, int, int, int]:
+    """Crop a game panel to target aspect without stretching source pixels."""
+    sw = max(2, int(source_w) // 2 * 2)
+    sh = max(2, int(source_h) // 2 * 2)
+    target_aspect = float(target_w) / max(2.0, float(target_h))
+    if sw / sh > target_aspect:
+        cw = max(2, min(sw, int(sh * target_aspect) // 2 * 2))
+        ch = sh
+        x = int(round((sw - cw) * clamp(center_x, 0.0, 1.0))) // 2 * 2
+        y = 0
+    else:
+        cw, ch = sw, max(2, min(sh, int(sw / target_aspect) // 2 * 2))
+        x, y = 0, ((sh - ch) // 2) // 2 * 2
+    return cw, ch, x, y
+
+
 class StreamerLayoutRenderer:
     """Render webcam-over-game vertical clips from a normal streamer recording."""
 
@@ -102,16 +122,11 @@ class StreamerLayoutRenderer:
         cam_w -= cam_w % 2
         cam_h -= cam_h % 2
 
-        # Bottom gameplay panel uses full source height and crops horizontally to
-        # the aspect ratio required by its slot. This usually removes side chat /
-        # facecam overlays without tracking the game every frame.
-        game_aspect = output_width / float(game_h)
-        game_crop_w = min(source_w, int(round(source_h * game_aspect)))
-        game_crop_w = max(2, game_crop_w - (game_crop_w % 2))
-        max_game_x = max(0, source_w - game_crop_w)
-        game_x = int(round(max_game_x * gameplay_center_x))
-        game_x = max(0, min(max_game_x, game_x))
-        game_x -= game_x % 2
+        # Preserve game geometry for wide and square targets: crop source
+        # vertically when the requested panel is wider than the source.
+        game_crop_w, game_crop_h, game_x, game_y = gameplay_crop(
+            source_w, source_h, output_width, game_h, gameplay_center_x
+        )
 
         pad = webcam_padding
         inner_w = max(2, output_width - pad * 2)
@@ -143,7 +158,7 @@ class StreamerLayoutRenderer:
             f"[0:v]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},"
             f"{webcam_filters},"
             f"pad={output_width}:{top_h}:{pad}:{pad}:black[cam];"
-            f"[0:v]crop={game_crop_w}:{source_h}:{game_x}:0,"
+            f"[0:v]crop={game_crop_w}:{game_crop_h}:{game_x}:{game_y},"
             f"scale={output_width}:{game_h}:flags=lanczos+accurate_rnd+full_chroma_int[game];"
             f"[cam][game]vstack=inputs=2[v]"
         )
@@ -174,7 +189,7 @@ class StreamerLayoutRenderer:
         self.log(
             "  Streamer layout: "
             f"webcam=({cam_x},{cam_y},{cam_w},{cam_h}), "
-            f"game_x={game_x}, top={top_h}px, bottom={game_h}px, "
+            f"game_x={game_x}, game_y={game_y}, game_crop={game_crop_w}x{game_crop_h}, top={top_h}px, bottom={game_h}px, "
             f"enhance={webcam_enhance}, webcam_upscale={max(inner_w/max(cam_w,1), inner_h/max(cam_h,1)):.2f}x"
         )
         self.log("  FFmpeg: " + " ".join(cmd))
