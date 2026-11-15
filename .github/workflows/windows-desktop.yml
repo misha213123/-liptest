@@ -8,6 +8,7 @@ on:
       - 'webjs/**'
       - 'requirements.txt'
       - '.github/workflows/windows-desktop.yml'
+      - '.github/scripts/**'
 concurrency:
   group: windows-preview-${{ github.ref }}
   cancel-in-progress: true
