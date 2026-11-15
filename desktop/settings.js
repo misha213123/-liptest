@@ -12,7 +12,7 @@ function notice(text) { $('notice').textContent = text; }
 function updateText(state) {
   const captions = { idle: 'Ожидание', unavailable: 'Недоступно', checking: 'Проверка',
     downloading: 'Загрузка', current: 'Последняя версия', ready: 'Готово', error: 'Ошибка',
-    needs_auth: 'Нужно подключить GitHub', deferred: 'Обновление отложено' };
+    needs_auth: 'Нужно подключить GitHub', deferred: 'Обновление отложено', no_release: 'Обновлений пока нет' };
   $('update-status').textContent = (captions[state.status] || state.status) + ': ' + (state.detail || '');
 }
 async function refresh() {
