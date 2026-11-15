@@ -3,7 +3,8 @@ const names = {
   openai: 'OpenAI API Key', hf: 'HF API Key',
   tiktok_client_key: 'TikTok Client Key', tiktok_client_secret: 'TikTok Client Secret',
   instagram_access_token: 'Instagram Access Token',
-  cloudflare_tunnel_token: 'Cloudflare Tunnel Token'
+  cloudflare_tunnel_token: 'Cloudflare Tunnel Token',
+  github_updates: 'GitHub — ключ для приватных обновлений (Contents: Read)'
 };
 let current = null;
 const $ = id => document.getElementById(id);
