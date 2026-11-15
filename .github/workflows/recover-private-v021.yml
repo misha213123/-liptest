@@ -1,0 +1,67 @@
+name: Publish existing v0.2.1 privately for automatic in-app upgrade
+on:
+  push:
+    branches: [feature/windows-desktop-installer]
+    paths: ['.github/workflows/recover-private-v021.yml']
+permissions:
+  contents: write
+jobs:
+  release-existing:
+    runs-on: windows-latest
+    steps:
+      - name: Verify repository is private
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $private = gh api repos/$env:GITHUB_REPOSITORY --jq '.private'
+          if ($private -ne 'true') { throw 'Stopped: repo is not private' }
+          $release = gh release view v0.2.1 --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'Release v0.2.1 already exists. Do not overwrite.' }
+          exit 0
+      - uses: actions/checkout@v4
+        with:
+          ref: v0.2.1
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact v0.2.1 release source and no committed key
+        shell: pwsh
+        run: |
+          $version = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          if ($version -ne '0.2.1') { throw 'Unexpected version' }
+          git grep --quiet -E 'sk-[a-zA-Z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}' -- desktop webjs core config
+          if ($LASTEXITCODE -eq 0) { throw 'Release blocked: possible embedded secret' }
+          if ($LASTEXITCODE -ne 1) { throw 'Credential scan failed' }
+          foreach ($f in @('main.js','preload.js','vault.js','updater.js','settings.js')) {
+            node --check "desktop/$f"
+            if ($LASTEXITCODE -ne 0) { throw "Syntax error: $f" }
+          }
+      - name: Stage full portable runtime
+        shell: pwsh
+        run: ./desktop/scripts/stage-windows.ps1
+      - name: Verify embedded media dependencies on Windows
+        shell: pwsh
+        run: ./desktop/scripts/smoke-windows.ps1
+      - name: Install builder
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Build and publish v0.2.1 private update feed
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win nsis --publish always
+      - name: Verify release and auto-update files
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $assets = gh release view v0.2.1 --json assets --jq '.assets[].name'
+          if ($LASTEXITCODE -ne 0) { throw 'Release was not created' }
+          if (-not ($assets | Where-Object { $_ -eq 'latest.yml' })) { throw 'Update manifest missing' }
+          if (-not ($assets | Where-Object { $_ -match 'GTA6-Clip-Studio-Setup-0.2.1\.exe$' })) { throw 'Setup.exe missing' }
+          Write-Host 'Private auto-update v0.2.1 is available to already installed 0.2.0 clients.'
