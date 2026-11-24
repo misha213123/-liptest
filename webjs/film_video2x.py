@@ -227,6 +227,50 @@ def build_steps(
     return steps
 
 
+
+def stall_reason(
+    now: float, started: float, last_activity: float, output_bytes: int,
+    first_byte_timeout: int, idle_timeout: int,
+) -> str | None:
+    """Separate a zero-byte MP4 from log noise or harmless percentage lines."""
+    if output_bytes <= 0 and now - started >= first_byte_timeout:
+        return (
+            f"Video2X не создал ни одного байта MP4 за "
+            f"{first_byte_timeout} секунд. Переключаюсь на FFmpeg."
+        )
+    if now - last_activity >= idle_timeout:
+        return (
+            f"Video2X не продвигает обработку уже {idle_timeout} секунд. "
+            "Переключаюсь на FFmpeg."
+        )
+    return None
+
+
+def terminate_tree(proc) -> None:
+    """On Windows, killing video2x.exe alone can leave Vulkan/FFmpeg children."""
+    if proc.poll() is not None:
+        return
+    if os.name == "nt" and getattr(proc, "pid", None):
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=12, creationflags=SUBPROCESS_FLAGS,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=6)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+
 def run_steps(
     source: Path,
     folder: Path,
@@ -268,9 +312,13 @@ def run_steps(
         latest_line_at = started
         last_activity_at = started
         last_output_bytes = 0
-        # On small GPUs, a driver hang can leave an empty MP4 forever.
-        # Allow a generous idle interval, but preserve the usable FFmpeg
-        # intermediate via Film Studio's fallback render path.
+        last_actual_percent = -1.0
+        # Very important: a log line saying "99%" is not proof that frames
+        # were encoded. A hard *first-byte* deadline keeps 4GB Vulkan hangs
+        # from holding the entire render at 72% indefinitely.
+        first_byte_timeout = max(60, min(900, int(os.environ.get(
+            "FILM_VIDEO2X_FIRST_BYTE_TIMEOUT", "180"
+        ))))
         idle_timeout = max(60, min(3600, int(os.environ.get(
             "FILM_VIDEO2X_IDLE_TIMEOUT", "240"
         ))))
@@ -297,12 +345,13 @@ def run_steps(
                 if output_bytes > last_output_bytes:
                     last_output_bytes = output_bytes
                     last_activity_at = now
-                if now - last_activity_at > idle_timeout:
-                    raise RuntimeError(
-                        f"Video2X: {label} не увеличивает файл и не "
-                        f"отдаёт прогресс {idle_timeout} секунд. "
-                        "Останавливаю AI и сохраняю готовый FFmpeg-вариант."
-                    )
+                stall = stall_reason(
+                    now, started, last_activity_at, output_bytes,
+                    first_byte_timeout, idle_timeout,
+                )
+                if stall:
+                    print("[video2x] WATCHDOG: " + stall, flush=True)
+                    raise RuntimeError(stall)
                 if now - last_heartbeat >= 12:
                     elapsed = int(now - started)
                     age = int(now - latest_line_at)
@@ -335,7 +384,12 @@ def run_steps(
                     match = re.search(r"(?<!\d)(\d{1,3}(?:\.\d+)?)%", line)
                     if match:
                         value = max(0, min(100, float(match.group(1))))
-                        last_activity_at = time.monotonic()
+                        # Mere repeated percentages are NOT actual progress.
+                        # Move the idle timer only on a genuinely higher
+                        # percent. The first-byte timer never resets.
+                        if value > last_actual_percent + .05:
+                            last_actual_percent = value
+                            last_activity_at = time.monotonic()
                         local_pct = int(value * 0.08)
                         if local_pct > last_reported:
                             last_reported = local_pct
@@ -349,8 +403,7 @@ def run_steps(
                 )
         finally:
             if proc.poll() is None:
-                proc.kill()
-                proc.wait()
+                terminate_tree(proc)
         if not target.is_file() or target.stat().st_size < 100_000:
             raise RuntimeError(f"Video2X: {label} не создал выходное видео.")
         current = target
