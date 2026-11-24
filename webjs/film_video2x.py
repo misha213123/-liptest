@@ -40,6 +40,34 @@ def upscale_factor(model: str) -> int:
     return REAL_ESRGAN_SCALES.get(model, 1)
 
 
+def intermediate_dimensions(
+    crop_width: int, crop_height: int, target_width: int, target_height: int,
+    model: str,
+) -> tuple[int, int]:
+    """Keep source face detail instead of shrinking to target/native_scale.
+
+    Real-ESRGAN Plus is natively 4x. For a 720p 9:16 crop of about 404x720,
+    a 1080x1920 export should feed roughly 404x720 into the model, NOT
+    downsample it to 270x480. Cap excessive input size to 1.5x the minimum
+    native model input to avoid accidental 8K+ AI processing.
+    """
+    if min(crop_width, crop_height, target_width, target_height) < 2:
+        raise ValueError("Invalid source or export dimensions")
+    scale = upscale_factor(model)
+    if scale == 1:
+        return int(target_width), int(target_height)
+    needed_scale = max(
+        target_width / (scale * crop_width),
+        target_height / (scale * crop_height),
+    )
+    # If the source is already larger than needed, keep its detail up to
+    # 150% of the minimum model input; if smaller, upscale as little as needed.
+    resize = needed_scale if needed_scale >= 1.0 else min(1.0, needed_scale * 1.5)
+    width = max(2, int(round(crop_width * resize / 2) * 2))
+    height = max(2, int(round(crop_height * resize / 2) * 2))
+    return width, height
+
+
 def resources_root(executable: str) -> Path:
     """Locate the official Video2X models folder near its executable."""
     exe = Path(executable).resolve()
@@ -230,6 +258,8 @@ def run_steps(
         tail = []
         messages = queue.Queue()
         last_reported = 0
+        last_heartbeat = started
+        latest_line_at = started
 
         def drain():
             try:
@@ -249,12 +279,32 @@ def run_steps(
                 except queue.Empty:
                     if proc.poll() is not None and not reader.is_alive():
                         break
+                    now = time.monotonic()
+                    # A GPU model may emit no newline or logged percentage for
+                    # minutes. Tell the UI the process is alive without
+                    # pretending that wall-clock time is real progress.
+                    if now - last_heartbeat >= 12:
+                        elapsed = int(now - started)
+                        size_mb = (
+                            target.stat().st_size / 1048576
+                            if target.exists() else 0
+                        )
+                        age = int(now - latest_line_at)
+                        print(
+                            f"[video2x] {label}: process PID={proc.pid}, "
+                            f"running {elapsed}s, output {size_mb:.1f} MiB, "
+                            f"last console line {age}s ago. "
+                            f"No percentage available yet.",
+                            flush=True,
+                        )
+                        last_heartbeat = now
                     continue
                 if raw is None:
                     break
                 line = re.sub(r"\x1b\[[0-9;]*[mK]", "", raw.strip())
                 if not line:
                     continue
+                latest_line_at = time.monotonic()
                 tail.append(line[-260:])
                 if len(tail) > 35:
                     tail.pop(0)
@@ -269,6 +319,7 @@ def run_steps(
                             last_reported = local_pct
                             report(f"Video2X: {label} {value:.0f}%", min(89, 72 + index * 10 + local_pct))
             returncode = proc.wait(timeout=20)
+            print(f"[video2x] {label}: exited with code {returncode}", flush=True)
             if returncode != 0:
                 raise RuntimeError(
                     f"Video2X: {label} завершился с кодом {returncode}. "
