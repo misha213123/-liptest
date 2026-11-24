@@ -14,6 +14,10 @@ PRESETS = {
                 "saturation": 1.23, "tone": "neutral"},
     "ultra": {"gamma": 1.10, "brightness": .040, "contrast": 1.17,
               "saturation": 1.28, "tone": "neutral"},
+    # Reference clip look: stronger contrast, warm skin tones, saturated color.
+    # Actual FFmpeg filters, not fake HDR/4K.
+    "reference": {"gamma": 1.055, "brightness": .015, "contrast": 1.18,
+                  "saturation": 1.24, "tone": "warm"},
     "bright": {"gamma": 1.12, "brightness": .052, "contrast": 1.06,
                "saturation": 1.10, "tone": "neutral"},
     "cinema": {"gamma": 1.04, "brightness": .003, "contrast": 1.15,
