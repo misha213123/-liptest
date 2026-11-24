@@ -256,6 +256,30 @@ The Film Studio preview now:
 Preview clips are generated using the normal FFmpeg color filters,
 but AI super-resolution and actual timed subtitles still require a render.
 
+## Dialogue alignment, actor focus and color comparison (2026-11-24)
+
+- Faster-Whisper defaults to the **medium** model with **Russian** selected.
+  Select English or Auto if the source audio is in another language.
+  This can improve transcription quality but does not guarantee perfect words.
+- Speech VAD removal is disabled on short movie clips to preserve timestamps
+  across dialogue and silence. Automatic word timestamps are still approximate.
+- Subtitle offset slider: **negative = show earlier**, **positive = show later**;
+  adjusts every ASS cue (including karaoke word highlights) by up to 2 seconds
+  without modifying the original audio. Rendering is required to apply changes.
+- ASS timestamps are rounded to integer centiseconds instead of truncating a
+  floating-point timestamp (e.g., 1.20 seconds previously sometimes became 1.19).
+- Face tracking also tries the officially pinned OpenCV profile cascade. Choose
+  Auto / Left / Center / Right when several actors share a shot. This is
+  spatial character selection, **not speaker diarization or lip-sync detection**.
+- The **Ultra · сочный** color preset provides a visible gamma/brightness/
+  contrast/saturation increase. The preview has **Before / After** buttons
+  showing two actual FFmpeg-generated frames with identical cropping.
+  Neither color preset nor upscaling reconstructs a native 4K source.
+- Movie dialogue with background music and overlapping speakers can still
+  require manual subtitle corrections. To check improvements, render 5–10
+  seconds with Video2X disabled first, then enable neural enhancement only
+  once frame selection and text timing are correct.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
