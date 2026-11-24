@@ -101,6 +101,58 @@ def ai_source_dimensions(crop_w: int, crop_h: int) -> tuple[int, int]:
     return width, height
 
 
+def restore_preview_frame(
+    preview: Path, ffmpeg: str, width: int, height: int,
+    *, model: str = "realesrgan-x4plus", tile: int = 64,
+) -> None:
+    """Explicit one-frame neural preview, without modifying the video.
+
+    This is only called by the user clicking 'Test AI on one frame'.
+    Automated thumbnail updates deliberately do NOT run inference.
+    """
+    import tempfile
+
+    if model not in MODELS or tile not in (32, 64, 96, 128):
+        raise ValueError("Неверная модель или размер GPU-блока для AI-превью.")
+    if width < 16 or height < 16 or width * height > 3840 * 2160:
+        raise ValueError("Неверные размеры AI-превью.")
+    preview = Path(preview)
+    if not preview.is_file():
+        raise ValueError("Нет готовой миниатюры для AI-превью.")
+    exe, models = require_binary()
+    with tempfile.TemporaryDirectory(prefix="film-ai-preview-",
+                                     dir=str(preview.parent)) as tmp:
+        base = Path(tmp)
+        source_png = base / "input.png"
+        neural_png = base / "enhanced.png"
+        final_jpg = base / "after.jpg"
+        run_cmd([
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+            "-y", "-i", str(preview), "-frames:v", "1", str(source_png),
+        ], timeout=45)
+        result = subprocess.run([
+            str(exe), "-i", str(source_png), "-o", str(neural_png),
+            "-m", str(models), "-n", model,
+            "-s", "2", "-t", str(tile), "-g", "0", "-j", "1:1:1",
+            "-f", "png",
+        ], cwd=str(exe.parent), capture_output=True,
+           timeout=150, creationflags=FLAGS)
+        if result.returncode or not neural_png.is_file():
+            raise RuntimeError(
+                "Real-ESRGAN не обработал тестовый кадр. "
+                "Проверь Vulkan или выбери блок 32 px."
+            )
+        run_cmd([
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+            "-y", "-i", str(neural_png), "-frames:v", "1",
+            "-vf", f"scale={width}:{height}:flags=lanczos",
+            "-q:v", "2", str(final_jpg),
+        ], timeout=45)
+        if not final_jpg.is_file() or final_jpg.stat().st_size < 500:
+            raise RuntimeError("Нейросеть не создала изображение предпросмотра.")
+        final_jpg.replace(preview)
+
+
 def restore_clip(
     prepared: Path, out_dir: Path, ffmpeg: str, duration: float,
     fps: float, report,
