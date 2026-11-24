@@ -460,6 +460,13 @@ def render(job: dict) -> dict:
     ai_model, rife_multiplier = video2x_options(job)
     ai_enabled = ai_model != "off" or rife_multiplier > 1
     detail_requested = job.get("ai_detail_restore", False) is True
+    try:
+        detail_strength = float(job.get("ai_detail_strength", 100))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Интенсивность AI Detail должна быть от 0 до 100%.") from exc
+    if not math.isfinite(detail_strength) or not 0 <= detail_strength <= 100:
+        raise ValueError("Интенсивность AI Detail должна быть от 0 до 100%.")
+    detail_requested = detail_requested and detail_strength > 0
     if detail_requested:
         if ai_enabled:
             raise ValueError("Выбери либо AI Detail Restore, либо Video2X, не оба режима одновременно.")
@@ -696,7 +703,7 @@ def render(job: dict) -> dict:
         detail_model = str(job.get("ai_detail_model") or "realesrgan-x4plus")
         detail_tile = int(job.get("ai_detail_tile", 64))
         print(
-            f"[detail] Model={detail_model}, tile={detail_tile}, "
+            f"[detail] Model={detail_model}, tile={detail_tile}, strength={detail_strength:.0f}%, "
             f"source FPS={metadata['fps']:.3f}; "
             "AI -> motion interpolation -> subtitles.",
             flush=True,
@@ -709,6 +716,7 @@ def render(job: dict) -> dict:
                 report=progress, crop_width=cw, crop_height=ch,
                 target_width=target_w, target_height=target_h,
                 tile=detail_tile, model=detail_model,
+                strength=detail_strength,
             )
             detail_succeeded = True
             print("[detail] Neural frame restoration completed.", flush=True)
