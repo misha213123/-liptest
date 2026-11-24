@@ -64,7 +64,7 @@ class Video2XIntegrationTests(unittest.TestCase):
         upscale = steps[0][1]
         rife = steps[1][1]
         self.assertIn("realesrgan", upscale)
-        self.assertEqual(upscale[upscale.index("-s") + 1], "2")
+        self.assertEqual(upscale[upscale.index("-s") + 1], "4")
         self.assertEqual(upscale[upscale.index("--realesrgan-model") + 1], "realesrgan-plus")
         self.assertIn("rife", rife)
         self.assertEqual(rife[rife.index("-m") + 1], "2")
@@ -72,6 +72,46 @@ class Video2XIntegrationTests(unittest.TestCase):
         self.assertEqual(rife[rife.index("--scene-thresh") + 1], "20")
         self.assertEqual(rife[rife.index("-i") + 1], str(steps[0][2]))
         self.assertTrue(all(isinstance(arg, str) for arg in upscale + rife))
+
+    def test_native_model_scales_and_required_files(self):
+        from film_video2x import upscale_factor, required_model_files
+        self.assertEqual(upscale_factor("realesrgan-plus"), 4)
+        self.assertEqual(upscale_factor("realesr-animevideov3"), 2)
+        self.assertEqual(upscale_factor("anime4k-v4-a+a"), 1)
+        plus = [str(p).replace("\\", "/") for p in required_model_files(
+            "realesrgan-plus", 2
+        )]
+        self.assertIn("models/realesrgan/realesrgan-plus-x4.param", plus)
+        self.assertIn("models/realesrgan/realesrgan-plus-x4.bin", plus)
+        self.assertIn("models/rife/rife-v4.26/flownet.param", plus)
+        self.assertNotIn("models/realesrgan/realesrgan-plus-x2.param", plus)
+
+    def test_video2x_resources_root_and_asset_validation(self):
+        import tempfile
+        from film_video2x import resources_root, validate_model_files
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe_dir = root / "bin"
+            exe_dir.mkdir()
+            exe = exe_dir / "video2x.exe"
+            exe.write_bytes(b"cli")
+            self.assertEqual(resources_root(str(exe)), exe_dir)
+            with self.assertRaisesRegex(RuntimeError, "realesrgan-plus-x4.param"):
+                validate_model_files(str(exe), "realesrgan-plus", 1)
+            models_dir = root / "models" / "realesrgan"
+            models_dir.mkdir(parents=True)
+            for ext in (".param", ".bin"):
+                (models_dir / ("realesrgan-plus-x4" + ext)).write_bytes(b"model")
+            self.assertEqual(resources_root(str(exe)), root)
+            self.assertEqual(validate_model_files(str(exe), "realesrgan-plus", 1), root)
+
+    def test_animevideov3_keeps_x2(self):
+        from film_video2x import build_steps
+        cmd = build_steps(
+            "video2x.exe", Path("source.mp4"), Path("output"),
+            "realesr-animevideov3", 1, 1080, 1920,
+        )[0][1]
+        self.assertEqual(cmd[cmd.index("-s") + 1], "2")
 
     def test_anime4k_and_no_ai(self):
         from film_video2x import build_steps
