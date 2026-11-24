@@ -174,6 +174,7 @@ let STREAMER_PREVIEW_JOB = null;
 let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
 let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
+let FILM_RENDER_JOB = null;
 // job story clip & facebook upload
 let STORY_JOBS = new Map(); // key "run" -> job (biar /api/tasks legible)
 const FB_JOBS = new Map();  // key "run" -> job
@@ -1380,6 +1381,173 @@ except Exception as e:
         progress: parseOverall(log),
         result
       });
+    }
+
+    // Film & Series Studio: catalog lookup is metadata-only; the provider might
+    // refuse requests, in which case users can still upload their own MP4/MKV.
+    if (p === '/api/film/catalog' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', chunk => {
+        raw += chunk;
+        if (raw.length > 8192) req.destroy();
+      });
+      req.on('end', () => {
+        let payload;
+        try { payload = JSON.parse(raw || '{}'); }
+        catch { return json(res, 400, { error: 'Некорректный запрос.' }); }
+        const url = String(payload.url || '').trim();
+        let parsed;
+        try { parsed = new URL(url); }
+        catch { return json(res, 400, { error: 'Нужна ссылка на страницу HDrezka.' }); }
+        if (parsed.protocol !== 'https:' ||
+            !['hdrezka.rest', 'www.hdrezka.rest'].includes(parsed.hostname)) {
+          return json(res, 400, { error: 'Поддерживаются ссылки на hdrezka.rest по HTTPS.' });
+        }
+        execFile(PY, [path.join(__dirname, 'film_catalog_api.py'), url], {
+          timeout: 45000, maxBuffer: 2 * 1024 * 1024,
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        }, (error, stdout, stderr) => {
+          let result;
+          try { result = JSON.parse(String(stdout || '').trim().split(/\r?\n/).pop()); }
+          catch { result = { ok: false, error: 'Не удалось прочитать каталог.' }; }
+          const safeError = String(result.error || (error && error.message) || '').slice(0, 450);
+          json(res, error || !result.ok ? 422 : 200,
+               error || !result.ok ? { ok: false, error: safeError } : result);
+        });
+      });
+      return;
+    }
+
+    // Stream large user-provided files straight to disk; never keep them in RAM.
+    if (p === '/api/film/upload' && req.method === 'POST') {
+      const MAX = 8 * 1024 * 1024 * 1024;
+      const raw = String(req.headers['x-filename'] || 'source.mp4');
+      let name = raw;
+      try { name = decodeURIComponent(raw); } catch {}
+      const ext = path.extname(path.basename(name)).toLowerCase();
+      if (!['.mp4', '.mkv', '.webm', '.mov', '.m4v'].includes(ext)) {
+        return json(res, 400, { error: 'Допустимы MP4, MKV, MOV и WEBM.' });
+      }
+      const contentLength = Number(req.headers['content-length'] || 0);
+      if (contentLength > MAX) return json(res, 413, { error: 'Максимум 8 ГБ.' });
+      const base = path.join(ROOT, 'output', 'film_inputs');
+      fs.mkdirSync(base, { recursive: true });
+      const id = crypto.randomBytes(12).toString('hex') + ext;
+      const destination = path.join(base, id);
+      const temp = destination + '.part';
+      const output = fs.createWriteStream(temp, { flags: 'wx' });
+      let length = 0, failed = false;
+      const cleanup = () => {
+        try { output.destroy(); } catch {}
+        try { fs.unlinkSync(temp); } catch {}
+      };
+      req.on('data', chunk => {
+        length += chunk.length;
+        if (length > MAX && !failed) {
+          failed = true;
+          cleanup();
+          if (!res.writableEnded) json(res, 413, { error: 'Файл больше 8 ГБ.' });
+          req.destroy();
+        }
+      });
+      req.on('aborted', cleanup);
+      output.on('error', err => {
+        failed = true;
+        cleanup();
+        if (!res.writableEnded) json(res, 500, { error: 'Ошибка сохранения файла: ' + err.message });
+      });
+      output.on('finish', () => {
+        if (failed) return;
+        if (length < 1024) {
+          cleanup();
+          return json(res, 400, { error: 'Загруженный файл слишком мал.' });
+        }
+        try {
+          fs.renameSync(temp, destination);
+          return json(res, 200, { ok: true, input_id: id, bytes: length, filename: name });
+        } catch (err) {
+          cleanup();
+          return json(res, 500, { error: 'Не удалось завершить загрузку.' });
+        }
+      });
+      req.pipe(output);
+      return;
+    }
+
+    if (p === '/api/film/render' && req.method === 'POST') {
+      if (FILM_RENDER_JOB && FILM_RENDER_JOB.code === undefined) {
+        return json(res, 409, { error: 'Рендер фильма уже выполняется.' });
+      }
+      let raw = '';
+      req.on('data', chunk => { raw += chunk; if (raw.length > 65536) req.destroy(); });
+      req.on('end', () => {
+        let payload;
+        try { payload = JSON.parse(raw || '{}'); }
+        catch { return json(res, 400, { error: 'Неверный JSON.' }); }
+        if (!payload.input_id && !payload.url) {
+          return json(res, 400, { error: 'Сначала выбери фильм или загрузи файл.' });
+        }
+        const start = Number(payload.start), end = Number(payload.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end-start > 300) {
+          return json(res, 400, { error: 'Укажи начало и конец клипа длительностью до 5 минут.' });
+        }
+        const id = crypto.randomBytes(6).toString('hex');
+        const stamp = Date.now();
+        const logPath = path.join(ROOT, 'output', 'film_render_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.film_result_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.film_job_' + stamp + '.json');
+        fs.writeFileSync(jobFile, JSON.stringify({ ...payload, id }), 'utf8');
+        const out = fs.createWriteStream(logPath, { flags: 'a' });
+        const proc = spawn(PY, [path.join(__dirname, 'film_render.py'), jobFile, resultFile], {
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        });
+        proc.stdout.pipe(out); proc.stderr.pipe(out);
+        FILM_RENDER_JOB = { proc, code: undefined, startedAt: Date.now(), logPath, resultFile, id };
+        proc.on('error', err => {
+          FILM_RENDER_JOB.code = -1;
+          fs.appendFileSync(logPath, '\n' + err.message + '\n');
+        });
+        proc.on('close', code => {
+          FILM_RENDER_JOB.code = code;
+          FILM_RENDER_JOB.finishedAt = Date.now();
+          out.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+        return json(res, 200, { ok: true, started: true, id });
+      });
+      return;
+    }
+
+    if (p === '/api/film/render/status' && req.method === 'GET') {
+      const job = FILM_RENDER_JOB;
+      let result = null;
+      try {
+        if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+          result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8'));
+          if (result && result.ok) {
+            result.video_url = '/video/film/' + encodeURIComponent(result.id) + '/final.mp4';
+            result.download_url = '/download/film/' + encodeURIComponent(result.id) + '/final.mp4';
+          }
+        }
+      } catch {}
+      const log = job ? tailFile(job.logPath, 28000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        code: job ? job.code : null,
+        progress: parseOverall(log),
+        log,
+        result: result || (job && job.code !== undefined
+          ? { ok: false, error: 'Рендер не завершён. Посмотри журнал ниже.' } : null)
+      });
+    }
+
+    const filmOutput = p.match(/^\/(video|download)\/film\/([a-f0-9]{12})\/final\.mp4$/);
+    if (filmOutput && req.method === 'GET') {
+      const fp = path.join(ROOT, 'output', 'film_clips', filmOutput[2], 'final.mp4');
+      if (!fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
+        return json(res, 404, { error: 'Клип не найден.' });
+      }
+      return sendFile(req, res, fp, filmOutput[1] === 'download');
     }
 
     // POST /api/streamer/analyze — optionally download/analyze only a selected VOD range.
