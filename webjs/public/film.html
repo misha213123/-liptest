@@ -497,12 +497,8 @@ $('ultraPresetBtn').onclick=()=>{
   $('size').value='2160';
   $('fps').value='source';
   $('enhance').checked=true;
-  $('gamma').value='1.07';
-  $('saturation').value='1.14';
-  $('brightness').value='0.03';
-  $('contrast').value='1.10';
+  selectColorLook('ultra');
   $('optical').checked=false;
-  $('gamma').dispatchEvent(new Event('input'));
   updateVideo2X();
 };
 updateVideo2X();
