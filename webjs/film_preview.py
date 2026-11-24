@@ -72,7 +72,9 @@ def render_preview(job: dict, output: Path) -> dict:
         # The full render logs the actual number of faces detected.
     x = min(iw - crop_w, max(0, round(center_x - crop_w / 2)))
     y = min(ih - crop_h, max(0, round(center_y - crop_h / 2)))
-    w = 360
+    # Keep the preview at native crop detail (up to 1080 px wide); the browser
+    # scales it for display, but never receives the old 360 px thumbnail.
+    w = min(1080, max(2, crop_w - crop_w % 2))
     h = max(2, int(round(w * by / bx / 2) * 2))
     base_filters = [f"crop={crop_w}:{crop_h}:{x}:{y}", f"scale={w}:{h}:flags=lanczos"]
     enhanced_filters = base_filters + color_filters(job, preview=True)
@@ -94,9 +96,11 @@ def render_preview(job: dict, output: Path) -> dict:
             output, FFMPEG, w, h,
             model=str(job.get("ai_detail_model") or "realesrgan-x4plus"),
             tile=int(job.get("ai_detail_tile", 64)),
+            strength=float(job.get("ai_detail_strength", 100)),
         )
     return {"ok": True, "width": w, "height": h,
             "beauty": beauty, "ai_preview": neural_preview,
+            "ai_detail_strength": float(job.get("ai_detail_strength", 100)),
             "at": round(frame_time, 3), "face_detected": detected,
             "source_width": iw, "source_height": ih,
             "crop_width": crop_w, "crop_height": crop_h}
