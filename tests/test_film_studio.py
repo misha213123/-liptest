@@ -463,7 +463,8 @@ class FilmOpenAISubtitlesTests(unittest.TestCase):
             def create(self, **kwargs):
                 requests.append(kwargs)
                 self_file = kwargs["file"]
-                self.assertFalse(self_file.closed)
+                if self_file.closed:
+                    raise AssertionError("Audio stream was closed before the API call.")
                 return NS(words=[NS(word="Hello", start=.1, end=.5)])
         class Audio:
             transcriptions = Transcriptions()
