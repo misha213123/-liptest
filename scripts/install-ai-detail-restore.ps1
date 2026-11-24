@@ -8,8 +8,7 @@ $target = Join-Path $env:LOCALAPPDATA 'Programs\realesrgan-ncnn-vulkan'
 $exe = Join-Path $target 'realesrgan-ncnn-vulkan.exe'
 $modelDir = Join-Path $target 'models'
 $required = @(
-  'realesrgan-x4plus.param', 'realesrgan-x4plus.bin',
-  'realesrnet-x4plus.param', 'realesrnet-x4plus.bin'
+  'realesrgan-x4plus.param', 'realesrgan-x4plus.bin'
 )
 $complete = Test-Path -LiteralPath $exe
 foreach ($name in $required) {
