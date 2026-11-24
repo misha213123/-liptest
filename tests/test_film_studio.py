@@ -281,6 +281,85 @@ class FilmVideo2XWatchdogTests(unittest.TestCase):
         self.assertIn("не продвигает",stall_reason(390,started,140,2048,180,240))
 
 
+class FilmNeuralDetailTests(unittest.TestCase):
+    def test_ncnn_requires_opt_in_and_valid_tile(self):
+        from unittest.mock import patch
+        import tempfile
+        import film_ai_detail
+        with tempfile.TemporaryDirectory() as tmp:
+            parent=Path(tmp)
+            fake=parent/"realesrgan-ncnn-vulkan.exe"
+            fake.write_bytes(b"fake")
+            models=parent/"models"
+            models.mkdir()
+            for name in film_ai_detail.MODELS:
+                for suffix in ("param","bin"):
+                    (models/(name+"."+suffix)).write_bytes(b"fake")
+            with patch.dict("os.environ", {"AI_RESTORE_NCNN_BIN":str(fake)}):
+                exe, found=film_ai_detail.require_binary()
+                self.assertEqual(exe,fake)
+                self.assertEqual(found,models)
+                with self.assertRaises(ValueError):
+                    film_ai_detail.restore_clip(parent/"fake.mp4",parent,
+                        "ffmpeg", 31,60, lambda *_:None)
+                with self.assertRaises(ValueError):
+                    film_ai_detail.restore_clip(parent/"fake.mp4",parent,
+                        "ffmpeg", 5,60, lambda *_:None, tile=2)
+        with patch("film_ai_detail.find_binary",return_value=(None,None)):
+            with self.assertRaises(RuntimeError):
+                film_ai_detail.require_binary()
+
+    def test_ncnn_processes_frames_and_restores_audio(self):
+        import tempfile
+        from unittest.mock import patch
+        import film_ai_detail
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            source=root/"film_prepared.mp4"
+            source.write_bytes(b"fake source")
+            binary=root/"ncnn.exe"
+            binary.write_bytes(b"x")
+            models=root/"models"
+            models.mkdir()
+            output=root/"ai_detail_restored.mp4"
+            commands=[]
+            class Process:
+                pid=111
+                def poll(self):return 0
+            def fake_run(args,timeout):
+                commands.append(args)
+                target=Path(args[-1])
+                if "frame_%06d.png" in str(target):
+                    folder=target.parent
+                    folder.mkdir(exist_ok=True)
+                    for index in range(1,4):
+                        (folder/f"frame_{index:06d}.png").write_bytes(b"png")
+                elif target.name=="ai_detail_restored.mp4":
+                    target.write_bytes(b"mp4"+b"0"*101000)
+            def fake_popen(args,**kw):
+                commands.append(args)
+                folder=Path(args[args.index("-o")+1])
+                folder.mkdir(exist_ok=True)
+                for index in range(1,4):
+                    (folder/f"frame_{index:06d}.png").write_bytes(b"png")
+                return Process()
+            with patch("film_ai_detail.require_binary",return_value=(binary,models)), \
+                 patch("film_ai_detail.run_cmd",side_effect=fake_run), \
+                 patch("film_ai_detail.subprocess.Popen",side_effect=fake_popen):
+                got=film_ai_detail.restore_clip(
+                    source,root,"ffmpeg",3.0,60.0,lambda *_:None
+                )
+            self.assertEqual(got,output)
+            self.assertTrue(output.is_file())
+            model_command=next(row for row in commands if "-n" in row)
+            self.assertEqual(model_command[model_command.index("-t")+1],"64")
+            self.assertEqual(model_command[model_command.index("-s")+1],"2")
+            self.assertTrue(any("-map" in row and "1:a:0?" in row for row in commands))
+            self.assertFalse((root/"ai_detail_in").exists())
+            self.assertFalse((root/"ai_detail_out").exists())
+
+
+
 class FilmTranscriptCachingTests(unittest.TestCase):
     def test_formatting_rerenders_reuse_api_transcript(self):
         import tempfile
@@ -474,12 +553,54 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             subtitle_ass(segments, 1080, 1920, "bold", 78, 25)
 
+    def test_caption_font_size_and_case_for_all_styles(self):
+        from types import SimpleNamespace as NS
+        from film_captions import subtitle_ass, caption_size, caption_letter_case
+        sample=[NS(start=.2,end=.8,text="Мы Сильные",words=[
+            NS(word="Мы",start=.2,end=.45),
+            NS(word="Сильные",start=.45,end=.8),
+        ])]
+        self.assertEqual(caption_size(30),30)
+        self.assertEqual(caption_letter_case("LOWER"),"lower")
+        for style in ("bold","karaoke","cinema","minimal","boxed"):
+            default,_=subtitle_ass(sample,1080,1920,style,78,0,3,False)
+            small,_=subtitle_ass(sample,1080,1920,style,40,0,3,False,30,"lower")
+            big,_=subtitle_ass(sample,1080,1920,style,90,0,3,False,180,"upper")
+            self.assertIn("мы сильные",small)
+            self.assertNotIn("Мы Сильные",small)
+            self.assertIn("МЫ СИЛЬНЫЕ",big)
+            def size(doc):
+                return int(doc.split("Style: Default,")[1].split(",",3)[1])
+            self.assertLess(size(small),size(default))
+            self.assertGreater(size(big),size(default))
+            # ASS bottom margin depends on direct-drag position.
+            self.assertNotEqual(small.split("Style: Default,")[1].splitlines()[0],
+                                big.split("Style: Default,")[1].splitlines()[0])
+        for val in (0,29,181,500):
+            with self.assertRaises(ValueError):
+                subtitle_ass(sample,1080,1920,"minimal",78,0,3,False,val,"lower")
+        with self.assertRaises(ValueError):
+            subtitle_ass(sample,1080,1920,"minimal",78,0,3,False,100,"typo")
+
+    def test_strong_color_grading_maxima(self):
+        from film_filters import color_filters
+        applied=",".join(color_filters({
+            "enhance":True, "gamma":1.6, "brightness":.25,
+            "saturation":2.5, "contrast":1.8,
+        }))
+        self.assertIn("gamma=1.600",applied)
+        self.assertIn("brightness=0.250",applied)
+        self.assertIn("saturation=2.500",applied)
+        self.assertIn("contrast=1.800",applied)
+        with self.assertRaises(ValueError):
+            color_filters({"gamma":"NaN"})
+
     def test_caption_style_and_position_validation(self):
         from film_captions import validate, subtitle_ass
         self.assertEqual(validate("cinema", 75), ("cinema", 75))
         with self.assertRaises(ValueError):
             subtitle_ass([], 1080, 1920, "not-a-template", 78)
-        for pos in (0, 49, 91, 200):
+        for pos in (0, 9, 96, 200):
             with self.assertRaises(ValueError):
                 validate("bold", pos)
 
