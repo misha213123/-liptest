@@ -323,6 +323,65 @@ class FilmTranscriptCachingTests(unittest.TestCase):
             self.assertEqual(count["calls"],2)
 
 
+class FilmSmoothVividPresetTests(unittest.TestCase):
+    def test_smooth_vivid_is_real_saturated_warm_grade(self):
+        from film_filters import PRESETS, color_filters
+        params = PRESETS["smooth_vivid"]
+        self.assertGreater(params["saturation"], 1.2)
+        self.assertGreater(params["contrast"], 1.1)
+        self.assertGreater(params["gamma"], 1.0)
+        self.assertEqual(params["tone"], "warm")
+        job = {
+            "enhance": True, **{k: v for k, v in params.items() if k != "tone"},
+            "color_tone": params["tone"], "denoise":34,
+            "artifact_reduction":22, "microdetail":28, "sharpen":38,
+        }
+        filters = ",".join(color_filters(job))
+        self.assertIn("hqdn3d=", filters)
+        self.assertIn("deblock=", filters)
+        self.assertIn("colorbalance=", filters)
+        self.assertIn("saturation=1.290", filters)
+        self.assertIn("contrast=1.190", filters)
+
+    def test_true_motion_compensation_not_frame_duplication(self):
+        from film_render import optical_motion_filter
+        result = optical_motion_filter(30, 60, True)
+        self.assertIn("minterpolate=fps=60", result)
+        self.assertIn("mi_mode=mci", result)
+        self.assertIn("scd=fdiff", result)
+        self.assertEqual(optical_motion_filter(30, 60, False), "")
+        self.assertEqual(optical_motion_filter(60, 60, True), "")
+
+    def test_ffmpeg_smooth_30_to_60_filter_runs_on_real_frames(self):
+        import shutil
+        import subprocess
+        from film_render import optical_motion_filter
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("FFmpeg is not installed in CI environment")
+        command = [
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-f", "lavfi",
+            "-i", "testsrc2=size=96x64:rate=30:duration=0.8",
+            "-vf", ",".join([
+                optical_motion_filter(30, 60, True),
+                "scale=144:96:flags=lanczos",
+                "format=yuv420p",
+            ]),
+            "-f", "framehash", "-"
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr[:1400])
+        # A real motion interpolator emits ~2x frames at the requested 60 Hz,
+        # not a metadata-only '60 FPS' flag on the original 30 FPS video.
+        self.assertIn("1/60", result.stdout)
+        data_rows = [
+            line for line in result.stdout.splitlines()
+            if line and not line.startswith("#")
+        ]
+        self.assertGreaterEqual(len(data_rows), 40)
+
+
 class FilmCaptionAndGradeTests(unittest.TestCase):
     def test_five_styles_use_real_ass_formatting(self):
         from types import SimpleNamespace as NS
@@ -473,7 +532,7 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
 
     def test_real_color_filters_for_preview_and_render(self):
         from film_filters import color_filters, PRESETS
-        self.assertEqual(len(PRESETS), 8)
+        self.assertEqual(len(PRESETS), 9)
         self.assertEqual(color_filters({"enhance": False}), [])
         warm = dict(PRESETS["warm"])
         warm["color_tone"] = warm.pop("tone")
