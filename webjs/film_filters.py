@@ -12,6 +12,8 @@ PRESETS = {
                 "saturation": 1.06, "tone": "neutral"},
     "vibrant": {"gamma": 1.07, "brightness": .025, "contrast": 1.11,
                 "saturation": 1.23, "tone": "neutral"},
+    "ultra": {"gamma": 1.10, "brightness": .040, "contrast": 1.17,
+              "saturation": 1.28, "tone": "neutral"},
     "bright": {"gamma": 1.12, "brightness": .052, "contrast": 1.06,
                "saturation": 1.10, "tone": "neutral"},
     "cinema": {"gamma": 1.04, "brightness": .003, "contrast": 1.15,
