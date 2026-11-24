@@ -23,3 +23,6 @@ python-telegram-bot>=20.0
 telethon>=1.34.0
 
 
+
+# Optional Film & Series Studio provider (HDrezka metadata/streams)
+HdRezkaApi>=11.2.3
