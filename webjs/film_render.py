@@ -36,6 +36,7 @@ from film_video2x import (
 )
 from film_runtime import face_detector, optional_profile_detector, transcribe_segments
 from film_openai import transcribe_openai, availability as openai_availability
+from film_openai_max import transcribe_max
 from film_captions import save_ass, validate as validate_caption_style
 from film_filters import color_filters
 
@@ -360,9 +361,12 @@ def _make_subtitles(
          "-ss", str(start), "-i", str(source), "-t", str(end - start),
          "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
     engine = str(engine or "local").lower()
-    if engine not in ("local", "openai"):
+    if engine not in ("local", "openai", "openai_max"):
         raise ValueError("Неизвестный движок распознавания речи.")
-    if engine == "openai":
+    if engine == "openai_max":
+        progress("OpenAI GPT-Transcribe: максимум качества + таймкоды слов", 32)
+        segments = transcribe_max(audio, language=language)
+    elif engine == "openai":
         progress("OpenAI: распознаю речь и таймкоды слов (облачный API)", 32)
         segments = transcribe_openai(audio, language=language)
     else:
@@ -385,9 +389,9 @@ def _ass_filter(path: Path) -> str:
 def render(job: dict) -> dict:
     if bool(job.get("captions", True)):
         engine = str(job.get("speech_engine") or "local").lower()
-        if engine not in ("local", "openai"):
+        if engine not in ("local", "openai", "openai_max"):
             raise ValueError("Неизвестный движок субтитров.")
-        if engine == "openai" and not openai_availability()["configured"]:
+        if engine in ("openai", "openai_max") and not openai_availability()["configured"]:
             raise RuntimeError(
                 "OpenAI не настроен. Добавь свой ключ через OPENAI_API_KEY "
                 "или настройки OpenAI и перезапусти Film Studio."
