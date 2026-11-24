@@ -386,6 +386,22 @@ def _ass_filter(path: Path) -> str:
     return f"ass=filename='{name}'"
 
 
+def optical_motion_filter(source_fps: float, requested_fps: float, enabled: bool) -> str:
+    """Real motion-compensated in-between frames, not duplicated fps=60 labels.
+
+    Source material below the requested frame rate is interpolated only when
+    requested, otherwise the plain fps converter may duplicate frames.
+    """
+    if not enabled or requested_fps <= source_fps + 0.5:
+        return ""
+    if requested_fps not in (30, 60):
+        raise ValueError("Optical interpolation only supports 30 or 60 FPS.")
+    return (
+        f"minterpolate=fps={int(requested_fps)}:mi_mode=mci:"
+        "mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=fdiff:scd_threshold=10"
+    )
+
+
 def render(job: dict) -> dict:
     if bool(job.get("captions", True)):
         engine = str(job.get("speech_engine") or "local").lower()
@@ -477,7 +493,8 @@ def render(job: dict) -> dict:
         and fps > metadata["fps"] + 0.5
     )
     if optical:
-        vf.append(f"minterpolate=fps={int(fps)}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir")
+        vf.append(optical_motion_filter(metadata["fps"], fps, True))
+        print(f"[motion] Optical-flow interpolation {metadata['fps']:.2f} → {fps} FPS, motion compensation enabled.", flush=True)
     elif fps_choice != "source" and rife_multiplier == 1:
         vf.append(f"fps={int(fps)}")
 
@@ -534,7 +551,19 @@ def render(job: dict) -> dict:
         if enhanced_info["width"] != target_w or enhanced_info["height"] != target_h:
             final_filters.append(f"scale={target_w}:{target_h}:flags=lanczos")
         if fps_choice != "source" and abs(enhanced_info["fps"] - float(fps_choice)) > 0.4:
-            final_filters.append(f"fps={int(fps_choice)}")
+            # If RIFE failed or returned an unexpected rate, still deliver
+            # motion-interpolated frames when the user asked for 60 FPS.
+            # In the old code this unconditionally duplicated source frames.
+            target_fps = int(fps_choice)
+            interpolator = optical_motion_filter(
+                enhanced_info["fps"], target_fps,
+                bool(job.get("optical_flow", False)) or (
+                    rife_multiplier > 1 and not ai_succeeded
+                )
+            )
+            final_filters.append(interpolator or f"fps={target_fps}")
+            if interpolator:
+                print(f"[motion] Fallback FFmpeg motion interpolation {enhanced_info['fps']:.2f} → {target_fps} FPS.", flush=True)
         if final_filters:
             progress("Финальный экспорт MP4", 90)
             normalize_cmd = [
