@@ -40,15 +40,29 @@ def render_preview(job: dict, output: Path) -> dict:
         raise ValueError("Укажи правильный диапазон времени.")
     if dims["duration"] and start >= dims["duration"]:
         raise ValueError("Таймкод вне видео.")
-    frame_time = min(start + 1, (start + end) / 2)
+    try:
+        position = float(job.get("preview_position", 50))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Позиция кадра должна быть от 0 до 100%.") from exc
+    if not 0 <= position <= 100:
+        raise ValueError("Позиция кадра должна быть от 0 до 100%.")
+    # Use the middle of the selected scene rather than its opening seconds:
+    # those often contain a black cut or transition.
+    frame_time = start + (end - start) * position / 100.0
+    if dims["duration"]:
+        frame_time = min(frame_time, max(0, dims["duration"] - 0.12))
+    frame_time = max(0, frame_time)
     center_x, center_y = iw / 2, ih / 2
     detected = False
     if bool(job.get("face_tracking", True)):
-        points = _track_centres(source, frame_time, .6, iw, ih)
+        track_start = max(0, frame_time - 0.65)
+        points = _track_centres(source, track_start, max(.05, frame_time - track_start), iw, ih)
         if points:
             detected = True
-            center_x = points[0][1]
-            center_y = points[0][2]
+            # Last sampled point corresponds to the requested preview moment,
+            # not the beginning of the tracking window.
+            center_x = points[-1][1]
+            center_y = points[-1][2]
         # This does not claim a face if Haar returned only fallback positions.
         # The full render logs the actual number of faces detected.
     x = min(iw - crop_w, max(0, round(center_x - crop_w / 2)))
@@ -66,7 +80,9 @@ def render_preview(job: dict, output: Path) -> dict:
     if not output.exists() or output.stat().st_size < 500:
         raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
     return {"ok": True, "width": w, "height": h,
-            "at": frame_time, "face_detected": detected}
+            "at": round(frame_time, 3), "face_detected": detected,
+            "source_width": iw, "source_height": ih,
+            "crop_width": crop_w, "crop_height": crop_h}
 
 
 if __name__ == "__main__":
