@@ -176,6 +176,7 @@ let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
 let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
 let FILM_RENDER_JOB = null;
+let FILM_PREVIEW_BUSY = false;
 
 // Film Studio uses Python -> FFmpeg -> Video2X subprocesses. Killing only
 // Python on Windows leaves the heavy Vulkan child running after Ctrl+C.
@@ -1541,6 +1542,68 @@ except Exception as e:
         }
       });
       req.pipe(output);
+      return;
+    }
+
+    // Real local 1-frame preview: source crop, face position and color.
+    // No remote catalog download and no GPU AI processing are triggered.
+    if (p === '/api/film/preview' && req.method === 'POST') {
+      if (!isLocalRequest(req)) {
+        return json(res, 403, { error: 'Предпросмотр доступен только на этом компьютере.' });
+      }
+      const origin = String(req.headers.origin || '');
+      if (origin) {
+        let ok = false;
+        try { const u = new URL(origin);
+          ok = u.host === req.headers.host && ['http:', 'https:'].includes(u.protocol);
+        } catch {}
+        if (!ok) return json(res, 403, { error: 'Запрос с другого сайта запрещён.' });
+      }
+      if (FILM_PREVIEW_BUSY) return json(res, 409, { error: 'Уже создаётся миниатюра.' });
+      let raw = '';
+      req.on('data', chunk => {
+        raw += chunk;
+        if (raw.length > 8192) req.destroy();
+      });
+      req.on('end', () => {
+        let opts;
+        try { opts = JSON.parse(raw || '{}'); }
+        catch { return json(res, 400, { error: 'Неверный JSON.' }); }
+        if (!/^[a-f0-9]{24}\.(mp4|mkv|mov|webm|m4v)$/.test(String(opts.input_id || ''))) {
+          return json(res, 400, { error: 'Сначала импортируй видео для предпросмотра.' });
+        }
+        const id = crypto.randomBytes(12).toString('hex');
+        const directory = path.join(ROOT, 'output', 'film_previews');
+        fs.mkdirSync(directory, { recursive: true });
+        const jobFile = path.join(directory, id + '.json');
+        const outputFile = path.join(directory, id + '.jpg');
+        FILM_PREVIEW_BUSY = true;
+        fs.writeFileSync(jobFile, JSON.stringify(opts), 'utf8');
+        execFile(PY, [path.join(__dirname, 'film_preview.py'), jobFile, outputFile], {
+          timeout: 90000, maxBuffer: 256 * 1024,
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        }, (err, stdout, stderr) => {
+          FILM_PREVIEW_BUSY = false;
+          try { fs.unlinkSync(jobFile); } catch {}
+          if (err || !fs.existsSync(outputFile)) {
+            return json(res, 422, {
+              error: String((stderr || err?.message || 'Ошибка создания миниатюры')).slice(-800)
+            });
+          }
+          return json(res, 200, { ok: true,
+            image_url: '/video/film/preview/' + id + '.jpg' });
+        });
+      });
+      return;
+    }
+
+    const previewFile = p.match(/^\/video\/film\/preview\/([a-f0-9]{24})\.jpg$/);
+    if (previewFile && req.method === 'GET') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Forbidden.' });
+      const fp = path.join(ROOT, 'output', 'film_previews', previewFile[1] + '.jpg');
+      if (!fs.existsSync(fp)) return json(res, 404, { error: 'Preview missing.' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+      fs.createReadStream(fp).pipe(res);
       return;
     }
 
