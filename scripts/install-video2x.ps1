@@ -1,52 +1,71 @@
-# Install the official Video2X 6.x command-line release for Film & Series Studio.
-# Run from the repository root:
-#   powershell -ExecutionPolicy Bypass -File .\scripts\install-video2x.ps1
-#
-# Official CLI docs: https://docs.video2x.org/installing/windows.html
-# This script does not modify the project or package third-party binaries.
+# Video2X 6.x CLI installer, compatible with Windows PowerShell 5.1.
+# All source bytes are ASCII to avoid UTF-8-without-BOM mojibake in PowerShell 5.1.
+# Run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-video2x.ps1
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = 'https://api.github.com/repos/k4yt3x/video2x/releases/latest'
-Write-Host 'Video2X: проверяю официальный релиз GitHub...' -ForegroundColor Cyan
-$headers = @{ 'User-Agent' = 'AutoClipper-Video2X-Installer'; 'Accept' = 'application/vnd.github+json' }
-$release = Invoke-RestMethod -Uri $repo -Headers $headers
-$asset = $release.assets | Where-Object { $_.name -eq 'video2x-windows-amd64.zip' } | Select-Object -First 1
-if (-not $asset) {
-    throw ('Официальный архив CLI не найден в релизе ' + $release.tag_name + '. Проверь https://github.com/k4yt3x/video2x/releases')
+$api = 'https://api.github.com/repos/k4yt3x/video2x/releases/latest'
+$headers = @{
+    'User-Agent' = 'AutoClipper-Video2X-Installer'
+    'Accept' = 'application/vnd.github+json'
 }
-if ($asset.browser_download_url -notmatch '^https://github\.com/k4yt3x/video2x/releases/download/') {
-    throw 'Адрес архива не соответствует официальным релизам.'
+
+Write-Host 'Checking official Video2X GitHub release...' -ForegroundColor Cyan
+$release = Invoke-RestMethod -Uri $api -Headers $headers
+$asset = $release.assets |
+    Where-Object { $_.name -eq 'video2x-windows-amd64.zip' } |
+    Select-Object -First 1
+
+if (-not $asset) {
+    throw ('Official Video2X CLI ZIP not found in release ' + $release.tag_name +
+        '. See https://github.com/k4yt3x/video2x/releases')
+}
+
+$downloadUrl = [string]$asset.browser_download_url
+if ($downloadUrl -notmatch '^https://github\.com/k4yt3x/video2x/releases/download/') {
+    throw 'Unexpected Video2X download host. Installation stopped.'
 }
 
 $archive = Join-Path $env:TEMP 'auto-clipper-video2x-windows-amd64.zip'
-$install = Join-Path $env:LOCALAPPDATA 'Programs\video2x'
-Write-Host ('Скачиваю Video2X CLI ' + $release.tag_name + '...') -ForegroundColor Cyan
-Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive -UseBasicParsing
-if (-not (Test-Path $archive) -or (Get-Item $archive).Length -lt 1000000) {
-    throw 'Архив Video2X не скачался полностью.'
+$installDir = Join-Path $env:LOCALAPPDATA 'Programs\video2x'
+
+Write-Host ('Downloading Video2X CLI ' + $release.tag_name +
+    ' (' + [math]::Round($asset.size / 1MB) + ' MiB)...') -ForegroundColor Cyan
+Invoke-WebRequest -Uri $downloadUrl -OutFile $archive -UseBasicParsing
+
+if ((-not (Test-Path -LiteralPath $archive)) -or
+    (Get-Item -LiteralPath $archive).Length -lt 1000000) {
+    throw 'Video2X download is missing or incomplete.'
 }
 
-if ($asset.digest -and $asset.digest -match '^sha256:([A-Fa-f0-9]{64})$') {
+# Release digest is optional. Verify it when GitHub provides sha256:<64 hex>.
+if ($asset.digest -and
+    ([string]$asset.digest -match '^sha256:([A-Fa-f0-9]{64})$')) {
     $expected = $Matches[1].ToLowerInvariant()
-    $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
-        throw 'SHA256 архива Video2X не совпадает с данными релиза GitHub.'
+        throw 'Video2X SHA256 mismatch; installation stopped.'
     }
-    Write-Host 'Проверка SHA256 пройдена.'
+    Write-Host 'Video2X SHA256 verified.' -ForegroundColor Green
 }
 
-New-Item -ItemType Directory -Path $install -Force | Out-Null
-Expand-Archive -Path $archive -DestinationPath $install -Force
-$exe = Join-Path $install 'video2x.exe'
-if (-not (Test-Path $exe)) {
-    throw ('Не найден video2x.exe в ' + $install + '. Проверь структуру официального ZIP.')
+New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+Write-Host 'Extracting Video2X CLI...' -ForegroundColor Cyan
+Expand-Archive -LiteralPath $archive -DestinationPath $installDir -Force
+
+$exe = Get-ChildItem -LiteralPath $installDir -Filter 'video2x.exe' -File -Recurse |
+    Select-Object -First 1
+if (-not $exe) {
+    throw ('video2x.exe not found after extracting into ' + $installDir)
 }
 
-$env:VIDEO2X_BIN = $exe
-[Environment]::SetEnvironmentVariable('VIDEO2X_BIN', $exe, 'User')
-Write-Host ('Установлено: ' + $exe) -ForegroundColor Green
-& $exe --version
+# Save for future sessions and expose immediately to this process.
+$env:VIDEO2X_BIN = $exe.FullName
+[Environment]::SetEnvironmentVariable('VIDEO2X_BIN', $exe.FullName, 'User')
+
+Write-Host ('Installed Video2X: ' + $exe.FullName) -ForegroundColor Green
+& $exe.FullName --version
 if ($LASTEXITCODE -ne 0) {
-    throw 'Video2X не запустился. Проверь драйвер Vulkan и Microsoft Visual C++ Runtime.'
+    throw 'Video2X did not start. Check Vulkan drivers and MSVC runtime.'
 }
-Write-Host 'Video2X готов. Можно запускать .\start-web.bat и включать AI Ultra.' -ForegroundColor Green
+Write-Host 'Video2X CLI is ready. Restart Auto Clipper.' -ForegroundColor Green
