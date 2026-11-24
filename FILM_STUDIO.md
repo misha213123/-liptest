@@ -318,6 +318,36 @@ The key remains in that shell's environment until the shell closes. Do **not** e
 - Authentication/rate-limit/network errors show sanitized messages, without tokens. There is no silent fallback that would misrepresent a locally generated transcript as OpenAI output.
 - Subtitle requests require an active OpenAI API account and may incur charges. ChatGPT Plus is separate from API billing.
 
+## OpenAI maximum subtitle accuracy — GPT-Transcribe + Whisper-1
+
+The **OpenAI МАКСИМУМ** option is now selected by default in the Film Studio
+speech engine selector. This mode is specifically designed for movie dialogue:
+
+1. Send the selected audio excerpt to `gpt-transcribe`, OpenAI's currently
+   recommended high-accuracy file transcription model. Use a language hint
+   (`languages`) and a verbatim dialogue prompt when Russian or English is chosen.
+2. Send the same excerpt separately to `whisper-1` with
+   `response_format="verbose_json"` and `timestamp_granularities=["word"]`.
+3. Align GPT text conservatively to word intervals from Whisper-1.
+   Matched words keep GPT spelling/punctuation; one-to-one corrections can
+   replace individual words. Insertions/deletions that lack trustworthy times
+   **retain the original timed Whisper text** — the program never invents
+   precise timestamps. This is not an audio-based forced aligner.
+4. Export the aligned words using the selected ASS subtitle template and
+   optional global timing offset.
+
+**Billing and privacy:** This mode sends the short scene audio to OpenAI
+**twice** and makes **two separately chargeable API calls**. No calls are
+made by merely opening Film Studio. The API key stays in the local server
+environment or config; it is never committed or sent to the browser.
+OpenAI's `whisper-1` model is scheduled for retirement on 2027-02-26.
+After that date, word alignment requires an alternative timing provider.
+
+Two alternative modes remain in the selector: `OpenAI Whisper-1` (one paid
+word-timed request) and local Faster-Whisper (no OpenAI API charges).
+Note: GPT-Transcribe itself does not currently return per-word timestamps.
+Even with maximum quality, exact word/voice sync may need corrections.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
