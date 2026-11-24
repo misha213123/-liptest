@@ -1687,7 +1687,12 @@ except Exception as e:
         }
       } catch {}
       const log = job ? tailFile(job.logPath, 28000) : '';
+      const preparedPath = job && path.join(ROOT, 'output', 'film_clips', job.id, 'film_prepared.mp4');
+      const preparedReady = preparedPath && fs.existsSync(preparedPath)
+        && fs.statSync(preparedPath).size > 100000
+        && /Запускаю Video2X|Video2X: AI|Video2X: RIFE|Клип готов/.test(log);
       return json(res, 200, {
+        prepared_url: preparedReady ? '/video/film/' + job.id + '/film_prepared.mp4' : null,
         running: !!(job && job.code === undefined),
         code: job ? job.code : null,
         progress: parseOverall(log),
@@ -1699,9 +1704,10 @@ except Exception as e:
       });
     }
 
-    const filmOutput = p.match(/^\/(video|download)\/film\/([a-f0-9]{12})\/final\.mp4$/);
+    const filmOutput = p.match(/^\/(video|download)\/film\/([a-f0-9]{12})\/(final|film_prepared)\.mp4$/);
     if (filmOutput && req.method === 'GET') {
-      const fp = path.join(ROOT, 'output', 'film_clips', filmOutput[2], 'final.mp4');
+      const filename = filmOutput[3] + '.mp4';
+      const fp = path.join(ROOT, 'output', 'film_clips', filmOutput[2], filename);
       if (!fs.existsSync(fp) || !fs.statSync(fp).isFile()) {
         return json(res, 404, { error: 'Клип не найден.' });
       }
