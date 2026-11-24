@@ -317,6 +317,7 @@ def _curve(points, axis: int, size: int, crop_size: int) -> str:
 def _make_subtitles(
     source: Path, start: float, end: float, out: Path, w: int, h: int,
     style: str = "bold", position: int = 78,
+    model: str = "medium", language: str = "ru", offset: float = 0.0,
 ):
     validate_caption_style(style, position)
     audio = out / "speech.wav"
@@ -325,10 +326,10 @@ def _make_subtitles(
          "-ss", str(start), "-i", str(source), "-t", str(end - start),
          "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
     progress("Распознаю речь и точные таймкоды слов", 32)
-    segments = transcribe_segments(str(audio))
+    segments = transcribe_segments(str(audio), model_name=model, language=language)
     progress("Речь распознана; формирую субтитры", 47)
     ass = out / "subtitles.ass"
-    count = save_ass(segments, ass, w, h, style, position)
+    count = save_ass(segments, ass, w, h, style, position, offset)
     progress(f"Субтитры готовы: {count} фрагментов · шаблон {style}", 58)
     return ass, count
 
@@ -429,6 +430,9 @@ def render(job: dict) -> dict:
             source, start, end, out, render_w, render_h,
             str(job.get("caption_style") or "bold"),
             int(job.get("caption_position", 78)),
+            str(job.get("whisper_model") or "medium"),
+            str(job.get("speech_language") or "ru"),
+            float(job.get("caption_offset", 0)),
         )
         if caption_count:
             vf.append(_ass_filter(ass))
