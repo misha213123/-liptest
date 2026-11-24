@@ -24,10 +24,55 @@ Output: output/film_clips/<job_id>/final.mp4.
 Source uploads: output/film_inputs.
 Remote source cache: output/film_source_cache.
 
+## Video2X 6.x integration (optional AI enhancement)
+
+Official source: https://github.com/k4yt3x/video2x
+CLI installation: https://docs.video2x.org/installing/windows.html
+
+The Auto Clipper adapter calls the Video2X 6.x CLI as an external executable.
+No Video2X binaries, neural-network weights, or AGPL source code are copied into this repository.
+
+Install the official command-line ZIP on Windows using PowerShell:
+
+```powershell
+$release = Invoke-RestMethod "https://api.github.com/repos/k4yt3x/video2x/releases/latest"
+$asset = $release.assets | Where-Object { $_.name -eq "video2x-windows-amd64.zip" } | Select-Object -First 1
+if (-not $asset) { throw "Video2X CLI ZIP not found in latest release. Check https://github.com/k4yt3x/video2x/releases" }
+$archive = Join-Path $env:TEMP "video2x-windows-amd64.zip"
+Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
+$target = Join-Path $env:LOCALAPPDATA "Programs\video2x"
+New-Item -ItemType Directory -Path $target -Force | Out-Null
+Expand-Archive -Path $archive -DestinationPath $target -Force
+$env:VIDEO2X_BIN = Join-Path $target "video2x.exe"
+& $env:VIDEO2X_BIN --help
+```
+
+Keep `VIDEO2X_BIN` set in the PowerShell session where you run `start-web.bat`,
+or add the folder containing video2x.exe to PATH. The adapter also searches
+`%LOCALAPPDATA%\Programs\video2x\video2x.exe` by default.
+
+**Film Studio UI controls:**
+
+- Upscale: off, Real-ESRGAN Plus, Real-ESRGAN General v3, AnimeVideo v3, or Anime4K v4 A+A.
+- AI FPS: RIFE v4.26 at original FPS, x2, or x4 with scene-change threshold 20.
+- One-click Ultra AI preset: Real-ESRGAN Plus, RIFE x2, 2160p output, gamma 1.07, saturation 1.14.
+- Existing face-follow crop, audio-derived captions, color adjustment and selected aspect ratio run before the Video2X stage.
+- A 4K request uses an intermediate suited to 2x upscaling; Video2X may take significant GPU time and memory.
+- If Video2X CLI is absent, the selected AI mode produces a clear error, never a false AI-enhanced export. Non-AI exports remain available.
+- This integrates the executable by invoking its documented CLI; it does not include the Video2X GUI.
+- Video2X is separately licensed under AGPL-3.0; check licensing obligations before bundling or distributing it.
+
+### Limitations
+
+- The filter/caption pass is encoded first, then Video2X enhances/interpolates the finished frames; it does not independently track speakers or improve speech transcription.
+- RIFE multiplies **source FPS** (for example 24=>48 or 30=>60). If you explicitly select 60 FPS after RIFE 2x on 24 FPS, an extra normalization pass may duplicate frames.
+- Video2X may create temporal artifacts on cuts, complex faces and fast action. Use a short sample before a full export.
+- Only a CLI syntax + test suite has run in GitHub CI; no Vulkan GPU rendering benchmark has been performed here.
+
 ## Limitations and quality
 
 - HDRezka integration uses the unofficial HdRezkaApi provider for metadata and available streams. The provider may block requests or lack access to the selected item. We have not verified live downloading from hdrezka.rest.
-- The 4K option is a high-quality Lanczos upscale with adjustable gamma/saturation, gentle sharpening, and CRF-16 H.264 encoding. It cannot restore real source detail or reproduce proprietary CapCut AI super-resolution.
+- The 4K option uses Lanczos and CRF-16 H.264 by default. If Video2X Real-ESRGAN is selected and installed, the export additionally applies neural upscaling; neither route can guarantee authentic recovered source detail.
 - Face tracking uses OpenCV Haar frontal-face detection with smoothed crop coordinates. Hard cuts, profiles and group shots can cause the crop to lag or choose the wrong person.
 - Subtitles come from the actual audio using local Faster-Whisper (small model, word timestamps). Their accuracy depends on dialogue and background noise; first run may download a speech model.
 - Optional optical flow to 60 FPS can be very slow and may introduce motion artifacts.
