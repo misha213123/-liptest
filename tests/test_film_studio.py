@@ -510,5 +510,83 @@ class FilmOpenAISubtitlesTests(unittest.TestCase):
 
 
 
+class FilmOpenAIMaxTests(unittest.TestCase):
+    def test_max_text_corrects_1_to_1_but_never_fabricates_timestamps(self):
+        from types import SimpleNamespace as NS
+        from film_openai_max import align_text_to_timed_words
+        words = [
+            NS(word="Мама", start=0.1, end=0.4),
+            NS(word="мыла", start=0.4, end=0.7),
+            NS(word="рамы", start=0.7, end=1.0),
+        ]
+        base = [NS(words=words)]
+        result, stats = align_text_to_timed_words("Мама любила рамы", base)
+        flattened = [w for s in result for w in s.words]
+        self.assertEqual([w.word for w in flattened], ["Мама", "любила", "рамы"])
+        self.assertEqual([w.start for w in flattened], [.1, .4, .7])
+        self.assertEqual(stats["corrected_words"], 1)
+        result, stats = align_text_to_timed_words("Мама очень сильно мыла рамы", base)
+        flattened = [w for s in result for w in s.words]
+        self.assertEqual(len(flattened), 3)
+        self.assertEqual([w.start for w in flattened], [.1, .4, .7])
+        self.assertGreater(stats["unaligned_words"], 0)
+
+    def test_max_model_calls_gpt_and_timing_provider(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from film_openai_max import transcribe_max
+
+        requests = []
+        class Transcriptions:
+            def create(self, **kwargs):
+                requests.append(kwargs)
+                return NS(text="Привет, мир!")
+        class Client:
+            audio = NS(transcriptions=Transcriptions())
+        def factory(**kwargs):
+            self.assertEqual(kwargs["base_url"], "https://api.openai.com/v1")
+            return Client()
+        timing = [NS(words=[
+            NS(word="Привет", start=.1, end=.45),
+            NS(word="мир", start=.5, end=.8)
+        ])]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "short.wav"
+            path.write_bytes(b"wave" + b"\x00"*2000)
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-NOT-REAL-TEST"}, clear=True), \
+                 patch("film_openai_max.transcribe_openai", return_value=timing) as legacy:
+                result = transcribe_max(path, "ru", client_factory=factory, root=Path(tmp))
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]["model"], "gpt-transcribe")
+        self.assertEqual(requests[0]["extra_body"], {"languages": ["ru"]})
+        self.assertNotIn("timestamp_granularities", requests[0])
+        legacy.assert_called_once()
+        self.assertEqual(
+            [w.word for segment in result for w in segment.words],
+            ["Привет,", "мир!"]
+        )
+
+    def test_max_fails_safely_when_timing_api_fails(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from film_openai_max import transcribe_max
+        class Transcriptions:
+            def create(self, **kwargs):
+                return NS(text="Здравствуйте")
+        class Client:
+            audio = NS(transcriptions=Transcriptions())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "short.wav"
+            path.write_bytes(b"wave" + b"\x00"*2000)
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-TEST-NOT-REAL"}, clear=True), \
+                 patch("film_openai_max.transcribe_openai", side_effect=RuntimeError("timing unavailable")):
+                with self.assertRaisesRegex(RuntimeError, "timing unavailable"):
+                    transcribe_max(path, client_factory=lambda **kwargs: Client(), root=Path(tmp))
+
+
 if __name__ == "__main__":
     unittest.main()
