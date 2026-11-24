@@ -282,6 +282,15 @@ class FilmVideo2XWatchdogTests(unittest.TestCase):
 
 
 class FilmNeuralDetailTests(unittest.TestCase):
+    def test_native_resolution_kept_for_720p_source_crops(self):
+        from film_ai_detail import ai_source_dimensions
+        self.assertEqual(ai_source_dimensions(404,720),(404,720))
+        self.assertEqual(ai_source_dimensions(900,720),(900,720))
+        self.assertEqual(ai_source_dimensions(1920,1080),(1280,720))
+        for values in ((0,720),(-1,1080)):
+            with self.assertRaises(ValueError):
+                ai_source_dimensions(*values)
+
     def test_ncnn_requires_opt_in_and_valid_tile(self):
         from unittest.mock import patch
         import tempfile
@@ -355,6 +364,10 @@ class FilmNeuralDetailTests(unittest.TestCase):
             self.assertEqual(model_command[model_command.index("-t")+1],"64")
             self.assertEqual(model_command[model_command.index("-s")+1],"2")
             self.assertTrue(any("-map" in row and "1:a:0?" in row for row in commands))
+            self.assertTrue(any(
+                "-vf" in row and "scale=1920:1080:flags=lanczos" in row
+                for row in commands
+            ))
             self.assertFalse((root/"ai_detail_in").exists())
             self.assertFalse((root/"ai_detail_out").exists())
 
