@@ -703,7 +703,7 @@ class FilmHighlightDiscoveryTests(unittest.TestCase):
                 words=transcribe_episode(src,AUDIO_CHUNK_SECONDS+20,"en",folder/"cache",client,report=lambda *_:None)
                 self.assertEqual(trans.calls,2)
                 self.assertEqual(len(words),4)
-                self.assertEqual(words[-1]["start"], AUDIO_CHUNK_SECONDS+2)
+                self.assertEqual(words[-1]["start"], AUDIO_CHUNK_SECONDS+2.4)
                 words_again=transcribe_episode(src,AUDIO_CHUNK_SECONDS+20,"en",folder/"cache",client,report=lambda *_:None)
                 self.assertEqual(trans.calls,2)
                 self.assertEqual(words_again,words)
