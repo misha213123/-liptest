@@ -40,7 +40,7 @@ jobs:
               [ref]$tokens,
               [ref]$errorsFound
           ) | Out-Null
-          if (@($errorsFound).Count -gt 0) {
+          if ($null -ne $errorsFound -and $errorsFound.Count -gt 0) {
             $errorsFound | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
