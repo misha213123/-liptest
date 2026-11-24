@@ -225,6 +225,28 @@
           <button type="button" class="caption-option" data-style="minimal"><strong>Минимализм</strong><small>Чистый белый</small></button>
           <button type="button" class="caption-option" data-style="boxed"><strong>НА ПОДЛОЖКЕ</strong><small>Контрастный блок</small></button>
         </div>
+        <div class="grid2" style="margin-top:14px">
+          <div>
+            <label for="captionWords">Сколько слов одновременно</label>
+            <select id="captionWords" aria-label="Количество слов в субтитрах">
+              <option value="1">1 слово — по одному</option>
+              <option value="2">2 слова</option>
+              <option value="3" selected>3 слова — рекомендуем</option>
+              <option value="4">4 слова</option>
+              <option value="5">5 слов</option>
+              <option value="6">6 слов</option>
+              <option value="7">7 слов</option>
+              <option value="8">8 слов</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+              <input id="captionNoPunctuation" type="checkbox" checked>
+              <span>Без запятых, точек и знаков препинания</span>
+            </label>
+          </div>
+        </div>
+        <p class="hint">Максимум слов на одном экране. При длинной паузе группа заканчивается раньше; исходные таймкоды слов сохраняются.</p>
         <div style="margin-top:14px">
           <label for="captionPosition">Положение субтитров: <span id="captionPositionValue">78%</span> высоты кадра</label>
           <input id="captionPosition" type="range" min="50" max="90" step="1" value="78">
@@ -734,9 +756,13 @@ function refreshCaptionDemo(){
   const demo=$('captionSample');
   demo.dataset.style=captionStyle;
   demo.style.bottom=(100-Number($('captionPosition').value))+'%';
+  const sample=['КОГДА,','ВСЁ','РЕЗКО','ИЗМЕНИЛОСЬ.','НИКТО','НЕ','ОЖИДАЛ','ЭТОГО!'];
+  const count=Number($('captionWords').value)||3;
+  const chosen=sample.slice(0,count).map(text=>$('captionNoPunctuation').checked
+    ?text.replace(/[.,!?;:«»"…]/g,''):text);
   demo.innerHTML=captionStyle==='karaoke'
-    ? '<span>КОГДА</span> ВСЁ ИЗМЕНИЛОСЬ'
-    : 'КОГДА ВСЁ ИЗМЕНИЛОСЬ';
+    ?'<span>'+chosen[0]+'</span> '+chosen.slice(1).join(' ')
+    :chosen.join(' ');
   for(const button of document.querySelectorAll('.caption-option')){
     button.classList.toggle('active',button.dataset.style===captionStyle);
   }
@@ -749,6 +775,8 @@ document.querySelectorAll('.caption-option').forEach(button=>{
   };
 });
 $('captionPosition').oninput=refreshCaptionDemo;
+$('captionWords').onchange=refreshCaptionDemo;
+$('captionNoPunctuation').onchange=refreshCaptionDemo;
 $('captionOffset').oninput=()=>{
   const v=Number($('captionOffset').value);
   $('captionOffsetValue').textContent=(v>0?'+':'')+v.toFixed(2)+' с';
@@ -1091,7 +1119,9 @@ $('renderBtn').onclick=async()=>{
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
     speech_engine:$('speechEngine').value,
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
-    caption_offset:Number($('captionOffset').value)
+    caption_offset:Number($('captionOffset').value),
+    caption_words:Number($('captionWords').value),
+    caption_no_punctuation:$('captionNoPunctuation').checked
   };
   busy=true;preparedPreviewShown=false;
   $('renderBtn').disabled=true;$('cancelFilmBtn').disabled=false;
