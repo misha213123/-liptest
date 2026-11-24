@@ -6,6 +6,7 @@ until speech recognition produces the real timed words.
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 STYLES = {
@@ -51,9 +52,15 @@ def clean_text(s: str) -> str:
             .replace(",", ",").strip())
 
 
-def subtitle_ass(segments, width: int, height: int, style: str = "bold", position: int = 78) -> tuple[str, int]:
+def subtitle_ass(
+    segments, width: int, height: int, style: str = "bold", position: int = 78,
+    offset: float = 0.0,
+) -> tuple[str, int]:
     """Create an ASS document from Faster-Whisper segments (or equivalents)."""
     style, position = validate(style, position)
+    offset = float(offset)
+    if not math.isfinite(offset) or abs(offset) > 5:
+        raise ValueError("Сдвиг субтитров должен быть от -5 до +5 секунд.")
     data = STYLES[style]
     font_size = max(14, round(width * data["factor"]))
     margin_v = max(1, round(height * (100 - position) / 100))
@@ -67,8 +74,8 @@ def subtitle_ass(segments, width: int, height: int, style: str = "bold", positio
                 text_parts = [clean_text(getattr(word, "word", "")) for word in group]
                 if not any(text_parts):
                     continue
-                begin = max(0.0, float(group[0].start))
-                end = max(begin + 0.04, float(group[-1].end))
+                begin = max(0.0, float(group[0].start) + offset)
+                end = max(begin + 0.04, float(group[-1].end) + offset)
                 if style == "karaoke":
                     # ASS karaoke highlights each word at the actual speech time.
                     # \kf takes centiseconds; gaps are folded into the next word.
@@ -77,7 +84,7 @@ def subtitle_ass(segments, width: int, height: int, style: str = "bold", positio
                     for word, text in zip(group, text_parts):
                         if not text:
                             continue
-                        stop = max(previous + 0.03, float(word.end))
+                        stop = max(previous + 0.03, float(word.end) + offset)
                         dur = max(1, int(round((stop - previous) * 100)))
                         chunks.append(r"{\kf" + str(dur) + "}" + text)
                         previous = stop
@@ -96,8 +103,8 @@ def subtitle_ass(segments, width: int, height: int, style: str = "bold", positio
                 continue
             if data["uppercase"]:
                 text = text.upper()
-            begin = max(0.0, float(segment.start))
-            end = max(begin + 0.04, float(segment.end))
+            begin = max(0.0, float(segment.start) + offset)
+            end = max(begin + 0.04, float(segment.end) + offset)
             events.append(f"Dialogue: 0,{stamp(begin)},{stamp(end)},Default,,0,0,0,,{text}")
     fmt = (
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
@@ -123,7 +130,10 @@ def subtitle_ass(segments, width: int, height: int, style: str = "bold", positio
     return header + "\n".join(events) + "\n", len(events)
 
 
-def save_ass(segments, path: Path, width: int, height: int, style: str, position: int) -> int:
-    content, count = subtitle_ass(segments, width, height, style, position)
+def save_ass(
+    segments, path: Path, width: int, height: int, style: str,
+    position: int, offset: float = 0.0,
+) -> int:
+    content, count = subtitle_ass(segments, width, height, style, position, offset)
     Path(path).write_text(content, encoding="utf-8")
     return count
