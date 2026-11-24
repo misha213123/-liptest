@@ -38,6 +38,7 @@ from film_runtime import face_detector, optional_profile_detector, transcribe_se
 from film_openai import transcribe_openai, availability as openai_availability
 from film_openai_max import transcribe_max
 from film_captions import save_ass, validate as validate_caption_style
+from film_transcript_cache import transcribe_cached
 from film_filters import color_filters
 
 OUT = ROOT / "output"
@@ -357,23 +358,31 @@ def _make_subtitles(
     remove_punctuation: bool = False,
 ):
     validate_caption_style(style, position)
-    audio = out / "speech.wav"
-    progress("Извлекаю голос для субтитров", 24)
-    run([FFMPEG, "-y", "-nostdin", "-loglevel", "error",
-         "-ss", str(start), "-i", str(source), "-t", str(end - start),
-         "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
     engine = str(engine or "local").lower()
     if engine not in ("local", "openai", "openai_max"):
         raise ValueError("Неизвестный движок распознавания речи.")
-    if engine == "openai_max":
-        progress("OpenAI GPT-Transcribe: максимум качества + таймкоды слов", 32)
-        segments = transcribe_max(audio, language=language)
-    elif engine == "openai":
-        progress("OpenAI: распознаю речь и таймкоды слов (облачный API)", 32)
-        segments = transcribe_openai(audio, language=language)
-    else:
+
+    def recognize():
+        audio = out / "speech.wav"
+        progress("Извлекаю голос для субтитров", 24)
+        run([FFMPEG, "-y", "-nostdin", "-loglevel", "error",
+             "-ss", str(start), "-i", str(source), "-t", str(end - start),
+             "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
+        if engine == "openai_max":
+            progress("OpenAI GPT-Transcribe: максимум качества + таймкоды слов", 32)
+            return transcribe_max(audio, language=language)
+        if engine == "openai":
+            progress("OpenAI: распознаю речь и таймкоды слов (облачный API)", 32)
+            return transcribe_openai(audio, language=language)
         progress("Локальный Whisper: распознаю речь", 32)
-        segments = transcribe_segments(str(audio), model_name=model, language=language)
+        return transcribe_segments(
+            str(audio), model_name=model, language=language,
+        )
+
+    segments = transcribe_cached(
+        source, start, end, engine, model, language,
+        recognize, cache_dir=OUT / "film_transcripts",
+    )
     progress("Речь распознана; формирую субтитры", 47)
     ass = out / "subtitles.ass"
     count = save_ass(
