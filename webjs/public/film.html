@@ -172,8 +172,17 @@
           <label for="captionPosition">Положение субтитров: <span id="captionPositionValue">78%</span> высоты кадра</label>
           <input id="captionPosition" type="range" min="50" max="90" step="1" value="78">
         </div>
+        <div style="margin-top:16px">
+          <label for="speechEngine">Распознавание голоса</label>
+          <select id="speechEngine">
+            <option value="local" selected>Локальный Faster-Whisper · бесплатно</option>
+            <option value="openai">OpenAI Cloud · таймкоды слов (платный API)</option>
+          </select>
+          <p id="openaiStatus" class="hint" role="status">Проверяю локальные настройки OpenAI-ключа...</p>
+          <p id="openaiDisclosure" class="hint" hidden>При выборе OpenAI звуковой отрывок отправляется в облачный API с оплатой по тарифам OpenAI. Используется модель whisper-1 с таймкодами слов (поддержка до 26.02.2027). Ключ не передаётся в браузер и не добавляется в проект.</p>
+        </div>
         <div class="grid2" style="margin-top:14px">
-          <div><label for="whisperModel">Точность распознавания</label>
+          <div><label for="whisperModel">Точность локального Whisper</label>
             <select id="whisperModel">
               <option value="medium" selected>Medium · точнее, дольше</option>
               <option value="small">Small · быстрее</option>
@@ -309,6 +318,30 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let catalog=null,uploadedId='',busy=false;
+let openaiConfigured=false;
+async function loadOpenaiStatus(){
+  try{
+    const response=await fetch('/api/film/openai/status',{cache:'no-store'});
+    const info=await response.json();
+    if(!response.ok)throw new Error(info.error||'Не удалось проверить настройки.');
+    openaiConfigured=!!info.configured;
+    $('openaiStatus').textContent=openaiConfigured
+      ? 'OpenAI API-ключ найден в локальных настройках ('+info.source+'). Баланс API не проверялся.'
+      : 'OpenAI API-ключ не найден. Для облачных субтитров задай OPENAI_API_KEY на компьютере и перезапусти сервер.';
+  }catch(error){
+    openaiConfigured=false;
+    $('openaiStatus').textContent='Статус OpenAI недоступен: '+error.message;
+  }
+  updateSpeechEngine();
+}
+function updateSpeechEngine(){
+  const cloud=$('speechEngine').value==='openai';
+  $('whisperModel').disabled=cloud;
+  $('openaiDisclosure').hidden=!cloud;
+  $('openaiStatus').style.color=cloud&&!openaiConfigured?'#ffbe90':'';
+}
+$('speechEngine').onchange=updateSpeechEngine;
+loadOpenaiStatus();
 const lastFilmInputKey='filmStudioLastLocalInputV1';
 try {
   const last=localStorage.getItem(lastFilmInputKey)||'';
@@ -695,6 +728,9 @@ if(uploadedId){
 }
 $('renderBtn').onclick=async()=>{
   if(busy)return;
+  if($('captions').checked&&$('speechEngine').value==='openai'&&!openaiConfigured){
+    return status('renderStatus','OpenAI API-ключ не настроен. Укажи OPENAI_API_KEY на компьютере и перезапусти сервер, либо выбери локальный Whisper.');
+  }
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
   const start=timestamp($('start').value),end=timestamp($('end').value);
   if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>300)return status('renderStatus','Неверные таймкоды: продолжительность от 1 секунды до 5 минут.');
@@ -712,6 +748,7 @@ $('renderBtn').onclick=async()=>{
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
+    speech_engine:$('speechEngine').value,
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
     caption_offset:Number($('captionOffset').value)
   };
