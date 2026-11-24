@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS = ("realesrgan-x4plus", "realesrnet-x4plus")
+MODELS = ("realesrgan-x4plus",)
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
