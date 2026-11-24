@@ -268,5 +268,48 @@ class FilmRuntimeRecoveryTests(unittest.TestCase):
                     locate_cascade(stub, base / "cache")
 
 
+class FilmCaptionAndGradeTests(unittest.TestCase):
+    def test_five_styles_use_real_ass_formatting(self):
+        from types import SimpleNamespace as NS
+        from film_captions import subtitle_ass, STYLES
+        words = [NS(start=0, end=.34, word="hello"), NS(start=.34, end=.82, word="world")]
+        segments = [NS(start=0, end=.82, text="hello world", words=words)]
+        self.assertEqual(set(STYLES), {"bold", "karaoke", "cinema", "minimal", "boxed"})
+        for name in STYLES:
+            text, count = subtitle_ass(segments, 360, 640, name, 78)
+            self.assertEqual(count, 1)
+            self.assertIn("[V4+ Styles]", text)
+            self.assertIn("Dialogue: 0,0:00:00.00,0:00:00.82", text)
+            if name == "karaoke":
+                self.assertIn(r"{\kf34}", text)
+                self.assertIn(r"{\kf48}", text)
+            if name == "bold":
+                self.assertIn("HELLO WORLD", text)
+            if name == "boxed":
+                self.assertIn("1,0,0,0,100,100,0,0,3,", text)
+
+    def test_caption_style_and_position_validation(self):
+        from film_captions import validate, subtitle_ass
+        self.assertEqual(validate("cinema", 75), ("cinema", 75))
+        with self.assertRaises(ValueError):
+            subtitle_ass([], 1080, 1920, "not-a-template", 78)
+        for pos in (0, 49, 91, 200):
+            with self.assertRaises(ValueError):
+                validate("bold", pos)
+
+    def test_real_color_filters_for_preview_and_render(self):
+        from film_filters import color_filters, PRESETS
+        self.assertEqual(len(PRESETS), 6)
+        self.assertEqual(color_filters({"enhance": False}), [])
+        warm = dict(PRESETS["warm"])
+        warm["color_tone"] = warm.pop("tone")
+        self.assertIn("colorbalance=", ",".join(color_filters(warm)))
+        self.assertIn("colorbalance=", ",".join(color_filters(warm, preview=True)))
+        self.assertIn("gamma=1.050", ",".join(color_filters(warm)))
+        self.assertNotIn("colorbalance", ",".join(color_filters({"color_tone":"neutral"})))
+        with self.assertRaises(ValueError):
+            color_filters({"color_tone":"invalid"})
+
+
 if __name__ == "__main__":
     unittest.main()
