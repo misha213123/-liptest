@@ -452,6 +452,17 @@
                 </select>
               </div>
             </div>
+            <div style="margin-top:14px;padding:12px;border:1px solid #38544e;border-radius:10px;background:#0d1919">
+              <div class="row" style="align-items:center;justify-content:space-between;gap:10px">
+                <label for="aiDetailStrength"><strong>Удаление мыла · сила AI-восстановления</strong></label>
+                <strong id="aiDetailStrengthVal" class="pill">100%</strong>
+              </div>
+              <input id="aiDetailStrength" type="range" min="0" max="100" step="1" value="100" style="width:100%;accent-color:#83b3a4">
+              <div class="row" style="justify-content:space-between;color:#abc4be;font-size:12px">
+                <span>0% · оригинал</span><span>100% · максимум AI</span>
+              </div>
+              <p class="hint" style="margin:7px 0 0">Ползунок смешивает исходный кадр с настоящим результатом Real-ESRGAN. 100% — полная сила нейросети; 50% — более естественный результат с меньшим риском искусственных текстур.</p>
+            </div>
             <div class="row" style="align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px">
               <button id="installDetailRestoreBtn" type="button" class="secondary">Установить нейросеть на компьютер</button>
               <button id="testDetailFrameBtn" type="button" class="secondary">Проверить AI на 1 кадре</button>
@@ -803,7 +814,7 @@ $('installDetailRestoreBtn').onclick=async()=>{
     $('detailRestoreStatus').textContent='Не удалось установить: '+e.message;
   }finally{b.disabled=false;}
 };
-$('aiDetailRestore').onchange=()=>{
+$('aiDetailStrength').oninput=()=>{\n  $('aiDetailStrengthVal').textContent=$('aiDetailStrength').value+'%';\n};\n$('aiDetailRestore').onchange=()=>{
   if(!$('aiDetailRestore').checked)return;
   $('size').value='1080';
   $('fps').value='60';
@@ -1081,6 +1092,7 @@ async function loadFilmPreview(){
     ai_detail_preview:requestedAIPreview,
     ai_detail_model:$('aiDetailModel').value,
     ai_detail_tile:Number($('aiDetailTile').value),
+    ai_detail_strength:Number($('aiDetailStrength').value),
     face_tracking:$('face').checked,face_focus:$('faceFocus').value,
     enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
