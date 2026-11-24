@@ -33,7 +33,24 @@
     .drop{border:1px dashed #5c8277;padding:23px;border-radius:13px;background:#162623;text-align:center}
     progress{width:100%;height:12px;accent-color:#83b3a4}
     pre{white-space:pre-wrap;overflow:auto;max-height:300px;font-family:Consolas,monospace;color:#a8bbb6;font-size:12px;line-height:1.5;background:#0b1214;border-radius:10px;padding:12px}
-    .preview{aspect-ratio:9/16;max-height:590px;margin:auto;width:min(100%,355px);background:#050708;border-radius:14px;border:1px solid #2c3c3e;display:grid;place-items:center;overflow:hidden}
+    .preview{aspect-ratio:9/16;max-height:590px;margin:auto;width:min(100%,355px);background:#050708!important;border-radius:14px;border:1px solid #2c3c3e;display:grid;place-items:center;overflow:hidden;position:relative}
+    [hidden]{display:none!important}
+    #previewImage{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:1}
+    #resultVideo{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;z-index:5;background:#000}
+    .caption-sample{position:absolute;z-index:3;left:4%;width:92%;transform:translateY(50%);text-align:center;pointer-events:none;font-family:Arial,sans-serif;font-size:clamp(14px,2.5vw,23px);font-weight:900;line-height:1.12;color:#fff;text-shadow:-2px -2px 0 #0b0b0b,2px 2px 0 #0b0b0b,0 3px 8px #000}
+    .caption-sample[data-style="cinema"]{font-family:"Segoe UI",sans-serif;font-size:clamp(13px,2vw,18px);font-weight:500;text-shadow:0 2px 5px #000,0 0 8px #000}
+    .caption-sample[data-style="minimal"]{font-family:"Segoe UI",sans-serif;font-size:clamp(14px,2.2vw,20px);font-weight:700;text-shadow:0 2px 4px #000}
+    .caption-sample[data-style="boxed"]{font-size:clamp(13px,2.1vw,20px);text-shadow:none;background:rgba(0,0,0,.78);padding:7px 10px;border-radius:5px;width:auto;max-width:90%;left:50%;transform:translate(-50%,50%)}
+    .caption-sample[data-style="karaoke"] span{color:#ffeb55}
+    .caption-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:12px}
+    .caption-option{background:#111b1d;border:1px solid #344a47;border-radius:11px;min-height:82px;padding:9px;text-align:center;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px}
+    .caption-option.active{border-color:#9bdbbf;background:#27463e;box-shadow:0 0 0 1px #83c3a9}
+    .caption-option strong{font-size:12px}.caption-option small{font-size:11px;color:#d2e3dd}
+    .caption-option[data-style="bold"] strong{font-weight:900;text-shadow:1px 2px #000}
+    .caption-option[data-style="karaoke"] strong{color:#ffeb55;font-weight:900}
+    .caption-option[data-style="cinema"] strong{font-family:"Segoe UI";font-weight:400}
+    .caption-option[data-style="minimal"] strong{font-family:"Segoe UI";font-weight:600}
+    .caption-option[data-style="boxed"] strong{padding:4px 7px;background:#030707;border-radius:4px}
     video{width:100%;height:100%;object-fit:contain;background:#000}
     .hint{margin-top:9px;font-size:12px;color:#9fb6af}
     .notice{border-left:3px solid #7d9a91;padding:10px 13px;background:#1b2929;color:#c5d6cf;border-radius:0 10px 10px 0;font-size:12px}
@@ -120,7 +137,21 @@
           <label class="toggle"><input id="enhance" type="checkbox" checked> Цвет + чёткость HQ</label>
           <label class="toggle"><input id="optical" type="checkbox"> Optical Flow (медленно)</label>
         </div>
-        <p class="hint">Алгоритм следит за лицом в исходном видео. Распознавание речи выполняет Faster-Whisper с таймкодами слов; результат зависит от слышимости диалогов.</p>
+        <p class="hint">Автослежение использует распознавание лиц и отслеживание движения между кадрами. При крупных сменах сцен возможен сброс; проверь предпросмотр. Речь распознаёт Faster-Whisper.</p>
+        <div style="height:1px;background:var(--line);margin:18px 0"></div>
+        <h2>Шаблоны субтитров</h2>
+        <p class="hint">Выбери оформление — оно применяется к настоящим субтитрам в MP4. На миниатюре сначала показан пример текста.</p>
+        <div class="caption-gallery" id="captionGallery">
+          <button type="button" class="caption-option active" data-style="bold"><strong>ЖИРНЫЙ ТЕКСТ</strong><small>Shorts / Reels</small></button>
+          <button type="button" class="caption-option" data-style="karaoke"><strong>ПО СЛОВАМ</strong><small>Karaoke · жёлтый</small></button>
+          <button type="button" class="caption-option" data-style="cinema"><strong>Киносубтитры</strong><small>Спокойный стиль</small></button>
+          <button type="button" class="caption-option" data-style="minimal"><strong>Минимализм</strong><small>Чистый белый</small></button>
+          <button type="button" class="caption-option" data-style="boxed"><strong>НА ПОДЛОЖКЕ</strong><small>Контрастный блок</small></button>
+        </div>
+        <div style="margin-top:14px">
+          <label for="captionPosition">Положение субтитров: <span id="captionPositionValue">78%</span> высоты кадра</label>
+          <input id="captionPosition" type="range" min="50" max="90" step="1" value="78">
+        </div>
       </section>
 
       <section class="card">
@@ -193,7 +224,14 @@
     <aside>
       <section class="card">
         <h2>Предпросмотр результата</h2>
-        <div id="preview" class="preview"><span id="emptyPreview" class="muted" style="text-align:center;padding:20px">После рендера здесь появится твой клип</span><video id="resultVideo" controls playsinline hidden></video></div>
+        <div id="preview" class="preview">
+          <span id="emptyPreview" class="muted" style="text-align:center;padding:20px">Импортируй серию и нажми «Показать миниатюру»</span>
+          <img id="previewImage" alt="Кадр с выбранным кадрированием и цветокоррекцией" hidden>
+          <div id="captionSample" class="caption-sample" data-style="bold" hidden>КОГДА ВСЁ <span>ИЗМЕНИЛОСЬ</span></div>
+          <video id="resultVideo" controls playsinline hidden></video>
+        </div>
+        <button id="previewBtn" type="button" class="secondary" style="width:100%;margin-top:10px">Показать миниатюру сцены</button>
+        <div id="previewStatus" class="status muted">Это будет реальный кадр исходника с фильтрами и рамкой. Текст до распознавания речи — пример.</div>
         <div id="outputMeta" class="status muted">Формат: 9:16 · 1080p · исходный FPS</div>
         <a id="download" class="button" href="#" download hidden style="width:100%">Скачать готовый MP4</a>
       </section>
@@ -209,6 +247,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let catalog=null,uploadedId='',busy=false;
+let captionStyle='bold',previewTimer=null,previewWorking=false,previewQueued=false,previewLoaded=false,preparedPreviewShown=false;
 let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
 const numberMB=bytes=>(Number(bytes)/1048576).toFixed(1)+' МБ';
 async function scanBrowserDownloads(){
@@ -268,6 +307,7 @@ async function importBrowserDownload(id,isAutomatic=false){
     const data=await response.json();
     if(!response.ok||!data.ok)throw new Error(data.error||'Не удалось импортировать видео');
     uploadedId=data.input_id;
+    scheduleFilmPreview();
     status('downloadsStatus','✅ Импортирован: '+data.filename+' ('+numberMB(data.bytes)+'). '+
       (data.method==='hardlink'?'Без повторного копирования.':'Скопирован локально.')+
       ' Теперь выбери таймкоды и настройки рендера.');
@@ -341,6 +381,7 @@ $('uploadBtn').onclick=()=>{
     let j={};try{j=JSON.parse(xhr.responseText)}catch{}
     if(xhr.status===200&&j.ok){
       uploadedId=j.input_id;
+      scheduleFilmPreview();
       status('uploadStatus','Файл готов: '+j.filename+' ('+Math.round(j.bytes/1048576)+' МБ). Будет использован для нарезки.');
     }else status('uploadStatus','Ошибка: '+(j.error||'Не удалось сохранить файл'));
   };
@@ -359,7 +400,9 @@ function updateSize(){
   $('preview').style.aspectRatio=dims[0]+' / '+dims[1];
   $('outputMeta').textContent='Формат: '+ratio+' · '+Math.round(dims[0]*size/1080)+'×'+Math.round(dims[1]*size/1080)+' · '+($('fps').value==='source'?'FPS источника':$('fps').value+' FPS');
 }
-['size','ratio','fps'].forEach(id=>$(id).onchange=updateSize);
+['size','ratio','fps'].forEach(id=>{
+  $(id).onchange=()=>{updateSize();if(id==='ratio')scheduleFilmPreview()}
+});
 function updateVideo2X(){
   const model=$('video2xUpscale').value;
   const mult=Number($('video2xRife').value);
@@ -389,6 +432,7 @@ $('ultraPresetBtn').onclick=()=>{
 };
 updateVideo2X();
 ['gamma','saturation','brightness','contrast'].forEach(id=>$(id).oninput=()=>{
+  scheduleFilmPreview();
   $('gammaVal').textContent=Number($('gamma').value).toFixed(2);
   $('satVal').textContent=Number($('saturation').value).toFixed(2);
   $('brightVal').textContent=Number($('brightness').value).toFixed(3);
@@ -411,6 +455,83 @@ $('cancelFilmBtn').onclick=async()=>{
     $('cancelFilmBtn').disabled=false;
   }
 };
+function refreshCaptionDemo(){
+  const demo=$('captionSample');
+  demo.dataset.style=captionStyle;
+  demo.style.bottom=(100-Number($('captionPosition').value))+'%';
+  demo.innerHTML=captionStyle==='karaoke'
+    ? '<span>КОГДА</span> ВСЁ ИЗМЕНИЛОСЬ'
+    : 'КОГДА ВСЁ ИЗМЕНИЛОСЬ';
+  for(const button of document.querySelectorAll('.caption-option')){
+    button.classList.toggle('active',button.dataset.style===captionStyle);
+  }
+  $('captionPositionValue').textContent=$('captionPosition').value+'%';
+}
+document.querySelectorAll('.caption-option').forEach(button=>{
+  button.onclick=()=>{
+    captionStyle=button.dataset.style;
+    refreshCaptionDemo();
+  };
+});
+$('captionPosition').oninput=refreshCaptionDemo;
+refreshCaptionDemo();
+function scheduleFilmPreview(){
+  if(!uploadedId)return;
+  if(previewTimer)clearTimeout(previewTimer);
+  previewTimer=setTimeout(loadFilmPreview,750);
+}
+async function loadFilmPreview(){
+  if(!uploadedId){
+    status('previewStatus','Для миниатюры сначала импортируй файл через загрузку или папку Downloads.');
+    return;
+  }
+  if(previewWorking){previewQueued=true;return}
+  const start=timestamp($('start').value);
+  const end=timestamp($('end').value);
+  if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start){
+    status('previewStatus','Проверь таймкоды начала и конца.');
+    return;
+  }
+  const payload={
+    input_id:uploadedId,start,end,ratio:$('ratio').value,
+    face_tracking:$('face').checked,enhance:$('enhance').checked,
+    gamma:Number($('gamma').value),saturation:Number($('saturation').value),
+    brightness:Number($('brightness').value),contrast:Number($('contrast').value)
+  };
+  previewWorking=true;
+  $('previewBtn').disabled=true;
+  status('previewStatus','Готовлю кадр с твоим кадрированием и цветокоррекцией...');
+  try{
+    const response=await fetch('/api/film/preview',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const result=await response.json();
+    if(!response.ok||!result.ok)throw new Error(result.error||'Не удалось создать кадр');
+    const image=$('previewImage');
+    image.onload=()=>{
+      previewLoaded=true;
+      image.hidden=false;
+      $('resultVideo').hidden=true;
+      $('resultVideo').pause();
+      $('captionSample').hidden=!$('captions').checked;
+      $('emptyPreview').hidden=true;
+      status('previewStatus','Миниатюра настоящего кадра готова. Цвет и кадрирование — реальные; текст субтитров показан для примера.');
+    };
+    image.src=result.image_url+'?t='+Date.now();
+  }catch(err){
+    status('previewStatus','Миниатюра: '+err.message);
+  }finally{
+    previewWorking=false;$('previewBtn').disabled=false;
+    if(previewQueued){previewQueued=false;scheduleFilmPreview()}
+  }
+}
+$('previewBtn').onclick=loadFilmPreview;
+['start','end'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
+['face','enhance'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
+$('captions').addEventListener('change',()=>{
+  $('captionSample').hidden=!$('captions').checked||!previewLoaded;
+});
 $('renderBtn').onclick=async()=>{
   if(busy)return;
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
@@ -426,9 +547,11 @@ $('renderBtn').onclick=async()=>{
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
     video2x_upscale:$('video2xUpscale').value,
-    video2x_rife:Number($('video2xRife').value)
+    video2x_rife:Number($('video2xRife').value),
+    caption_style:captionStyle,caption_position:Number($('captionPosition').value)
   };
-  busy=true;$('renderBtn').disabled=true;$('cancelFilmBtn').disabled=false;
+  busy=true;preparedPreviewShown=false;
+  $('renderBtn').disabled=true;$('cancelFilmBtn').disabled=false;
   $('renderProgress').hidden=false;
   $('renderProgress').value=1;$('renderLog').hidden=false;
   status('renderStatus','Запускаю рендер...');
@@ -440,11 +563,26 @@ $('renderBtn').onclick=async()=>{
         const s=await(await fetch('/api/film/render/status')).json();
         $('renderLog').textContent=s.log||'';
         if(s.progress!=null)$('renderProgress').value=s.progress;
+        if(s.prepared_url&&!preparedPreviewShown){
+          preparedPreviewShown=true;
+          $('resultVideo').src=s.prepared_url+'?t='+Date.now();
+          $('resultVideo').hidden=false;
+          $('previewImage').hidden=true;
+          $('captionSample').hidden=true;
+          $('emptyPreview').hidden=true;
+          status('previewStatus','Показывается подготовленный MP4 с настоящими субтитрами и цветом. AI-улучшение ещё выполняется.');
+        }
         if(s.running){status('renderStatus','Рендер... '+Math.round(s.progress||5)+'%');return}
         clearInterval(timer);busy=false;$('renderBtn').disabled=false;$('cancelFilmBtn').disabled=true;
         if(!s.result||!s.result.ok)throw new Error(s.result&&s.result.error||'Рендер завершился с ошибкой');
         status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+Number(s.result.fps).toFixed(2)+' FPS · '+s.result.captions+' субтитров'+(s.result.video2x&&s.result.video2x.enabled?' · Video2X AI ✓':''));
         $('resultVideo').src=s.result.video_url+'?v='+Date.now();$('resultVideo').hidden=false;
+        $('captionSample').hidden=true;$('previewImage').hidden=true;
+        if(s.result.video2x&&s.result.video2x.warning){
+          status('previewStatus',s.result.video2x.warning);
+        }else{
+          status('previewStatus','Показан готовый MP4 со всеми применёнными фильтрами и реальными субтитрами.');
+        }
         $('emptyPreview').hidden=true;
         $('download').href=s.result.download_url;$('download').hidden=false;
         $('renderProgress').value=100;
