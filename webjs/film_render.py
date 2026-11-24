@@ -27,7 +27,12 @@ os.chdir(ROOT)
 
 from core.streamer_export import ASPECT_PRESETS
 from utils.helpers import get_ffmpeg_path
-from film_video2x import options as video2x_options, require_binary as require_video2x, run_steps as run_video2x
+from film_video2x import (
+    options as video2x_options,
+    require_binary as require_video2x,
+    run_steps as run_video2x,
+    upscale_factor as video2x_upscale_factor,
+)
 from film_runtime import face_detector, transcribe_segments
 
 OUT = ROOT / "output"
@@ -310,7 +315,7 @@ def render(job: dict) -> dict:
     ai_enabled = ai_model != "off" or rife_multiplier > 1
     if ai_enabled:
         # Fail before downloading a long film if the external CLI is unavailable.
-        require_video2x()
+        require_video2x(ai_model, rife_multiplier)
     source = authorized_input(job)
     metadata = probe(source)
     start, end = sec(job.get("start", 0)), sec(job.get("end", 0))
@@ -331,13 +336,19 @@ def render(job: dict) -> dict:
     target_w, target_h = round(base_w * size / 1080), round(base_h * size / 1080)
     target_w += target_w % 2
     target_h += target_h % 2
-    # Feed Video2X a clean intermediate. For 2K/4K, upscale 2x to the
-    # requested dimensions; at 1080p improve at 2x then downsample.
-    if ai_model != "off" and size >= 1440:
-        render_w = max(2, (target_w // 2) // 2 * 2)
-        render_h = max(2, (target_h // 2) // 2 * 2)
+    # Match the actual on-disk Video2X model scale.
+    # Real-ESRGAN Plus is 4x, not 2x in official Video2X 6.4.0.
+    # Pre-render only 1/4 dimensions for a 4K result to avoid
+    # accidentally generating 8K and exhausting video memory.
+    scale = video2x_upscale_factor(ai_model)
+    if scale > 1:
+        render_w = max(2, (round(target_w / scale) // 2) * 2)
+        render_h = max(2, (round(target_h / scale) // 2) * 2)
     else:
         render_w, render_h = target_w, target_h
+    if scale > 1:
+        print(f"[video2x] Preparing {render_w}x{render_h} for {scale}x AI upscale "
+              f"to {target_w}x{target_h}.", flush=True)
     iw, ih = metadata["width"], metadata["height"]
     cw = min(iw, int(ih * target_w / target_h))
     ch = min(ih, int(iw * target_h / target_w))
