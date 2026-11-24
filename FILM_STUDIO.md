@@ -348,6 +348,36 @@ word-timed request) and local Faster-Whisper (no OpenAI API charges).
 Note: GPT-Transcribe itself does not currently return per-word timestamps.
 Even with maximum quality, exact word/voice sync may need corrections.
 
+## Topaz-style manual video enhancement (FFmpeg equivalents)
+
+Film Studio > Quality & Export now has a separate **manual restoration**
+panel, inspired by Topaz Video's enhancement workflow but implemented
+with open FFmpeg filters, not Topaz's commercial models.
+
+| UI control | Actual processing |
+|---|---|
+| Compressed-block artifact reduction | `deblock` (strong mode; bounded thresholds) |
+| Denoise | `hqdn3d` spatial/temporal luma/chroma suppression |
+| Microdetail / local contrast | Fine-radius `unsharp` (3x3) |
+| Sharpen | Edge sharpening via `unsharp` (5x5) |
+| Film grain | Deliberate fine `noise` (temporal/uniform) |
+| Gamma, saturation, brightness and contrast | `eq`, `colorbalance` |
+| Frame rate increase | `minterpolate` FFmpeg optical flow or optional RIFE |
+
+Each parameter is a constrained 0–100 slider, shared between the
+real JPEG **Before/After** frame and actual MP4 export. Four built-in
+restoration profiles are provided: Balanced, Clean source, Detail and
+Film grain. Moving any slider enables manual mode. Color correction
+must remain checked in Film Studio to apply restoration filters.
+
+No slider performs proprietary Topaz Proteus, Iris, Starlight or
+Chronos inference. The maximum detail depends on the original video.
+For GTX 1650 (4 GB), prefer 1080p + FFmpeg optical flow 60 FPS first,
+and try Video2X separately on a short clip. The Video2X watchdog now
+checks stalled work even if the CLI keeps printing unrelated logs;
+after an idle timeout the pipeline exports a usable FFmpeg MP4
+instead of waiting at 72% indefinitely.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
