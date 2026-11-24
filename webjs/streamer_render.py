@@ -967,15 +967,8 @@ def main():
     turbo_requested = str(os.environ.get("STREAMER_GPU_TURBO", "0")).strip().lower() in (
         "1", "true", "yes", "on"
     )
+    # Source quality is independent of GPU Turbo/export encoder settings.
     requested_resolution = str(job.get("resolution") or "best")
-    if turbo_requested and export_cfg["quality"] != "ultra" and requested_resolution.strip().lower() in ("best", "auto"):
-        requested_resolution = str(
-            os.environ.get("STREAMER_GPU_TURBO_SOURCE", "1080p") or "1080p"
-        )
-        debug_log(
-            f"[streamer] 🚀 GPU TURBO source cap: {requested_resolution}",
-            flush=True,
-        )
 
     debug_log("[progress] Загружаю выбранный момент... (overall: 5.0%)", flush=True)
     debug_log(f"[streamer] {fmt_time(start_sec)} -> {fmt_time(end_sec)}", flush=True)
@@ -988,29 +981,27 @@ def main():
         batch_index = -1
 
     if batch_id and batch_sections and 0 <= batch_index < len(batch_sections):
-        # yt-dlp can merge repeated --download-sections into ONE file.
-        # That file cannot be mapped safely to four different highlights.
-        # Download each requested range separately and cache by its index/times.
-        batch_dir = APP_DIR / "output" / "streamer_batches" / batch_id
-        selected_source = get_cached_section(
-            core, url, batch_sections, batch_index, batch_dir,
-            requested_resolution,
-            log=lambda m: debug_log(m, flush=True),
-        )
-        shutil.copy2(selected_source, source_path)
-        debug_log(
-            f"[streamer] Секция {batch_index + 1}/{len(batch_sections)} "
-            f"-> {source_path.name} (индивидуальная загрузка)",
-            flush=True,
-        )
+        chosen = dict(batch_sections[batch_index])
+        if (
+            abs(parse_time(chosen.get("start_time", 0)) - start_sec) > 0.1
+            or abs(parse_time(chosen.get("end_time", 0)) - end_sec) > 0.1
+        ):
+            raise ValueError("Таймкоды batch-секции не совпадают с клипом")
     else:
-        core.download_video_section(
-            url,
-            fmt_time(start_sec),
-            fmt_time(end_sec),
-            str(source_path),
-            resolution=requested_resolution,
-        )
+        chosen = {"start_time": fmt_time(start_sec), "end_time": fmt_time(end_sec)}
+
+    # Stable cross-session cache: rendering the same time range must not hit
+    # YouTube again. A job-specific batch_id would defeat this cache.
+    cache_key = hashlib.sha256(
+        f"v3|{url}|{fmt_time(start_sec)}|{fmt_time(end_sec)}|{requested_resolution}".encode("utf-8")
+    ).hexdigest()[:24]
+    cache_dir = APP_DIR / "output" / "streamer_source_clips" / cache_key
+    selected_source = get_cached_section(
+        core, url, [chosen], 0, cache_dir, requested_resolution,
+        log=lambda m: debug_log(m, flush=True),
+    )
+    shutil.copy2(selected_source, source_path)
+    debug_log(f"[streamer] Исходник из кэша/YouTube: {selected_source.name}", flush=True)
 
     requested_gpu = bool(job.get("gpu", True))
     effective_gpu = True if turbo_requested else requested_gpu
