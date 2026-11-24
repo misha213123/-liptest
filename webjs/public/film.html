@@ -48,6 +48,7 @@
     .color-option .swatch{display:block;width:45px;height:19px;border-radius:4px;background:linear-gradient(90deg,#242c39,#c2a78e,#eedbbb)}
     .color-option[data-look="vibrant"] .swatch{filter:saturate(1.55) contrast(1.18)}
     .color-option[data-look="ultra"] .swatch{filter:saturate(2) brightness(1.2) contrast(1.3)}
+    .color-option[data-look="reference"] .swatch{filter:saturate(1.7) sepia(.15) contrast(1.35)}
     .color-option[data-look="bright"] .swatch{filter:brightness(1.35)}
     .color-option[data-look="cinema"] .swatch{filter:contrast(1.25) sepia(.20)}
     .color-option[data-look="warm"] .swatch{filter:sepia(.55) saturate(1.25)}
@@ -211,6 +212,7 @@
           <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
           <button class="color-option" data-look="vibrant" type="button"><span class="swatch"></span>Насыщенный</button>
           <button class="color-option" data-look="ultra" type="button"><span class="swatch"></span>Ultra · сочный</button>
+          <button class="color-option" data-look="reference" type="button"><span class="swatch"></span>Кино · как в примере</button>
           <button class="color-option" data-look="bright" type="button"><span class="swatch"></span>Яркий</button>
           <button class="color-option" data-look="cinema" type="button"><span class="swatch"></span>Кино</button>
           <button class="color-option" data-look="warm" type="button"><span class="swatch"></span>Тёплый</button>
@@ -223,6 +225,10 @@
             <option value="3:4">3:4 · вертикальный</option><option value="2:3">2:3 · вертикальный</option>
             <option value="4:3">4:3 · классика</option><option value="16:9">16:9 · YouTube</option>
             <option value="21:9">21:9 · киноформат</option>
+            <option value="3:2">3:2 · горизонтальный</option>
+            <option value="5:3">5:3 · широкий</option>
+            <option value="2:1">2:1 · широкоэкранный</option>
+            <option value="9:21">9:21 · высокий вертикальный</option>
           </select></div>
           <div><label for="size">Короткая сторона</label><select id="size">
             <option value="1080">1080 · Full HD</option><option value="1440">1440 · 2K</option><option value="2160">2160 · 4K</option>
@@ -245,7 +251,10 @@
               <strong style="font-size:15px">Video2X · AI Ultra Quality</strong>
               <p class="hint">Real-ESRGAN Plus 4× / Anime4K для улучшения, RIFE для плавности</p>
             </div>
-            <button id="ultraPresetBtn" class="secondary" type="button">✨ Пресет Ultra AI</button>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <button id="referencePresetBtn" type="button">🎬 Как в примере · 60 FPS</button>
+              <button id="ultraPresetBtn" class="secondary" type="button">Ultra AI · тяжёлый режим</button>
+            </div>
           </div>
           <div class="grid2" style="margin-top:14px">
             <div>
@@ -268,7 +277,7 @@
           </div>
           <p class="hint" id="video2xInfo">
             Video2X 6.x устанавливается отдельно: <a href="https://github.com/k4yt3x/video2x/releases" target="_blank" rel="noopener noreferrer" style="color:#a6dfcf;text-decoration:underline">скачать с GitHub</a>.
-            При выключенных AI-функциях Film Studio работает через обычный FFmpeg.
+            При выключенных AI-функциях Film Studio работает через обычный FFmpeg. Для GTX 1650 лучше использовать «Как в примере · 60 FPS»: цвет и движение без тяжёлого Video2X.
           </p>
         </div>
         <p class="hint" id="outputHint">Цвет и гамма: FFmpeg. Video2X улучшает изображение и/или увеличивает FPS, но не заменяет качественный оригинал.</p>
@@ -505,7 +514,8 @@ function timestamp(text){
 function updateSize(){
   const size=Number($('size').value), ratio=$('ratio').value;
   const dims={'9:16':[1080,1920],'4:5':[1080,1350],'5:4':[1350,1080],'1:1':[1080,1080],
-    '3:4':[1080,1440],'2:3':[1080,1620],'4:3':[1440,1080],'16:9':[1920,1080],'21:9':[2520,1080]}[ratio];
+    '3:4':[1080,1440],'2:3':[1080,1620],'4:3':[1440,1080],'16:9':[1920,1080],'21:9':[2520,1080],
+    '3:2':[1620,1080],'5:3':[1800,1080],'2:1':[2160,1080],'9:21':[1080,2520]}[ratio];
   $('preview').style.aspectRatio=dims[0]+' / '+dims[1];
   $('outputMeta').textContent='Формат: '+ratio+' · '+Math.round(dims[0]*size/1080)+'×'+Math.round(dims[1]*size/1080)+' · '+($('fps').value==='source'?'FPS источника':$('fps').value+' FPS');
 }
@@ -525,6 +535,20 @@ function updateVideo2X(){
 }
 $('video2xUpscale').onchange=updateVideo2X;
 $('video2xRife').onchange=updateVideo2X;
+$('referencePresetBtn').onclick=()=>{
+  $('ratio').value='1:1';
+  $('size').value='1080';
+  $('fps').value='60';
+  $('video2xUpscale').value='off';
+  $('video2xRife').value='1';
+  $('optical').disabled=false;
+  $('optical').checked=true;
+  $('enhance').checked=true;
+  selectColorLook('reference');
+  updateVideo2X();
+  scheduleFilmPreview();
+  status('renderStatus','Пресет как в примере: квадрат 1:1, тёплая цветокоррекция, реальная optical-flow интерполяция до 60 FPS, без зависающего Video2X.');
+};
 $('ultraPresetBtn').onclick=()=>{
   $('video2xUpscale').value='realesrgan-plus';
   $('video2xRife').value='2';
@@ -565,6 +589,7 @@ const colorLooks={
   natural:{gamma:1.02,brightness:0,contrast:1.04,saturation:1.06,tone:'neutral'},
   vibrant:{gamma:1.07,brightness:.025,contrast:1.11,saturation:1.23,tone:'neutral'},
   ultra:{gamma:1.10,brightness:.040,contrast:1.17,saturation:1.28,tone:'neutral'},
+  reference:{gamma:1.055,brightness:.015,contrast:1.18,saturation:1.24,tone:'warm'},
   bright:{gamma:1.12,brightness:.052,contrast:1.06,saturation:1.10,tone:'neutral'},
   cinema:{gamma:1.04,brightness:.003,contrast:1.15,saturation:1.09,tone:'warm'},
   warm:{gamma:1.05,brightness:.018,contrast:1.08,saturation:1.15,tone:'warm'},
