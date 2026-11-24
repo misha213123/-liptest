@@ -635,5 +635,95 @@ class FilmOpenAIMaxTests(unittest.TestCase):
                     transcribe_max(path, client_factory=lambda **kwargs: Client(), root=Path(tmp))
 
 
+class FilmHighlightDiscoveryTests(unittest.TestCase):
+    def test_highlight_settings_are_bounded(self):
+        from film_highlights import validate_settings
+        self.assertEqual(validate_settings({})["count"], 6)
+        self.assertEqual(validate_settings({"count": 10, "min_duration": 12, "max_duration": 44})["count"], 10)
+        for invalid in [
+            {"count": 1}, {"count": 13},
+            {"min_duration": 1}, {"min_duration": 100},
+            {"min_duration": 50, "max_duration": 30},
+            {"max_duration": 240}, {"language": "xx"},
+        ]:
+            with self.assertRaises(ValueError):
+                validate_settings(invalid)
+
+    def test_timestamped_transcript_scans_entire_series(self):
+        from film_highlights import timestamped_lines
+        words=[
+            {"start":1.0,"end":1.4,"word":"Начало"},
+            {"start":1501.5,"end":1502,"word":"Поворот"},
+            {"start":3580.2,"end":3580.5,"word":"Развязка"},
+        ]
+        rows=timestamped_lines(words,3600)
+        self.assertEqual([r["start"] for r in rows],[0,1500,3576])
+        self.assertEqual([r["text"] for r in rows],["Начало","Поворот","Развязка"])
+
+    def test_cannot_invent_unspoken_and_out_of_bounds_scene(self):
+        from film_highlights import choose_highlights
+        words=[{"start":t,"end":t+.4,"word":"сцена"} for t in range(10,200,2)]
+        candidates=[
+            {"start":20,"end":45,"score":91,"title":"1","reason":"Поворот", "category":"plot_twist"},
+            {"start":22,"end":48,"score":90,"title":"2","reason":"Дубль", "category":"tension"},
+            {"start":120,"end":150,"score":87,"title":"3","reason":"Юмор", "category":"humor"},
+            {"start":210,"end":240,"score":99,"title":"Придумано", "reason":"Нет речи"},
+            {"start":182,"end":340,"score":96,"title":"Длинный", "reason":"За пределами"},
+            {"start":-2,"end":25,"score":95,"title":"Минус", "reason":"За пределами"},
+        ]
+        chosen=choose_highlights(candidates, words,240,6,15,60)
+        self.assertEqual(len(chosen),2)
+        self.assertEqual(chosen[0]["start"],20)
+        self.assertEqual(chosen[1]["start"],120)
+        self.assertEqual([x["rank"] for x in chosen],[1,2])
+
+    def test_transcription_chunks_reuse_cached_words_without_paid_api(self):
+        from film_highlights import transcribe_episode
+        from types import SimpleNamespace as NS
+        import tempfile
+        from unittest.mock import patch
+        from film_highlights import AUDIO_CHUNK_SECONDS
+        class T:
+            def __init__(self):self.calls=0
+            def create(self,**kwargs):
+                self.calls+=1
+                return NS(words=[
+                    NS(word="Hello",start=2.0,end=2.3),
+                    NS(word="world",start=2.4,end=2.8)
+                ])
+        trans=T()
+        client=NS(audio=NS(transcriptions=trans))
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)
+            src=folder/"episode.mp4"
+            src.write_bytes(b"fake")
+            def fake_run(cmd,timeout=0):
+                Path(cmd[-1]).write_bytes(b"RIFF"+b"\x00"*2000)
+            with patch("film_highlights.run",side_effect=fake_run):
+                words=transcribe_episode(src,AUDIO_CHUNK_SECONDS+20,"en",folder/"cache",client,report=lambda *_:None)
+                self.assertEqual(trans.calls,2)
+                self.assertEqual(len(words),4)
+                self.assertEqual(words[-1]["start"], AUDIO_CHUNK_SECONDS+2)
+                words_again=transcribe_episode(src,AUDIO_CHUNK_SECONDS+20,"en",folder/"cache",client,report=lambda *_:None)
+                self.assertEqual(trans.calls,2)
+                self.assertEqual(words_again,words)
+
+    def test_ai_response_is_parsed_as_ranked_candidates(self):
+        from types import SimpleNamespace as NS
+        from film_highlights import _model_response
+        calls=[]
+        class Chat:
+            def create(self,**kwargs):
+                calls.append(kwargs)
+                return NS(choices=[NS(message=NS(content='{"clips":[{"start":10,"end":40,"score":85,"title":"Сцена","reason":"Сильный конфликт","category":"tension"}]}'))])
+        client=NS(chat=NS(completions=Chat()))
+        settings={"min_duration":15,"max_duration":60}
+        got=_model_response(client,[{"start":0,"end":48,"text":"Серьёзный разговор"}],settings)
+        self.assertEqual(len(got),1)
+        self.assertEqual(got[0]["score"],85)
+        self.assertEqual(calls[0]["model"],"gpt-4.1")
+        self.assertEqual(calls[0]["response_format"],{"type":"json_object"})
+
+
 if __name__ == "__main__":
     unittest.main()
