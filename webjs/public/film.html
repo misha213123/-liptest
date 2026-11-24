@@ -47,6 +47,7 @@
     .color-option{background:#1a2527;border:1px solid #3a4d49;border-radius:9px;min-height:62px;padding:8px 4px;display:grid;place-items:center;gap:4px;font-weight:700}
     .color-option .swatch{display:block;width:45px;height:19px;border-radius:4px;background:linear-gradient(90deg,#242c39,#c2a78e,#eedbbb)}
     .color-option[data-look="vibrant"] .swatch{filter:saturate(1.55) contrast(1.18)}
+    .color-option[data-look="ultra"] .swatch{filter:saturate(2) brightness(1.2) contrast(1.3)}
     .color-option[data-look="bright"] .swatch{filter:brightness(1.35)}
     .color-option[data-look="cinema"] .swatch{filter:contrast(1.25) sepia(.20)}
     .color-option[data-look="warm"] .swatch{filter:sepia(.55) saturate(1.25)}
@@ -199,6 +200,7 @@
         <div class="color-gallery" id="colorGallery">
           <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
           <button class="color-option" data-look="vibrant" type="button"><span class="swatch"></span>Насыщенный</button>
+          <button class="color-option" data-look="ultra" type="button"><span class="swatch"></span>Ultra · сочный</button>
           <button class="color-option" data-look="bright" type="button"><span class="swatch"></span>Яркий</button>
           <button class="color-option" data-look="cinema" type="button"><span class="swatch"></span>Кино</button>
           <button class="color-option" data-look="warm" type="button"><span class="swatch"></span>Тёплый</button>
@@ -286,6 +288,10 @@
             <button type="button" id="nextFrameBtn" class="secondary" aria-label="Более поздний кадр" style="flex:0">+</button>
           </div>
         </div>
+        <div class="grid2" style="margin-top:10px">
+          <button id="beforeColorBtn" type="button" class="secondary">До обработки</button>
+          <button id="afterColorBtn" type="button">После обработки</button>
+        </div>
         <button id="previewBtn" type="button" class="secondary" style="width:100%;margin-top:10px">Обновить кадр с фильтрами</button>
         <div id="previewStatus" class="status muted" role="status">После импорта выбери кадр, чтобы увидеть реальную обрезку и фильтры. Текст субтитров до распознавания речи — демонстрационный.</div>
         <div id="outputMeta" class="status muted">Формат: 9:16 · 1080p · исходный FPS</div>
@@ -313,6 +319,7 @@ function rememberFilmInput(id){
 }
 let captionStyle='bold',previewTimer=null,previewWorking=false,previewQueued=false,previewLoaded=false,preparedPreviewShown=false;
 let colorTone='neutral',activeColorLook='natural';
+let previewOriginal='',previewGraded='',showProcessed=true;
 let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
 const numberMB=bytes=>(Number(bytes)/1048576).toFixed(1)+' МБ';
 async function scanBrowserDownloads(){
@@ -527,6 +534,7 @@ $('cancelFilmBtn').onclick=async()=>{
 const colorLooks={
   natural:{gamma:1.02,brightness:0,contrast:1.04,saturation:1.06,tone:'neutral'},
   vibrant:{gamma:1.07,brightness:.025,contrast:1.11,saturation:1.23,tone:'neutral'},
+  ultra:{gamma:1.10,brightness:.040,contrast:1.17,saturation:1.28,tone:'neutral'},
   bright:{gamma:1.12,brightness:.052,contrast:1.06,saturation:1.10,tone:'neutral'},
   cinema:{gamma:1.04,brightness:.003,contrast:1.15,saturation:1.09,tone:'warm'},
   warm:{gamma:1.05,brightness:.018,contrast:1.08,saturation:1.15,tone:'warm'},
@@ -624,7 +632,9 @@ async function loadFilmPreview(){
       img.src=source;
     });
     const display=$('previewImage');
-    display.src=source;
+    previewGraded=source;
+    previewOriginal=result.before_image_data||source;
+    display.src=showProcessed?previewGraded:previewOriginal;
     display.hidden=false;
     $('resultVideo').pause();
     $('resultVideo').hidden=true;
@@ -653,6 +663,18 @@ async function loadFilmPreview(){
     if(previewQueued){previewQueued=false;scheduleFilmPreview()}
   }
 }
+function showColorVersion(processed){
+  showProcessed=processed;
+  $('beforeColorBtn').classList.toggle('secondary',processed);
+  $('afterColorBtn').classList.toggle('secondary',!processed);
+  const image=$('previewImage');
+  if(previewLoaded && (processed?previewGraded:previewOriginal)){
+    image.src=processed?previewGraded:previewOriginal;
+    image.hidden=false;
+  }
+}
+$('beforeColorBtn').onclick=()=>showColorVersion(false);
+$('afterColorBtn').onclick=()=>showColorVersion(true);
 $('previewBtn').onclick=loadFilmPreview;
 const previewSlider=$('previewPosition');
 previewSlider.oninput=()=>{
