@@ -182,6 +182,8 @@
         </div>
         <p class="hint" id="outputHint">Цвет и гамма: FFmpeg. Video2X улучшает изображение и/или увеличивает FPS, но не заменяет качественный оригинал.</p>
         <button id="renderBtn" style="width:100%;margin-top:18px;padding:15px;font-size:15px" type="button">Начать рендер клипа</button>
+        <button id="cancelFilmBtn" type="button" class="secondary" disabled style="width:100%;margin-top:8px">Остановить рендер и Video2X</button>
+        <p class="hint">Остановка завершает дочерние процессы Video2X и FFmpeg. Исходное видео сохраняется.</p>
         <div id="renderStatus" class="status muted" role="status"></div>
         <progress id="renderProgress" max="100" value="0" hidden></progress>
         <pre id="renderLog" hidden></pre>
@@ -393,6 +395,22 @@ updateVideo2X();
   $('contrastVal').textContent=Number($('contrast').value).toFixed(2);
 });
 updateSize();
+$('cancelFilmBtn').onclick=async()=>{
+  if(!busy)return;
+  $('cancelFilmBtn').disabled=true;
+  status('renderStatus','Останавливаю рендер и Video2X...');
+  try{
+    const response=await fetch('/api/film/render/cancel',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+    });
+    const result=await response.json();
+    if(!response.ok||!result.ok)throw new Error(result.error||'Не удалось остановить рендер');
+    status('renderStatus','Рендер остановлен. Исходные видео сохранены.');
+  }catch(err){
+    status('renderStatus','Ошибка остановки: '+err.message);
+    $('cancelFilmBtn').disabled=false;
+  }
+};
 $('renderBtn').onclick=async()=>{
   if(busy)return;
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
@@ -410,7 +428,8 @@ $('renderBtn').onclick=async()=>{
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value)
   };
-  busy=true;$('renderBtn').disabled=true;$('renderProgress').hidden=false;
+  busy=true;$('renderBtn').disabled=true;$('cancelFilmBtn').disabled=false;
+  $('renderProgress').hidden=false;
   $('renderProgress').value=1;$('renderLog').hidden=false;
   status('renderStatus','Запускаю рендер...');
   try{
@@ -422,16 +441,17 @@ $('renderBtn').onclick=async()=>{
         $('renderLog').textContent=s.log||'';
         if(s.progress!=null)$('renderProgress').value=s.progress;
         if(s.running){status('renderStatus','Рендер... '+Math.round(s.progress||5)+'%');return}
-        clearInterval(timer);busy=false;$('renderBtn').disabled=false;
+        clearInterval(timer);busy=false;$('renderBtn').disabled=false;$('cancelFilmBtn').disabled=true;
         if(!s.result||!s.result.ok)throw new Error(s.result&&s.result.error||'Рендер завершился с ошибкой');
         status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+Number(s.result.fps).toFixed(2)+' FPS · '+s.result.captions+' субтитров'+(s.result.video2x&&s.result.video2x.enabled?' · Video2X AI ✓':''));
         $('resultVideo').src=s.result.video_url+'?v='+Date.now();$('resultVideo').hidden=false;
         $('emptyPreview').hidden=true;
         $('download').href=s.result.download_url;$('download').hidden=false;
         $('renderProgress').value=100;
-      }catch(err){clearInterval(timer);busy=false;$('renderBtn').disabled=false;status('renderStatus','Ошибка: '+err.message)}
+      }catch(err){clearInterval(timer);busy=false;$('renderBtn').disabled=false;$('cancelFilmBtn').disabled=true;status('renderStatus','Ошибка: '+err.message)}
     },1300);
-  }catch(err){busy=false;$('renderBtn').disabled=false;status('renderStatus','Ошибка: '+err.message)}
+  }catch(err){busy=false;$('renderBtn').disabled=false;$('cancelFilmBtn').disabled=true;
+    status('renderStatus','Ошибка: '+err.message)}
 };
 </script>
 </body>
