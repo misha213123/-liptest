@@ -14,6 +14,10 @@ PRESETS = {
                 "saturation": 1.23, "tone": "neutral"},
     "ultra": {"gamma": 1.10, "brightness": .040, "contrast": 1.17,
               "saturation": 1.28, "tone": "neutral"},
+    # Full-reel cinematic look: saturated but preserves highlights and skin.
+    # Designed to pair with FFmpeg's actual 30->60fps minterpolate.
+    "smooth_vivid": {"gamma": 1.075, "brightness": .025, "contrast": 1.19,
+                     "saturation": 1.29, "tone": "warm"},
     # Reference clip look: stronger contrast, warm skin tones, saturated color.
     # Actual FFmpeg filters, not fake HDR/4K.
     "reference": {"gamma": 1.055, "brightness": .015, "contrast": 1.18,
