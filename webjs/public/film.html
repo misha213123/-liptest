@@ -73,7 +73,31 @@
           </div>
         </div>
         <div style="height:1px;background:var(--line);margin:20px 0"></div>
-        <label for="filmFile">Альтернатива: свой видеофайл (MP4, MKV, MOV, WEBM)</label>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <div>
+            <strong style="font-size:15px">Импорт из HDrezka Grabber</strong>
+            <p class="hint">Расширение скачивает видео, Auto Clipper подхватывает готовый файл.</p>
+          </div>
+          <a href="https://chromewebstore.google.com/detail/hdrezka-grabber/aamnmboocelpaiagegjicbefiinkcoal/" target="_blank" rel="noopener noreferrer" class="button secondary">Расширение Chrome</a>
+        </div>
+        <div class="grid2">
+          <div style="min-width:0">
+            <label for="downloadsSelect">Готовые видео из папки загрузок</label>
+            <select id="downloadsSelect"><option value="">Проверяю папку загрузок...</option></select>
+          </div>
+          <div class="row" style="align-items:end">
+            <button id="refreshDownloadsBtn" class="secondary" type="button">Обновить</button>
+            <button id="importDownloadBtn" type="button">Импортировать</button>
+          </div>
+        </div>
+        <label class="toggle" style="margin-top:12px">
+          <input id="autoImportDownloads" type="checkbox">
+          Автоимпортировать новые завершённые видео, пока открыта эта страница
+        </label>
+        <div id="downloadsStatus" class="status muted" role="status"></div>
+        <p class="hint" id="downloadsPathHint">По умолчанию используется папка Downloads текущего пользователя Windows. При необходимости можно задать FILM_DOWNLOADS_DIR.</p>
+        <div style="height:1px;background:var(--line);margin:20px 0"></div>
+        <label for="filmFile">Или загрузи свой видеофайл (MP4, MKV, MOV, WEBM)</label>
         <div class="drop">
           <input id="filmFile" type="file" accept=".mp4,.mkv,.mov,.m4v,.webm,video/*">
           <p class="hint">Файлы до 8 ГБ сохраняются локально в output/film_inputs, без загрузки в интернет.</p>
@@ -184,6 +208,82 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let catalog=null,uploadedId='',busy=false;
+let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
+const numberMB=bytes=>(Number(bytes)/1048576).toFixed(1)+' МБ';
+async function scanBrowserDownloads(){
+  if(scanningDownloads || importingDownload)return;
+  scanningDownloads=true;
+  try{
+    const response=await fetch('/api/film/downloads',{cache:'no-store'});
+    const info=await response.json();
+    if(!response.ok||!info.ok)throw new Error(info.error||'Не удалось прочитать папку загрузок');
+    const select=$('downloadsSelect');
+    const oldSelection=select.value;
+    const entries=info.files||[];
+    select.innerHTML='';
+    if(!entries.length)select.add(new Option('Готовые видео пока не найдены',''));
+    for(const item of entries){
+      select.add(new Option(item.name+' · '+numberMB(item.bytes),item.id));
+    }
+    if(entries.some(item=>item.id===oldSelection))select.value=oldSelection;
+    $('downloadsPathHint').textContent='Папка: '+info.folder+'. Файлы должны быть полностью скачаны (не менее 12 секунд без записи).';
+    const ids=new Set(entries.map(item=>item.id));
+    if(!downloadsReady){
+      knownDownloadIds=ids;
+      downloadsReady=true;
+    }else if($('autoImportDownloads').checked){
+      if(!autoWatchArmed){
+        knownDownloadIds=ids;
+        autoWatchArmed=true;
+      }else{
+        const fresh=entries.find(item=>!knownDownloadIds.has(item.id));
+        knownDownloadIds=ids;
+        if(fresh && !busy){
+          select.value=fresh.id;
+          await importBrowserDownload(fresh.id,true);
+        }
+      }
+    }else{
+      knownDownloadIds=ids;
+      autoWatchArmed=false;
+    }
+    if(!importingDownload){
+      const text=info.missing?'Папка загрузок не найдена. Настрой FILM_DOWNLOADS_DIR.':
+        'Найдено готовых файлов: '+entries.length+'. Выбери серию и нажми «Импортировать».';
+      if(!$('downloadsStatus').textContent.startsWith('✅'))status('downloadsStatus',text);
+    }
+  }catch(err){status('downloadsStatus','Ошибка поиска: '+err.message);}
+  finally{scanningDownloads=false}
+}
+async function importBrowserDownload(id,isAutomatic=false){
+  if(importingDownload || busy || !id)return;
+  importingDownload=true;
+  $('importDownloadBtn').disabled=true;
+  status('downloadsStatus',isAutomatic?'Импортирую новый завершённый файл...':'Импортирую из загрузок...');
+  try{
+    const response=await fetch('/api/film/import-download',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})
+    });
+    const data=await response.json();
+    if(!response.ok||!data.ok)throw new Error(data.error||'Не удалось импортировать видео');
+    uploadedId=data.input_id;
+    status('downloadsStatus','✅ Импортирован: '+data.filename+' ('+numberMB(data.bytes)+'). '+
+      (data.method==='hardlink'?'Без повторного копирования.':'Скопирован локально.')+
+      ' Теперь выбери таймкоды и настройки рендера.');
+  }catch(err){status('downloadsStatus','Ошибка импорта: '+err.message);}
+  finally{importingDownload=false;$('importDownloadBtn').disabled=false}
+}
+$('refreshDownloadsBtn').onclick=scanBrowserDownloads;
+$('importDownloadBtn').onclick=()=>importBrowserDownload($('downloadsSelect').value);
+$('autoImportDownloads').onchange=()=>{
+  autoWatchArmed=false;
+  if($('autoImportDownloads').checked){
+    status('downloadsStatus','Автоимпорт включён. Новые готовые файлы будут подхватываться, пока вкладка открыта.');
+    scanBrowserDownloads();
+  }else status('downloadsStatus','Автоимпорт выключен.');
+};
+scanBrowserDownloads();
+setInterval(()=>{if(!busy)scanBrowserDownloads()},6000);
 function status(id,text){$(id).textContent=text;}
 function options(id,rows,empty){
   const el=$(id);el.innerHTML='';
