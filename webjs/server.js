@@ -1274,6 +1274,17 @@ except Exception as e:
         }
       } catch {}
       const log = job && job.logPath ? tailFile(job.logPath) : '';
+      // Python import/startup errors may occur before it writes result JSON.
+      // Always provide a helpful error instead of an unexplained "Ошибка".
+      if (job && job.code !== undefined && (!result || !result.ok)) {
+        const tail = log.trim().split(/\r?\n/).filter(Boolean).slice(-8).join(' | ')
+          .replace(/https?:\/\/\S+/g, '[URL]')
+          .replace(/sk-[A-Za-z0-9_-]+/g, '[TOKEN]');
+        if (!result) {
+          result = { ok: false, error: 'Не удалось получить кадр (код ' + job.code + '). ' +
+            (tail.slice(-1000) || 'Python не создал файл результата. Проверьте серверный журнал.') };
+        }
+      }
       return json(res, 200, {
         running: !!(job && job.code === undefined),
         code: job ? job.code : null,
