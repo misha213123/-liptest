@@ -176,6 +176,7 @@ let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
 let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
 let FILM_RENDER_JOB = null;
+let FILM_HIGHLIGHTS_JOB = null;
 let FILM_PREVIEW_BUSY = false;
 
 // Film Studio uses Python -> FFmpeg -> Video2X subprocesses. Killing only
@@ -1663,6 +1664,132 @@ except Exception as e:
       return;
     }
 
+    // Film Studio AI highlights: explicit user action; audio is sent to OpenAI
+    // only after the user clicks Analyze. Separate from the normal clip render.
+    if (p === '/api/film/highlights/analyze' && req.method === 'POST') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Анализ доступен только на этом компьютере.' });
+      const origin = String(req.headers.origin || '');
+      if (origin) {
+        let same = false;
+        try {
+          const target = new URL(origin);
+          same = target.host === req.headers.host && ['http:', 'https:'].includes(target.protocol);
+        } catch {}
+        if (!same) return json(res, 403, { error: 'Запрос с другого сайта запрещён.' });
+      }
+      if (FILM_HIGHLIGHTS_JOB && FILM_HIGHLIGHTS_JOB.code === undefined)
+        return json(res, 409, { error: 'Поиск моментов уже идёт.' });
+      let raw = '';
+      req.on('data', chunk => {
+        raw += chunk;
+        if (raw.length > 8192) req.destroy();
+      });
+      req.on('end', () => {
+        let payload;
+        try { payload = JSON.parse(raw || '{}'); }
+        catch { return json(res, 400, { error: 'Неверный запрос.' }); }
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+          return json(res, 400, { error: 'Некорректные параметры.' });
+        if (!payload.input_id && !payload.url)
+          return json(res, 400, { error: 'Импортируй серию или выбери эпизод.' });
+        const count = Number(payload.count);
+        const minDuration = Number(payload.min_duration);
+        const maxDuration = Number(payload.max_duration);
+        if (!Number.isInteger(count) || count < 2 || count > 12 ||
+            !Number.isInteger(minDuration) || minDuration < 8 || minDuration > 90 ||
+            !Number.isInteger(maxDuration) || maxDuration < minDuration || maxDuration > 120) {
+          return json(res, 400, { error: 'Выбери 2–12 моментов длительностью 8–120 секунд.' });
+        }
+        const id = crypto.randomBytes(6).toString('hex');
+        const stamp = Date.now();
+        const logPath = path.join(ROOT, 'output', 'film_highlights_' + stamp + '.log');
+        const resultFile = path.join(ROOT, 'output', '.film_highlights_' + stamp + '.json');
+        const jobFile = path.join(ROOT, 'output', '.film_highlights_job_' + stamp + '.json');
+        // Never copy OPENAI_API_KEY into this job file.
+        fs.writeFileSync(jobFile, JSON.stringify({
+          input_id: String(payload.input_id || ''),
+          url: String(payload.url || ''),
+          season: String(payload.season || ''),
+          episode: String(payload.episode || ''),
+          voice: String(payload.voice || ''),
+          count, min_duration: minDuration, max_duration: maxDuration,
+          language: ['ru','en','auto'].includes(payload.language) ? payload.language : 'ru',
+        }), 'utf8');
+        const log = fs.createWriteStream(logPath, { flags: 'a' });
+        const proc = spawn(PY, [path.join(__dirname, 'film_highlights.py'), jobFile, resultFile], {
+          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        });
+        proc.stdout.pipe(log);
+        proc.stderr.pipe(log);
+        const job = {
+          id, proc, code: undefined, logPath, resultFile, jobFile,
+          startedAt: Date.now(), cancelled: false,
+        };
+        FILM_HIGHLIGHTS_JOB = job;
+        proc.on('error', err => {
+          job.code = -1;
+          fs.appendFileSync(logPath, '\n[analysis] Не удалось запустить Python-процесс.\n');
+        });
+        proc.on('close', code => {
+          job.code = code;
+          job.finishedAt = Date.now();
+          log.end();
+          try { fs.unlinkSync(jobFile); } catch {}
+        });
+        return json(res, 200, { ok: true, id, started: true });
+      });
+      return;
+    }
+
+    if (p === '/api/film/highlights/status' && req.method === 'GET') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Local only.' });
+      const job = FILM_HIGHLIGHTS_JOB;
+      let result = null;
+      if (job && job.code !== undefined && fs.existsSync(job.resultFile)) {
+        try { result = JSON.parse(fs.readFileSync(job.resultFile, 'utf8')); } catch {}
+      }
+      const log = job ? tailFile(job.logPath, 18000) : '';
+      return json(res, 200, {
+        running: !!(job && job.code === undefined),
+        cancelled: !!(job && job.cancelled),
+        progress: parseOverall(log),
+        log,
+        result: job && job.cancelled
+          ? { ok: false, error: 'Поиск моментов остановлен.' }
+          : (result || (job && job.code !== undefined
+            ? { ok: false, error: 'Анализ завершился с ошибкой. Смотри журнал.' }
+            : null))
+      });
+    }
+
+    if (p === '/api/film/highlights/cancel' && req.method === 'POST') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Local only.' });
+      const origin = String(req.headers.origin || '');
+      if (origin) {
+        let same = false;
+        try { const u = new URL(origin); same = u.host === req.headers.host; } catch {}
+        if (!same) return json(res, 403, { error: 'Bad origin.' });
+      }
+      const job = FILM_HIGHLIGHTS_JOB;
+      if (!job || job.code !== undefined) return json(res, 409, { error: 'Нет активного анализа.' });
+      const stopped = stopFilmProcessTree(job);
+      return json(res, stopped ? 200 : 500, {
+        ok: stopped, message: 'Поиск моментов остановлен.'
+      });
+    }
+
+    // Stream the already imported local episode with browser byte-range support
+    // to preview chosen timestamps. Strict filename allowlist, local origin only.
+    const filmSource = p.match(/^\/video\/film\/source\/([a-f0-9]{24}\.(?:mp4|mkv|mov|webm|m4v))$/);
+    if (filmSource && req.method === 'GET') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Local only.' });
+      const fp = path.join(ROOT, 'output', 'film_inputs', filmSource[1]);
+      if (!fs.existsSync(fp) || !fs.statSync(fp).isFile())
+        return json(res, 404, { error: 'Файл серии не найден.' });
+      // Browser HTML5 playback varies by input codec/container.
+      return sendFile(req, res, fp, false);
+    }
+
     if (p === '/api/film/render' && req.method === 'POST') {
       if (FILM_RENDER_JOB && FILM_RENDER_JOB.code === undefined) {
         return json(res, 409, { error: 'Рендер фильма уже выполняется.' });
@@ -2771,14 +2898,17 @@ except Exception as e:
 // Other unrelated Auto Clipper jobs keep their existing lifecycle rules.
 process.once('SIGINT', () => {
   stopFilmProcessTree(FILM_RENDER_JOB);
+  stopFilmProcessTree(FILM_HIGHLIGHTS_JOB);
   process.exit(130);
 });
 process.once('SIGTERM', () => {
   stopFilmProcessTree(FILM_RENDER_JOB);
+  stopFilmProcessTree(FILM_HIGHLIGHTS_JOB);
   process.exit(0);
 });
 process.on('exit', () => {
   stopFilmProcessTree(FILM_RENDER_JOB);
+  stopFilmProcessTree(FILM_HIGHLIGHTS_JOB);
 });
 
 server.listen(PORT, () => console.log(`http://localhost:${PORT}  (auth: disabled)`));
