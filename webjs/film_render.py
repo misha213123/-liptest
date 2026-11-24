@@ -35,6 +35,7 @@ from film_video2x import (
     intermediate_dimensions as video2x_intermediate_dimensions,
 )
 from film_runtime import face_detector, transcribe_segments
+from film_captions import save_ass, validate as validate_caption_style
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -257,51 +258,23 @@ def _curve(points, axis: int, size: int, crop_size: int) -> str:
     return expr
 
 
-def _make_subtitles(source: Path, start: float, end: float, out: Path, w: int, h: int):
+def _make_subtitles(
+    source: Path, start: float, end: float, out: Path, w: int, h: int,
+    style: str = "bold", position: int = 78,
+):
+    validate_caption_style(style, position)
     audio = out / "speech.wav"
     progress("Извлекаю голос для субтитров", 24)
     run([FFMPEG, "-y", "-nostdin", "-loglevel", "error",
-         "-ss", str(start), "-i", str(source), "-t", str(end-start),
+         "-ss", str(start), "-i", str(source), "-t", str(end - start),
          "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
     progress("Распознаю речь и точные таймкоды слов", 32)
     segments = transcribe_segments(str(audio))
     progress("Речь распознана; формирую субтитры", 47)
-    events = []
-    def stamp(t):
-        t = max(0, float(t))
-        return f"{int(t//3600)}:{int(t%3600//60):02d}:{int(t%60):02d}.{int((t%1)*100):02d}"
-    for segment in segments:
-        words = list(segment.words or [])
-        if words:
-            for index in range(0, len(words), 3):
-                group = words[index:index+3]
-                text = " ".join(str(w.word).strip() for w in group).strip()
-                if not text:
-                    continue
-                text = text.replace("\\", "").replace("{", "").replace("}", "").replace("\n", " ")
-                events.append(f"Dialogue: 0,{stamp(group[0].start)},{stamp(group[-1].end)},Default,,0,0,0,,{{\\fad(60,80)}}{text}")
-        elif segment.text:
-            text = segment.text.replace("{", "").replace("}", "").replace("\\", "").replace("\n", " ")
-            events.append(f"Dialogue: 0,{stamp(segment.start)},{stamp(segment.end)},Default,,0,0,0,,{text}")
-
     ass = out / "subtitles.ass"
-    font_size = max(28, round(w * 0.065))
-    content = (
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: " + str(w) +
-        "\nPlayResY: " + str(h) +
-        "\nScaledBorderAndShadow: yes\nWrapStyle: 2\n"
-        "\n[V4+ Styles]\n"
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
-        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, "
-        "Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,Arial,{font_size},&H00FFFFFF,&H0000FFFF,&H00101010,&H80000000,"
-        "1,0,0,0,100,100,0,0,1,3,1,2,30,30," + str(max(100,round(h*0.13))) + ",1\n"
-        "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        + "\n".join(events) + "\n"
-    )
-    ass.write_text(content, encoding="utf-8")
-    progress(f"Субтитры готовы: {len(events)} фрагментов", 58)
-    return ass, len(events)
+    count = save_ass(segments, ass, w, h, style, position)
+    progress(f"Субтитры готовы: {count} фрагментов · шаблон {style}", 58)
+    return ass, count
 
 
 def _ass_filter(path: Path) -> str:
@@ -402,7 +375,11 @@ def render(job: dict) -> dict:
 
     caption_count = 0
     if bool(job.get("captions", True)):
-        ass, caption_count = _make_subtitles(source, start, end, out, render_w, render_h)
+        ass, caption_count = _make_subtitles(
+            source, start, end, out, render_w, render_h,
+            str(job.get("caption_style") or "bold"),
+            int(job.get("caption_position", 78)),
+        )
         if caption_count:
             vf.append(_ass_filter(ass))
     vf.append("format=yuv420p")
