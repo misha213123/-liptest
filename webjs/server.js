@@ -1928,7 +1928,7 @@ except Exception as e:
       const preparedPath = job && path.join(ROOT, 'output', 'film_clips', job.id, 'film_prepared.mp4');
       const preparedReady = preparedPath && fs.existsSync(preparedPath)
         && fs.statSync(preparedPath).size > 100000
-        && /Запускаю Video2X|Video2X: AI|Video2X: RIFE|Клип готов/.test(log);
+        && /Запускаю Video2X|Video2X: AI|Video2X: RIFE|AI Detail Restore|Клип готов/.test(log);
       return json(res, 200, {
         prepared_url: preparedReady ? '/video/film/' + job.id + '/film_prepared.mp4' : null,
         running: !!(job && job.code === undefined),
