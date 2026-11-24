@@ -101,9 +101,20 @@ def ai_source_dimensions(crop_w: int, crop_h: int) -> tuple[int, int]:
     return width, height
 
 
+def _strength(value: float) -> float:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("AI Detail Strength должен быть от 0 до 100%.") from exc
+    if not math.isfinite(amount) or not 0 <= amount <= 100:
+        raise ValueError("AI Detail Strength должен быть от 0 до 100%.")
+    return amount / 100.0
+
+
 def restore_preview_frame(
     preview: Path, ffmpeg: str, width: int, height: int,
     *, model: str = "realesrgan-x4plus", tile: int = 64,
+    strength: float = 100,
 ) -> None:
     """Explicit one-frame neural preview, without modifying the video.
 
@@ -112,8 +123,11 @@ def restore_preview_frame(
     """
     import tempfile
 
+    alpha = _strength(strength)
     if model not in MODELS or tile not in (32, 64, 96, 128):
         raise ValueError("Неверная модель или размер GPU-блока для AI-превью.")
+    if alpha <= 0:
+        return
     if width < 16 or height < 16 or width * height > 3840 * 2160:
         raise ValueError("Неверные размеры AI-превью.")
     preview = Path(preview)
@@ -142,10 +156,15 @@ def restore_preview_frame(
                 "Real-ESRGAN не обработал тестовый кадр. "
                 "Проверь Vulkan или выбери блок 32 px."
             )
+        blend = (
+            f"[0:v]scale={width}:{height}:flags=lanczos[base];"
+            f"[1:v]scale={width}:{height}:flags=lanczos[ai];"
+            f"[base][ai]blend=all_expr=A*(1-{alpha:.4f})+B*{alpha:.4f}[out]"
+        )
         run_cmd([
-            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
-            "-y", "-i", str(neural_png), "-frames:v", "1",
-            "-vf", f"scale={width}:{height}:flags=lanczos",
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-i", str(source_png), "-i", str(neural_png),
+            "-filter_complex", blend, "-map", "[out]", "-frames:v", "1",
             "-q:v", "2", str(final_jpg),
         ], timeout=45)
         if not final_jpg.is_file() or final_jpg.stat().st_size < 500:
@@ -159,12 +178,14 @@ def restore_clip(
     *, crop_width: int = 1280, crop_height: int = 720,
     target_width: int = 1920, target_height: int = 1080,
     tile: int = 64, model: str = "realesrgan-x4plus",
+    strength: float = 100,
 ) -> Path:
     if not 0.1 <= duration <= 30.0:
         raise ValueError(
             "Нейросетевой AI Detail Restore рассчитан на короткие сцены до 30 секунд. "
             "Раздели длинный эпизод на клипы."
         )
+    alpha = _strength(strength)
     if model not in MODELS:
         raise ValueError("Неизвестная модель AI Detail Restore.")
     if tile not in (32, 64, 96, 128):
@@ -247,13 +268,17 @@ def restore_clip(
         if len(list(enhanced.glob("frame_*.png"))) != len(input_files):
             raise RuntimeError("AI Restore: число обработанных кадров не совпадает с исходником.")
         report("AI Detail Restore: собираю финальный MP4 со звуком", 90)
+        blend = (
+            f"[0:v]scale={target_width}:{target_height}:flags=lanczos[ai];"
+            f"[1:v]scale={target_width}:{target_height}:flags=lanczos[base];"
+            f"[base][ai]blend=all_expr=A*(1-{alpha:.4f})+B*{alpha:.4f}[v]"
+        )
         run_cmd([
             ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
             "-framerate", f"{fps:.6f}",
             "-start_number", "1", "-i", str(enhanced / "frame_%06d.png"),
             "-i", str(prepared),
-            "-map", "0:v:0", "-map", "1:a:0?",
-            "-vf", f"scale={target_width}:{target_height}:flags=lanczos",
+            "-filter_complex", blend, "-map", "[v]", "-map", "1:a:0?",
             "-c:v", "libx264", "-preset", "slow", "-crf", "16",
             "-pix_fmt", "yuv420p", "-c:a", "copy",
             "-movflags", "+faststart", "-shortest", str(target),
@@ -276,4 +301,5 @@ if __name__ == "__main__":
         "engine": "Real-ESRGAN NCNN Vulkan",
         "max_clip_seconds": 30,
         "tile": 64,
+        "strength_control": "0-100 blend between original and neural restoration",
     }))
