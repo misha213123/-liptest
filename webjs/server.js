@@ -1590,7 +1590,10 @@ except Exception as e:
               error: String((stderr || err?.message || 'Ошибка создания миниатюры')).slice(-800)
             });
           }
+          let details = {};
+          try { details = JSON.parse(String(stdout || '').trim().split(/\r?\n/).pop()); } catch {}
           return json(res, 200, { ok: true,
+            face_detected: !!details.face_detected,
             image_url: '/video/film/preview/' + id + '.jpg' });
         });
       });
