@@ -356,6 +356,8 @@ def _make_subtitles(
     engine: str = "local",
     words_per_caption: int = 3,
     remove_punctuation: bool = False,
+    caption_size_percent: int = 100,
+    caption_case: str = "source",
 ):
     validate_caption_style(style, position)
     engine = str(engine or "local").lower()
@@ -388,6 +390,7 @@ def _make_subtitles(
     count = save_ass(
         segments, ass, w, h, style, position, offset,
         words_per_caption, remove_punctuation,
+        caption_size_percent, caption_case,
     )
     progress(
         f"Субтитры готовы: {count} фрагментов · шаблон {style} · "
@@ -535,6 +538,8 @@ def render(job: dict) -> dict:
             str(job.get("speech_engine") or "local"),
             int(job.get("caption_words", 3)),
             job.get("caption_no_punctuation", False),
+            int(job.get("caption_size_percent", 100)),
+            str(job.get("caption_case") or "lower"),
         )
         if caption_count:
             vf.append(_ass_filter(ass))
