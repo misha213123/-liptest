@@ -1666,7 +1666,8 @@ except Exception as e:
         FILM_PREVIEW_BUSY = true;
         fs.writeFileSync(jobFile, JSON.stringify(opts), 'utf8');
         execFile(PY, [path.join(__dirname, 'film_preview.py'), jobFile, outputFile], {
-          timeout: 90000, maxBuffer: 256 * 1024,
+          timeout: opts.ai_detail_preview === true ? 240000 : 90000,
+          maxBuffer: 256 * 1024,
           env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
         }, (err, stdout, stderr) => {
           FILM_PREVIEW_BUSY = false;
@@ -1688,6 +1689,7 @@ except Exception as e:
             }
             return json(res, 200, { ok: true,
               face_detected: !!details.face_detected,
+              ai_preview: !!details.ai_preview,
               at: details.at,
               width: details.width, height: details.height,
               image_data: 'data:image/jpeg;base64,' + bytes.toString('base64'),
