@@ -876,9 +876,13 @@ if(uploadedId){
 
 let highlightSearching=false, highlightPolling=null, selectedHighlight=null;
 function formatHighlightTime(seconds) {
-  const t=Math.max(0,Math.floor(Number(seconds)||0));
-  return [Math.floor(t/3600),Math.floor(t/60)%60,t%60]
-    .map(v=>String(v).padStart(2,'0')).join(':');
+  const centiseconds=Math.max(0,Math.round((Number(seconds)||0)*100));
+  const whole=Math.floor(centiseconds/100);
+  const hours=Math.floor(whole/3600);
+  const minutes=Math.floor(whole/60)%60;
+  const secs=whole%60;
+  return [hours,minutes,secs].map(v=>String(v).padStart(2,'0')).join(':')
+    +'.'+String(centiseconds%100).padStart(2,'0');
 }
 function highlightSourcePayload() {
   return {
