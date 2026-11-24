@@ -454,6 +454,7 @@
             </div>
             <div class="row" style="align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px">
               <button id="installDetailRestoreBtn" type="button" class="secondary">Установить нейросеть на компьютер</button>
+              <button id="testDetailFrameBtn" type="button" class="secondary">Проверить AI на 1 кадре</button>
               <span id="detailRestoreStatus" class="hint" role="status">Проверяю нейросетевой движок…</span>
             </div>
             <p class="hint">Бесплатный Real-ESRGAN с лицензией MIT; без подписки, без загрузки видео в облако. Для GTX 1650: сначала 5 секунд, 1080p, блоки 32–64 px. Нейросеть обрабатывает исходные 30 FPS, затем создаются плавные 60 FPS и накладываются чёткие субтитры. Максимум 30 секунд. Может создавать искусственные детали; это не модели Topaz. Установка начинается только по кнопке.</p>
@@ -564,6 +565,7 @@ function rememberFilmInput(id){
 }
 let captionStyle='bold',previewTimer=null,previewWorking=false,previewQueued=false,previewLoaded=false,preparedPreviewShown=false;
 let colorTone='neutral',activeColorLook='natural';
+let requestNeuralPreview=false;
 let previewOriginal='',previewGraded='',showProcessed=true;
 let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
 const numberMB=bytes=>(Number(bytes)/1048576).toFixed(1)+' МБ';
@@ -1071,9 +1073,14 @@ async function loadFilmPreview(){
     status('previewStatus','Проверь таймкоды начала и конца.');
     return;
   }
+  const requestedAIPreview=requestNeuralPreview;
+  requestNeuralPreview=false;
   const payload={
     input_id:uploadedId,start,end,ratio:$('ratio').value,
     preview_position:Number($('previewPosition').value),
+    ai_detail_preview:requestedAIPreview,
+    ai_detail_model:$('aiDetailModel').value,
+    ai_detail_tile:Number($('aiDetailTile').value),
     face_tracking:$('face').checked,face_focus:$('faceFocus').value,
     enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
@@ -1093,7 +1100,9 @@ async function loadFilmPreview(){
   };
   previewWorking=true;
   $('previewBtn').disabled=true;
-  status('previewStatus','Извлекаю кадр с кадрированием и цветокоррекцией...');
+  status('previewStatus',requestedAIPreview
+    ? 'Real-ESRGAN обрабатывает один кадр на GPU. После завершения покажу «До / После»...'
+    : 'Извлекаю кадр с кадрированием и цветокоррекцией...');
   try{
     const response=await fetch('/api/film/preview',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -1131,7 +1140,10 @@ async function loadFilmPreview(){
           ? 'Лицо обнаружено. '
           : 'Лицо на этом кадре не обнаружено — обрезка по центру. ')
         : 'Обрезка по центру. ')+
-      'Кадр и цвет реальные. Субтитры на JPG — пример оформления.');
+      (result.ai_preview
+        ? 'AI восстановление деталей действительно обработало этот кадр. '
+        : 'Кадр и цвет реальные (AI-проход не применён). ')+
+      'Субтитры на JPG — пример оформления.');
   }catch(err){
     status('previewStatus','Ошибка миниатюры: '+err.message);
     if(!previewLoaded){
@@ -1157,6 +1169,14 @@ function showColorVersion(processed){
 $('beforeColorBtn').onclick=()=>showColorVersion(false);
 $('afterColorBtn').onclick=()=>showColorVersion(true);
 $('previewBtn').onclick=loadFilmPreview;
+$('testDetailFrameBtn').onclick=()=>{
+  if(!detailRestoreInstalled)return status('previewStatus',
+    'Сначала установи бесплатную нейросеть Real-ESRGAN.');
+  if(!uploadedId)return status('previewStatus',
+    'Сначала импортируй видео, чтобы проверить AI на кадре.');
+  requestNeuralPreview=true;
+  loadFilmPreview();
+};
 const previewSlider=$('previewPosition');
 previewSlider.oninput=()=>{
   $('previewPositionLabel').textContent=previewSlider.value+'%';
