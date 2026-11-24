@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { spawn } = require('child_process');
+const filmDownloads = require('./film_downloads');
 
 const ROOT = path.resolve(__dirname, '..');
 const SESSIONS = path.join(ROOT, 'output', 'sessions');
@@ -1381,6 +1382,52 @@ except Exception as e:
         progress: parseOverall(log),
         result
       });
+    }
+
+    // Local browser-download bridge (HDrezka Grabber -> Film Studio).
+    // Strictly loopback-only because the rest of this server has auth disabled.
+    if (p === '/api/film/downloads' && req.method === 'GET') {
+      if (!isLocalRequest(req)) {
+        return json(res, 403, { error: 'Импорт загрузок доступен только на этом компьютере.' });
+      }
+      return json(res, 200, { ok: true, ...filmDownloads.listDownloads() });
+    }
+
+    if (p === '/api/film/import-download' && req.method === 'POST') {
+      if (!isLocalRequest(req)) {
+        return json(res, 403, { error: 'Импорт загрузок доступен только на этом компьютере.' });
+      }
+      // Prevent cross-origin websites from triggering a local file import.
+      const origin = String(req.headers.origin || '');
+      if (origin) {
+        let sameOrigin = false;
+        try {
+          const parsed = new URL(origin);
+          sameOrigin = parsed.host === req.headers.host &&
+            (parsed.protocol === 'http:' || parsed.protocol === 'https:');
+        } catch {}
+        if (!sameOrigin) return json(res, 403, { error: 'Запрос с другого сайта запрещён.' });
+      }
+      let raw = '';
+      req.on('data', chunk => {
+        raw += chunk;
+        if (raw.length > 4096) req.destroy();
+      });
+      req.on('end', () => {
+        let payload;
+        try { payload = JSON.parse(raw || '{}'); }
+        catch { return json(res, 400, { error: 'Некорректный запрос.' }); }
+        try {
+          const result = filmDownloads.importDownload(
+            String(payload.id || ''),
+            path.join(ROOT, 'output', 'film_inputs')
+          );
+          return json(res, 200, result);
+        } catch (err) {
+          return json(res, 422, { error: String(err.message || err).slice(0, 260) });
+        }
+      });
+      return;
     }
 
     // Film & Series Studio: catalog lookup is metadata-only; the provider might
