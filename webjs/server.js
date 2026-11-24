@@ -12,20 +12,25 @@ const SESSIONS = path.join(ROOT, 'output', 'sessions');
 const PUBLIC = path.join(__dirname, 'public');
 const PORT = process.env.PORT || 3000;
 const isWin = process.platform === 'win32';
-// Resolve Python at startup: env override first, else probe candidates for a
-// working Python 3 with cv2 (the pipeline's hard dependency). This keeps the
-// server runnable on Windows, macOS, and Linux without per-machine edits.
+// Use the project virtual environment before global Python.
+// A system Python can have cv2 but lack yt_dlp, breaking preview/AI jobs.
 const { execFileSync } = require('child_process');
 function resolvePy() {
   if (process.env.CLIPPER_PY) return process.env.CLIPPER_PY;
-  const cands = isWin ? ['py', 'python', 'python3'] : ['/usr/bin/python3', 'python3', 'python'];
+  const venvPy = path.join(ROOT, '.venv', isWin ? 'Scripts/python.exe' : 'bin/python');
+  const cands = [
+    ...(fs.existsSync(venvPy) ? [venvPy] : []),
+    ...(isWin ? ['py', 'python', 'python3'] : ['/usr/bin/python3', 'python3', 'python']),
+  ];
   for (const c of cands) {
     try {
-      execFileSync(c, ['-c', 'import cv2, sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)'], { stdio: 'ignore' });
+      execFileSync(c, ['-c', 'import cv2, yt_dlp, sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)'], { stdio: 'ignore', timeout: 20000 });
       return c;
     } catch {}
   }
-  return cands[0]; // fallback: let the script surface the real error
+  // Prefer the local venv even when dependencies are missing, so the startup
+  // error refers to that environment instead of silently using another Python.
+  return cands[0];
 }
 const PY = resolvePy();
 
