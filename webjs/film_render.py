@@ -493,16 +493,10 @@ def render(job: dict) -> dict:
     x_expr = _curve(centres, 0, iw, cw)
     y_expr = _curve(centres, 1, ih, ch)
 
-    vf = [
-        "setpts=PTS-STARTPTS",
-        f"crop={cw}:{ch}:x='{x_expr}':y='{y_expr}'",
-        f"scale={render_w}:{render_h}:flags=lanczos",
-        "setsar=1",
-    ]
-    # The same filters are used by the 1-frame mini-preview.
-    vf.extend(color_filters(job, ai_enabled=ai_enabled))
-    # RIFE works on actual source frames. Do not duplicate/interpolate
-    # the frames with FFmpeg before passing them into the neural network.
+    # Interpolate motion at the *native crop resolution* before 1080p scaling.
+    # A 900x720 source is ~2.25x fewer pixels than 1350x1080 output, saving
+    # CPU cycles for optical-flow quality instead of wasting them on upscale.
+    # Final resample/color/subtitles are applied after the motion stage.
     fps = metadata["fps"] if fps_choice == "source" else int(fps_choice)
     optical = (
         not (rife_multiplier > 1)
@@ -510,12 +504,25 @@ def render(job: dict) -> dict:
         and fps_choice != "source"
         and fps > metadata["fps"] + 0.5
     )
+    vf = [
+        "setpts=PTS-STARTPTS",
+        f"crop={cw}:{ch}:x='{x_expr}':y='{y_expr}'",
+    ]
     if optical:
         vf.append(optical_motion_filter(metadata["fps"], fps, True))
-        print(f"[motion] Optical-flow interpolation {metadata['fps']:.2f} → {fps} FPS, motion compensation enabled.", flush=True)
-    elif fps_choice != "source" and rife_multiplier == 1:
+        print(
+            f"[motion] Real motion-compensated interpolation "
+            f"{metadata['fps']:.2f} -> {fps} FPS, at native "
+            f"cropped resolution {cw}x{ch}.",
+            flush=True,
+        )
+    vf += [
+        f"scale={render_w}:{render_h}:flags=lanczos",
+        "setsar=1",
+    ]
+    vf.extend(color_filters(job, ai_enabled=ai_enabled))
+    if fps_choice != "source" and rife_multiplier == 1 and not optical:
         vf.append(f"fps={int(fps)}")
-
     caption_count = 0
     if bool(job.get("captions", True)):
         ass, caption_count = _make_subtitles(
