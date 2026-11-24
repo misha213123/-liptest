@@ -66,6 +66,17 @@
     video{width:100%;height:100%;object-fit:contain;background:#000}
     .hint{margin-top:9px;font-size:12px;color:#9fb6af}
     .notice{border-left:3px solid #7d9a91;padding:10px 13px;background:#1b2929;color:#c5d6cf;border-radius:0 10px 10px 0;font-size:12px}
+
+    .moments{display:grid;gap:10px;margin-top:14px}
+    .moment{background:#162225;border:1px solid #38514e;padding:13px;border-radius:12px}
+    .moment header{position:static;background:none;border:0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .moment h3{font-size:15px;color:#eaf5f2;margin:0 0 6px}
+    .moment p{font-size:12px;line-height:1.55;overflow-wrap:anywhere;margin:5px 0 9px}
+    .moment button{margin-top:9px;margin-right:5px;font-size:12px;padding:9px 11px}
+    .moment small{color:#c7ddda}
+    .moment.selected{border-color:#b5e2d3;background:#263e38}
+    .hl-score{color:#e2ffe9;border:1px solid #6c9a83;background:#244039;border-radius:8px;padding:4px 8px;white-space:nowrap}
+    #highlightPlayer{display:block;max-width:100%;width:min(100%,520px);border-radius:12px;margin:12px 0;background:#080c0d}
     @media(max-width:900px){.columns{grid-template-columns:1fr}.card{padding:15px}.wrap{padding:12px}.preview{width:min(100%,240px);max-height:none}}
     @media(max-width:560px){.grid3,.grid2,.fieldset{grid-template-columns:1fr}.row{flex-wrap:wrap}.row>*{width:100%}.nav a{padding:8px 10px;font-size:12px}}
   </style>
@@ -136,8 +147,53 @@
         <div id="uploadStatus" class="status muted" role="status"></div>
       </section>
 
+      <section class="card" id="highlightSection">
+        <h2>2. AI-поиск лучших моментов серии</h2>
+        <p>Программа анализирует диалоги <strong>всей выбранной серии</strong>, ищет сюжетные повороты, напряжённые сцены, юмор и эмоциональные фразы, затем предлагает готовые отрезки для Reels и Shorts.</p>
+        <div class="grid3" style="margin-top:16px">
+          <div>
+            <label for="highlightCount">Сколько моментов найти</label>
+            <select id="highlightCount">
+              <option value="3">3 лучших</option>
+              <option value="6" selected>6 лучших</option>
+              <option value="10">10 лучших</option>
+              <option value="12">12 лучших</option>
+            </select>
+          </div>
+          <div>
+            <label for="highlightMin">Минимум секунд</label>
+            <select id="highlightMin">
+              <option value="8">8 с</option>
+              <option value="15">15 с</option>
+              <option value="18" selected>18 с</option>
+              <option value="30">30 с</option>
+            </select>
+          </div>
+          <div>
+            <label for="highlightMax">Максимум секунд</label>
+            <select id="highlightMax">
+              <option value="30">30 с</option>
+              <option value="45">45 с</option>
+              <option value="55" selected>55 с</option>
+              <option value="90">90 с</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:16px">
+          <button id="findHighlightsBtn" type="button">Найти интересные моменты автоматически</button>
+          <button id="cancelHighlightsBtn" type="button" class="secondary" disabled>Остановить поиск</button>
+        </div>
+        <p class="hint">Анализ запускается только по кнопке. Он отправляет аудио выбранной серии и расшифровку в OpenAI API, расходует оплачиваемые запросы. Повторное сканирование того же файла использует локальный кэш. Поиск основан на диалогах: немые экшен-сцены пока не оцениваются по изображению.</p>
+        <div id="highlightsStatus" class="status muted" role="status"></div>
+        <progress id="highlightsProgress" max="100" value="0" hidden></progress>
+        <pre id="highlightsLog" hidden></pre>
+        <div id="highlightsList" class="moments" aria-label="Найденные интересные моменты"></div>
+        <video id="highlightPlayer" controls playsinline hidden preload="metadata"></video>
+        <div id="highlightPlayerStatus" class="hint" aria-live="polite"></div>
+      </section>
+
       <section class="card">
-        <h2>2. Выбор момента и кадрирование</h2>
+        <h2>3. Выбор момента и кадрирование</h2>
         <div class="grid2">
           <div><label for="start">Начало сцены</label><input id="start" value="00:01:00" placeholder="00:01:00"></div>
           <div><label for="end">Конец сцены</label><input id="end" value="00:01:40" placeholder="00:01:40"></div>
@@ -206,7 +262,7 @@
       </section>
 
       <section class="card">
-        <h2>3. Качество и экспорт</h2>
+        <h2>4. Качество и экспорт</h2>
         <label>Цветовые фильтры — работают в MP4 и на миниатюре</label>
         <div class="color-gallery" id="colorGallery">
           <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
@@ -817,6 +873,191 @@ if(uploadedId){
   status('previewStatus','Найден ранее импортированный файл. Проверяю миниатюру...');
   scheduleFilmPreview();
 }
+
+let highlightSearching=false, highlightPolling=null, selectedHighlight=null;
+function formatHighlightTime(seconds) {
+  const t=Math.max(0,Math.floor(Number(seconds)||0));
+  return [Math.floor(t/3600),Math.floor(t/60)%60,t%60]
+    .map(v=>String(v).padStart(2,'0')).join(':');
+}
+function highlightSourcePayload() {
+  return {
+    input_id: uploadedId,
+    url: uploadedId?'':$('sourceUrl').value.trim(),
+    season: uploadedId?'':$('season').value,
+    episode: uploadedId?'':$('episode').value,
+    voice: uploadedId?'':$('voice').value,
+  };
+}
+function chooseFilmHighlight(h,card) {
+  selectedHighlight=h;
+  $('start').value=formatHighlightTime(h.start);
+  $('end').value=formatHighlightTime(h.end);
+  document.querySelectorAll('.moment').forEach(node=>node.classList.remove('selected'));
+  if(card)card.classList.add('selected');
+  $('previewPosition').value=50;
+  $('previewPositionLabel').textContent='50%';
+  status('highlightsStatus','Выбран момент: '+formatHighlightTime(h.start)+'–'+formatHighlightTime(h.end)+
+    '. Таймкоды перенесены в настройки рендера. Измени формат, цвет и субтитры по желанию.');
+  if(uploadedId)scheduleFilmPreview();
+}
+function previewFilmHighlight(h,card) {
+  chooseFilmHighlight(h,card);
+  const player=$('highlightPlayer');
+  if(!uploadedId){
+    status('highlightPlayerStatus','Видео-предпросмотр возможен после локального импорта эпизода. Этот момент уже выбран для рендера.');
+    player.hidden=true;
+    return;
+  }
+  const fileId=uploadedId;
+  if(!/^[a-f0-9]{24}\.(mp4|mkv|mov|webm|m4v)$/.test(fileId))return;
+  const address='/video/film/source/'+fileId;
+  player.hidden=false;
+  if(player.dataset.source!==address){
+    player.pause();
+    player.src=address;
+    player.dataset.source=address;
+  }
+  player.dataset.clipEnd=String(h.end);
+  player.onloadedmetadata=()=>{
+    try {
+      player.currentTime=Math.max(0,Math.min(h.start,player.duration-0.2));
+    } catch {}
+    player.play().catch(()=>{});
+  };
+  player.ontimeupdate=()=>{
+    if(player.currentTime>=Number(player.dataset.clipEnd))player.pause();
+  };
+  if(player.readyState>=1){
+    player.currentTime=Math.max(0,Math.min(h.start,player.duration-0.2));
+    player.play().catch(()=>{});
+  }
+  status('highlightPlayerStatus','Играет оригинальный фрагмент без рендера. Если формат исходника MKV не поддерживается браузером, используй миниатюру справа.');
+}
+function displayFilmHighlights(data) {
+  const list=$('highlightsList');
+  list.replaceChildren();
+  if(!data||!Array.isArray(data.highlights))return;
+  for(const h of data.highlights){
+    const card=document.createElement('div');
+    card.className='moment';
+    const head=document.createElement('header');
+    const left=document.createElement('div');
+    const title=document.createElement('h3');
+    title.textContent='#'+h.rank+' · '+h.title;
+    const when=document.createElement('small');
+    when.textContent=formatHighlightTime(h.start)+' – '+formatHighlightTime(h.end)+
+      ' · '+Math.round(h.duration)+' сек · '+(h.category||'диалог');
+    left.append(title,when);
+    const badge=document.createElement('span');
+    badge.className='hl-score';
+    badge.textContent=Math.round(h.score)+'/100';
+    head.append(left,badge);
+    const reason=document.createElement('p');
+    reason.textContent=h.reason;
+    const quote=document.createElement('small');
+    quote.textContent='Диалог: '+(h.quote||'—');
+    const controls=document.createElement('div');
+    const select=document.createElement('button');
+    select.type='button';
+    select.textContent='Выбрать для рендера';
+    select.onclick=()=>chooseFilmHighlight(h,card);
+    const play=document.createElement('button');
+    play.type='button';
+    play.className='secondary';
+    play.textContent='Смотреть сцену';
+    play.onclick=()=>previewFilmHighlight(h,card);
+    controls.append(select,play);
+    card.append(head,reason,quote,controls);
+    list.appendChild(card);
+  }
+  status('highlightsStatus','Найдено '+data.highlights.length+
+    ' моментов по диалогам ('+Math.round(data.analyzed_seconds/60)+
+    ' мин анализа). '+(data.cached?'Из кэша, без повторных API-вызовов.':
+    'Оцени качество выбора, затем открой интересную сцену.'));
+}
+function finishFilmHighlightSearch(){
+  highlightSearching=false;
+  $('findHighlightsBtn').disabled=false;
+  $('cancelHighlightsBtn').disabled=true;
+  if(highlightPolling)clearInterval(highlightPolling);
+  highlightPolling=null;
+}
+async function pollFilmHighlights(){
+  try{
+    const response=await fetch('/api/film/highlights/status',{cache:'no-store'});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'Ошибка чтения статуса');
+    $('highlightsLog').textContent=data.log||'';
+    if(data.progress!=null)$('highlightsProgress').value=data.progress;
+    if(data.running){
+      status('highlightsStatus','OpenAI анализирует серию — '+Math.round(data.progress||0)+'%');
+      return;
+    }
+    finishFilmHighlightSearch();
+    if(data.result&&data.result.ok){
+      displayFilmHighlights(data.result);
+    }else{
+      status('highlightsStatus','Ошибка анализа: '+(data.result?.error||'Смотри журнал'));
+    }
+  }catch(error){
+    finishFilmHighlightSearch();
+    status('highlightsStatus','Ошибка анализа: '+error.message);
+  }
+}
+$('findHighlightsBtn').onclick=async()=>{
+  if(highlightSearching)return;
+  const source=highlightSourcePayload();
+  if(!source.input_id&&!source.url){
+    return status('highlightsStatus','Сначала импортируй серию или выбери эпизод через каталог.');
+  }
+  if(!openaiConfigured){
+    return status('highlightsStatus','Для смыслового поиска моментов нужен OpenAI API-ключ в локальных настройках.');
+  }
+  const payload={
+    ...source,
+    count:Number($('highlightCount').value),
+    min_duration:Number($('highlightMin').value),
+    max_duration:Number($('highlightMax').value),
+    language:$('speechLanguage').value
+  };
+  if(payload.max_duration<payload.min_duration){
+    return status('highlightsStatus','Максимальная длительность должна быть больше минимальной.');
+  }
+  highlightSearching=true;
+  $('findHighlightsBtn').disabled=true;
+  $('cancelHighlightsBtn').disabled=false;
+  $('highlightsProgress').hidden=false;
+  $('highlightsProgress').value=0;
+  $('highlightsLog').hidden=false;
+  $('highlightsList').replaceChildren();
+  status('highlightsStatus','Начинаю анализ серии и поиск интересных сцен...');
+  try{
+    const response=await fetch('/api/film/highlights/analyze',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await response.json();
+    if(!response.ok||!data.ok)throw new Error(data.error||'Ошибка запуска');
+    highlightPolling=setInterval(pollFilmHighlights,2000);
+    await pollFilmHighlights();
+  }catch(error){
+    finishFilmHighlightSearch();
+    status('highlightsStatus','Не удалось запустить анализ: '+error.message);
+  }
+};
+$('cancelHighlightsBtn').onclick=async()=>{
+  $('cancelHighlightsBtn').disabled=true;
+  try{
+    const response=await fetch('/api/film/highlights/cancel',{method:'POST'});
+    const result=await response.json();
+    if(!response.ok||!result.ok)throw new Error(result.error||'Ошибка остановки');
+    status('highlightsStatus','Останавливаю анализ...');
+  }catch(error){
+    status('highlightsStatus','Ошибка остановки: '+error.message);
+    $('cancelHighlightsBtn').disabled=false;
+  }
+};
 $('renderBtn').onclick=async()=>{
   if(busy)return;
   if($('captions').checked&&['openai','openai_max'].includes($('speechEngine').value)&&!openaiConfigured){
