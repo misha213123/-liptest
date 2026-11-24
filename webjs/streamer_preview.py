@@ -14,10 +14,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)
 
-from openai import OpenAI
-
-from clipper_core import AutoClipperCore
-from config.config_manager import ConfigManager
+# Heavy AI/video dependencies are loaded only if the fast frame method fails.
 from utils.helpers import get_ffmpeg_path, get_ytdlp_path, get_deno_path, get_app_dir
 import yt_dlp
 from utils.logger import debug_log
@@ -45,7 +42,9 @@ def fmt_time(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
 
-def build_core(cfg: dict) -> AutoClipperCore:
+def build_core(cfg: dict):
+    from openai import OpenAI
+    from clipper_core import AutoClipperCore
     providers = cfg.get("ai_providers") or {}
     hf = providers.get("highlight_finder") or {}
     client = OpenAI(
@@ -148,9 +147,6 @@ def main():
     if not url.startswith(("http://", "https://")):
         raise ValueError("Нужна ссылка Twitch, Kick или YouTube")
 
-    cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
-    core = build_core(cfg)
-
     token = uuid.uuid4().hex[:16]
     preview_dir = APP_DIR / "output" / "streamer_previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +160,10 @@ def main():
         info = fast_source_frame(url, start, image_path)
     except Exception as direct_exc:
         debug_log(f"[streamer-preview] Быстрый кадр недоступен: {str(direct_exc)[:400]}")
-        debug_log("[streamer-preview] Резервный способ: загружаю только 3 секунды, видео без аудио.")
+        debug_log("[streamer-preview] Резервный способ: короткий 3-секундный фрагмент.")
+        from config.config_manager import ConfigManager
+        cfg = ConfigManager(APP_DIR / "config.json", APP_DIR / "output").config
+        core = build_core(cfg)
         end = start + 3.0
         # The normal section downloader is the compatibility fallback for
         # extractors that cannot seek directly to a remote frame.
