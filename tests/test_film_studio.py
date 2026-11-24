@@ -281,6 +281,71 @@ class FilmVideo2XWatchdogTests(unittest.TestCase):
         self.assertIn("не продвигает",stall_reason(390,started,140,2048,180,240))
 
 
+class FilmFreeAIEnhancementPipelineTests(unittest.TestCase):
+    def test_neural_then_motion_then_caption_filter_order(self):
+        from film_render import ai_detail_finish_filters
+        from pathlib import Path
+        filters = ai_detail_finish_filters(
+            30.0, 60.0, True, Path("subtitle.ass")
+        )
+        self.assertIn("minterpolate=fps=60", filters[0])
+        self.assertIn("mi_mode=mci", filters[0])
+        self.assertTrue(filters[1].startswith("ass="))
+        self.assertEqual(filters[-1], "format=yuv420p")
+        self.assertEqual(
+            ai_detail_finish_filters(60, 60, False), ["format=yuv420p"]
+        )
+        self.assertEqual(
+            ai_detail_finish_filters(30, 60, False),
+            ["fps=60", "format=yuv420p"],
+        )
+
+    def test_quality_models_use_supported_open_source_names(self):
+        from film_ai_detail import MODELS, ai_source_dimensions
+        self.assertIn("realesrgan-x4plus", MODELS)
+        self.assertIn("realesrnet-x4plus", MODELS)
+        self.assertEqual(ai_source_dimensions(404, 720), (404, 720))
+        self.assertEqual(ai_source_dimensions(900, 720), (900, 720))
+
+    def test_ffmpeg_model_first_then_60fps_and_subtitles(self):
+        import shutil
+        import subprocess
+        import tempfile
+        from film_render import ai_detail_finish_filters
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("FFmpeg not installed in CI")
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            ass = directory/"test.ass"
+            ass.write_text(
+                "[Script Info]\nScriptType: v4.00+\nPlayResX: 96\nPlayResY: 64\n"
+                "[V4+ Styles]\n"
+                "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
+                "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,"
+                "ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,"
+                "Alignment,MarginL,MarginR,MarginV,Encoding\n"
+                "Style: Default,Arial,11,&H00FFFFFF,&H00FFFFFF,&H00000000,"
+                "&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,8,8,8,1\n"
+                "[Events]\n"
+                "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+                "Dialogue: 0,0:00:00.05,0:00:00.60,Default,,0,0,0,,TEST\n",
+                encoding="utf-8",
+            )
+            # The exact execution on Windows uses the same filter order
+            # after Real-ESRGAN has finished at the original 30fps rate.
+            # Test FFmpeg rendering without a real GPU/Vulkan dependency.
+            from film_render import _ass_filter
+            filters = ai_detail_finish_filters(30, 60, True, ass)
+            command=[
+                ffmpeg,"-hide_banner","-loglevel","error","-nostdin",
+                "-f","lavfi","-i","testsrc2=size=96x64:rate=30:duration=.8",
+                "-vf",",".join(filters),"-frames:v","43","-f","null","-",
+            ]
+            result=subprocess.run(command,capture_output=True,text=True,timeout=50)
+            self.assertEqual(result.returncode,0,result.stderr[:1300])
+
+
 class FilmNeuralDetailTests(unittest.TestCase):
     def test_native_resolution_kept_for_720p_source_crops(self):
         from film_ai_detail import ai_source_dimensions
