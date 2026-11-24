@@ -62,7 +62,13 @@ def intermediate_dimensions(
     )
     # If the source is already larger than needed, keep its detail up to
     # 150% of the minimum model input; if smaller, upscale as little as needed.
-    resize = needed_scale if needed_scale >= 1.0 else min(1.0, needed_scale * 1.5)
+    if needed_scale >= 1.0:
+        # Cropped input has fewer pixels than the target/native_scale.
+        # Round against target aspect directly to avoid tiny distortion.
+        width = max(2, int(round(target_width / scale / 2) * 2))
+        height = max(2, int(round(target_height / scale / 2) * 2))
+        return width, height
+    resize = min(1.0, needed_scale * 1.5)
     width = max(2, int(round(crop_width * resize / 2) * 2))
     height = max(2, int(round(crop_height * resize / 2) * 2))
     return width, height
