@@ -266,6 +266,14 @@ def run_steps(
         last_reported = 0
         last_heartbeat = started
         latest_line_at = started
+        last_activity_at = started
+        last_output_bytes = 0
+        # On small GPUs, a driver hang can leave an empty MP4 forever.
+        # Allow a generous idle interval, but preserve the usable FFmpeg
+        # intermediate via Film Studio's fallback render path.
+        idle_timeout = max(60, min(3600, int(os.environ.get(
+            "FILM_VIDEO2X_IDLE_TIMEOUT", "240"
+        ))))
 
         def drain():
             try:
@@ -286,6 +294,17 @@ def run_steps(
                     if proc.poll() is not None and not reader.is_alive():
                         break
                     now = time.monotonic()
+                    output_bytes = target.stat().st_size if target.exists() else 0
+                    if output_bytes > last_output_bytes:
+                        last_output_bytes = output_bytes
+                        last_activity_at = now
+                    if now - last_activity_at > idle_timeout:
+                        raise RuntimeError(
+                            f"Video2X: {label} не показывает прогресс и не пишет "
+                            f"выходной файл более {idle_timeout} секунд. "
+                            "Предположительно завис драйвер Vulkan или AI. "
+                            "Переключаюсь на обычный FFmpeg-рендер."
+                        )
                     # A GPU model may emit no newline or logged percentage for
                     # minutes. Tell the UI the process is alive without
                     # pretending that wall-clock time is real progress.
@@ -320,6 +339,7 @@ def run_steps(
                     match = re.search(r"(?<!\d)(\d{1,3}(?:\.\d+)?)%", line)
                     if match:
                         value = max(0, min(100, float(match.group(1))))
+                        last_activity_at = time.monotonic()
                         local_pct = int(value * 0.08)
                         if local_pct > last_reported:
                             last_reported = local_pct
