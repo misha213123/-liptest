@@ -286,43 +286,39 @@ def run_steps(
         reader.start()
         try:
             while True:
-                if time.monotonic() - started > timeout_seconds:
+                now = time.monotonic()
+                if now - started > timeout_seconds:
                     raise RuntimeError(f"Video2X: {label} превысил ограничение времени.")
+                # IMPORTANT: check stalled work in EVERY loop iteration.
+                # Video2X may emit endless FFmpeg log lines even when Vulkan
+                # processes no frames. Previously the watchdog only ran in
+                # queue.Empty, so a busy log stream could hang at 72% forever.
+                output_bytes = target.stat().st_size if target.exists() else 0
+                if output_bytes > last_output_bytes:
+                    last_output_bytes = output_bytes
+                    last_activity_at = now
+                if now - last_activity_at > idle_timeout:
+                    raise RuntimeError(
+                        f"Video2X: {label} не увеличивает файл и не "
+                        f"отдаёт прогресс {idle_timeout} секунд. "
+                        "Останавливаю AI и сохраняю готовый FFmpeg-вариант."
+                    )
+                if now - last_heartbeat >= 12:
+                    elapsed = int(now - started)
+                    age = int(now - latest_line_at)
+                    print(
+                        f"[video2x] {label}: PID={proc.pid}, "
+                        f"{elapsed}s elapsed, output {output_bytes / 1048576:.1f} MiB, "
+                        f"last log line {age}s ago; "
+                        f"no confirmed frame progress yet.",
+                        flush=True,
+                    )
+                    last_heartbeat = now
                 try:
                     raw = messages.get(timeout=0.5)
                 except queue.Empty:
                     if proc.poll() is not None and not reader.is_alive():
                         break
-                    now = time.monotonic()
-                    output_bytes = target.stat().st_size if target.exists() else 0
-                    if output_bytes > last_output_bytes:
-                        last_output_bytes = output_bytes
-                        last_activity_at = now
-                    if now - last_activity_at > idle_timeout:
-                        raise RuntimeError(
-                            f"Video2X: {label} не показывает прогресс и не пишет "
-                            f"выходной файл более {idle_timeout} секунд. "
-                            "Предположительно завис драйвер Vulkan или AI. "
-                            "Переключаюсь на обычный FFmpeg-рендер."
-                        )
-                    # A GPU model may emit no newline or logged percentage for
-                    # minutes. Tell the UI the process is alive without
-                    # pretending that wall-clock time is real progress.
-                    if now - last_heartbeat >= 12:
-                        elapsed = int(now - started)
-                        size_mb = (
-                            target.stat().st_size / 1048576
-                            if target.exists() else 0
-                        )
-                        age = int(now - latest_line_at)
-                        print(
-                            f"[video2x] {label}: process PID={proc.pid}, "
-                            f"running {elapsed}s, output {size_mb:.1f} MiB, "
-                            f"last console line {age}s ago. "
-                            f"No percentage available yet.",
-                            flush=True,
-                        )
-                        last_heartbeat = now
                     continue
                 if raw is None:
                     break
