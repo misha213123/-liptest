@@ -268,6 +268,19 @@ class FilmRuntimeRecoveryTests(unittest.TestCase):
                     locate_cascade(stub, base / "cache")
 
 
+class FilmVideo2XWatchdogTests(unittest.TestCase):
+    def test_hard_first_byte_timeout_does_not_reset_from_false_log_percentages(self):
+        from film_video2x import stall_reason
+        started=100.0
+        self.assertIsNone(stall_reason(160, started, 159, 0, 180, 240))
+        # Even if misleading logs have "100%" and last activity was recent,
+        # the zero-byte 180s watchdog must still trip.
+        message=stall_reason(280, started, 279, 0, 180, 240)
+        self.assertIn("180 секунд", message)
+        self.assertIsNone(stall_reason(280, started, 279, 1024, 180, 240))
+        self.assertIn("не продвигает",stall_reason(390,started,140,2048,180,240))
+
+
 class FilmCaptionAndGradeTests(unittest.TestCase):
     def test_five_styles_use_real_ass_formatting(self):
         from types import SimpleNamespace as NS
@@ -287,6 +300,66 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
                 self.assertIn("HELLO WORLD", text)
             if name == "boxed":
                 self.assertIn("1,0,0,0,100,100,0,0,3,", text)
+
+    def test_caption_word_grouping_crosses_whisper_segment_boundaries(self):
+        from types import SimpleNamespace as NS
+        from film_captions import subtitle_ass
+        segments = [
+            NS(words=[
+                NS(start=0.10, end=0.40, word="Мы,"),
+                NS(start=0.41, end=0.72, word="сегодня"),
+                NS(start=0.73, end=1.04, word="снова."),
+            ]),
+            NS(words=[
+                NS(start=1.05, end=1.33, word="вместе!"),
+                NS(start=1.34, end=1.68, word="Привет"),
+            ]),
+        ]
+        whole, count = subtitle_ass(segments, 360, 640, "minimal", 78, 0, 4, True)
+        self.assertEqual(count, 2)
+        self.assertIn("Мы сегодня снова вместе", whole)
+        self.assertNotIn("снова.", whole)
+        self.assertNotIn("вместе!", whole)
+        self.assertIn("0:00:00.10,0:00:01.33", whole)
+        short, count = subtitle_ass(segments, 360, 640, "minimal", 78, 0, 1, True)
+        self.assertEqual(count, 5)
+        self.assertIn("0:00:00.10,0:00:00.40", short)
+        whole, count = subtitle_ass(segments, 360, 640, "minimal", 78, 0, 8, True)
+        self.assertEqual(count, 1)
+
+    def test_caption_punctuation_can_be_enabled_or_removed(self):
+        from types import SimpleNamespace as NS
+        from film_captions import subtitle_ass, caption_text
+        words = [
+            NS(word="Привет,", start=0.0, end=.25),
+            NS(word="мир!", start=.25, end=.60),
+            NS(word="кто-то", start=.61, end=.9),
+        ]
+        lines = [NS(words=words)]
+        original, _ = subtitle_ass(lines, 1080, 1920, "karaoke", 78)
+        cleaned, _ = subtitle_ass(lines, 1080, 1920, "karaoke", 78, 0, 3, True)
+        self.assertIn("Привет,", original)
+        self.assertNotIn("Привет,", cleaned)
+        self.assertNotIn("мир!", cleaned)
+        self.assertIn(r"{\kf", cleaned)
+        self.assertIn("кто-то", cleaned)
+        self.assertEqual(caption_text("«Дёсна.»", True), "Дёсна")
+        for bad in (0, 9, -1, 100):
+            with self.assertRaises(ValueError):
+                subtitle_ass(lines, 1080, 1920, "bold", 78, 0, bad)
+
+    def test_caption_pauses_split_even_when_word_limit_large(self):
+        from types import SimpleNamespace as NS
+        from film_captions import subtitle_ass
+        seg = [NS(words=[
+            NS(word="Один", start=.1, end=.3),
+            NS(word="Два", start=.31, end=.5),
+            NS(word="Три", start=2., end=2.2),
+        ])]
+        caption, n = subtitle_ass(seg, 360, 640, "bold", 78, 0, 8, True)
+        self.assertEqual(n, 2)
+        self.assertIn("ОДИН ДВА", caption)
+        self.assertIn("ТРИ", caption)
 
     def test_caption_audio_offset_moves_all_words(self):
         from types import SimpleNamespace as NS
