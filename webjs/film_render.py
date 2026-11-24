@@ -779,6 +779,7 @@ def render(job: dict) -> dict:
             "enabled": detail_succeeded, "requested": detail_requested,
             "engine": "Real-ESRGAN NCNN Vulkan",
             "model": str(job.get("ai_detail_model") or "realesrgan-x4plus") if detail_requested else "off",
+            "strength": detail_strength if detail_requested else 0,
             "warning": detail_warning,
         },
         "video2x": {
