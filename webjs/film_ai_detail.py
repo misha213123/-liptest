@@ -8,6 +8,7 @@ guarantee reconstruction of real source details.
 """
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -90,10 +91,22 @@ def terminate_tree(proc):
         pass
 
 
+def ai_source_dimensions(crop_w: int, crop_h: int) -> tuple[int, int]:
+    """Preserve native 720p cropping; bound very large sources for 4GB GPUs."""
+    if crop_w < 2 or crop_h < 2:
+        raise ValueError("Неверные исходные размеры кадра для AI Restore.")
+    ratio = min(1.0, math.sqrt((1280 * 720) / (crop_w * crop_h)))
+    width = max(2, int(crop_w * ratio / 2) * 2)
+    height = max(2, int(crop_h * ratio / 2) * 2)
+    return width, height
+
+
 def restore_clip(
     prepared: Path, out_dir: Path, ffmpeg: str, duration: float,
     fps: float, report,
-    *, tile: int = 64, model: str = "realesrgan-x4plus",
+    *, crop_width: int = 1280, crop_height: int = 720,
+    target_width: int = 1920, target_height: int = 1080,
+    tile: int = 64, model: str = "realesrgan-x4plus",
 ) -> Path:
     if not 0.1 <= duration <= 30.0:
         raise ValueError(
@@ -106,6 +119,9 @@ def restore_clip(
         raise ValueError("Размер GPU-блока должен быть 32, 64, 96 или 128.")
     if not 1 <= fps <= 120:
         raise ValueError("Неверная частота кадров нейросетевого рендера.")
+    source_w, source_h = ai_source_dimensions(crop_width, crop_height)
+    if target_width < 2 or target_height < 2 or target_width % 2 or target_height % 2:
+        raise ValueError("Выходные размеры AI Restore должны быть положительными чётными.")
     exe, models = require_binary()
     frames = out_dir / "ai_detail_in"
     enhanced = out_dir / "ai_detail_out"
@@ -116,13 +132,14 @@ def restore_clip(
 
     try:
         report("AI Detail Restore: подготавливаю кадры (Vulkan, без Video2X)", 73)
-        # Input is already a graded/captioned, motion-interpolated 1080p MP4.
-        # Half-res frames and native NCNN scale 2 reproduce original dimensions.
-        # 4GB GTX 1650 can use tiles as small as 32/64 to avoid GPU OOM.
+        # Keep the actual cropped source resolution (e.g. 404x720), instead of
+        # blindly halving the 1080p render to 540p and losing real details.
+        # GPU tile 64 plus bounded 720p input keeps intermediate files smaller.
+        # The final FFmpeg pass restores exactly the requested output size.
         run_cmd([
             ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
             "-i", str(prepared),
-            "-vf", "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos",
+            "-vf", f"scale={source_w}:{source_h}:flags=lanczos",
             "-fps_mode", "passthrough",
             str(frames / "frame_%06d.png"),
         ], timeout=1200)
@@ -184,6 +201,7 @@ def restore_clip(
             "-start_number", "1", "-i", str(enhanced / "frame_%06d.png"),
             "-i", str(prepared),
             "-map", "0:v:0", "-map", "1:a:0?",
+            "-vf", f"scale={target_width}:{target_height}:flags=lanczos",
             "-c:v", "libx264", "-preset", "slow", "-crf", "16",
             "-pix_fmt", "yuv420p", "-c:a", "copy",
             "-movflags", "+faststart", "-shortest", str(target),
