@@ -27,6 +27,7 @@ os.chdir(ROOT)
 
 from core.streamer_export import ASPECT_PRESETS
 from utils.helpers import get_ffmpeg_path
+from film_video2x import options as video2x_options, require_binary as require_video2x, run_steps as run_video2x
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -51,7 +52,7 @@ def run(command, timeout=7200):
     return p
 
 
-def encode_with_progress(command: list[str], duration: float, timeout: int = 10800):
+def encode_with_progress(command: list[str], duration: float, timeout: int = 10800, progress_start: int = 62, progress_span: int = 36):
     """Keep the UI updated during long 4K/optical-flow encodes."""
     command = command[:1] + ["-progress", "pipe:1", "-nostats"] + command[1:]
     process = subprocess.Popen(
@@ -61,7 +62,7 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
     )
     started = time.monotonic()
     lines = []
-    last_percent = 60
+    last_percent = progress_start - 1
     try:
         for line in process.stdout:
             line = line.strip()
@@ -73,7 +74,7 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
                 raw = line[len("out_time="):]
                 try:
                     current = sec(raw)
-                    pct = min(98, 62 + int(current / max(1, duration) * 36))
+                    pct = min(progress_start + progress_span, progress_start + int(current / max(1, duration) * progress_span))
                     if pct > last_percent:
                         progress("Кодирую итоговый MP4", pct)
                         last_percent = pct
@@ -308,6 +309,11 @@ def _ass_filter(path: Path) -> str:
 
 
 def render(job: dict) -> dict:
+    ai_model, rife_multiplier = video2x_options(job)
+    ai_enabled = ai_model != "off" or rife_multiplier > 1
+    if ai_enabled:
+        # Fail before downloading a long film if the external CLI is unavailable.
+        require_video2x()
     source = authorized_input(job)
     metadata = probe(source)
     start, end = sec(job.get("start", 0)), sec(job.get("end", 0))
@@ -328,6 +334,13 @@ def render(job: dict) -> dict:
     target_w, target_h = round(base_w * size / 1080), round(base_h * size / 1080)
     target_w += target_w % 2
     target_h += target_h % 2
+    # Feed Video2X a clean intermediate. For 2K/4K, upscale 2x to the
+    # requested dimensions; at 1080p improve at 2x then downsample.
+    if ai_model != "off" and size >= 1440:
+        render_w = max(2, (target_w // 2) // 2 * 2)
+        render_h = max(2, (target_h // 2) // 2 * 2)
+    else:
+        render_w, render_h = target_w, target_h
     iw, ih = metadata["width"], metadata["height"]
     cw = min(iw, int(ih * target_w / target_h))
     ch = min(ih, int(iw * target_h / target_w))
@@ -352,7 +365,7 @@ def render(job: dict) -> dict:
 
     vf = [
         f"crop={cw}:{ch}:x='{x_expr}':y='{y_expr}'",
-        f"scale={target_w}:{target_h}:flags=lanczos",
+        f"scale={render_w}:{render_h}:flags=lanczos",
         "setsar=1",
     ]
     if bool(job.get("enhance", True)):
@@ -362,37 +375,86 @@ def render(job: dict) -> dict:
             f"eq=gamma={gamma:.3f}:contrast=1.045:saturation={saturation:.3f}",
             "unsharp=5:5:0.42:5:5:0.0",
         ])
+    # RIFE works on actual source frames. Do not duplicate/interpolate
+    # the frames with FFmpeg before passing them into the neural network.
     fps = metadata["fps"] if fps_choice == "source" else int(fps_choice)
-    optical = bool(job.get("optical_flow", False)) and fps_choice != "source" and fps > metadata["fps"] + 0.5
+    optical = (
+        not (rife_multiplier > 1)
+        and bool(job.get("optical_flow", False))
+        and fps_choice != "source"
+        and fps > metadata["fps"] + 0.5
+    )
     if optical:
         vf.append(f"minterpolate=fps={int(fps)}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir")
-    elif fps_choice != "source":
+    elif fps_choice != "source" and rife_multiplier == 1:
         vf.append(f"fps={int(fps)}")
 
     caption_count = 0
     if bool(job.get("captions", True)):
-        ass, caption_count = _make_subtitles(source, start, end, out, target_w, target_h)
+        ass, caption_count = _make_subtitles(source, start, end, out, render_w, render_h)
         if caption_count:
             vf.append(_ass_filter(ass))
     vf.append("format=yuv420p")
     progress("Рендер Ultra HD / плавность", 61)
+    prepared = out / "film_prepared.mp4" if ai_enabled else dest
     cmd = [
         FFMPEG, "-hide_banner", "-y", "-nostdin", "-ss", str(start),
         "-i", str(source), "-t", str(duration), "-vf", ",".join(vf),
         "-c:v", "libx264", "-preset", "slow", "-crf", "16",
         "-c:a", "aac", "-b:a", "256k",
-        "-movflags", "+faststart", str(dest),
+        "-movflags", "+faststart", str(prepared),
     ]
-    encode_with_progress(cmd, duration, timeout=10800)
+    encode_with_progress(
+        cmd, duration, timeout=10800, progress_start=62,
+        progress_span=9 if ai_enabled else 36,
+    )
+    if ai_enabled:
+        progress("Запускаю Video2X (на видеокарте Vulkan)", 72)
+        enhanced = run_video2x(
+            prepared, out, ai_model, rife_multiplier,
+            target_w, target_h, report=progress,
+        )
+        enhanced_info = probe(enhanced)
+        final_filters = []
+        if enhanced_info["width"] != target_w or enhanced_info["height"] != target_h:
+            final_filters.append(f"scale={target_w}:{target_h}:flags=lanczos")
+        if fps_choice != "source" and abs(enhanced_info["fps"] - float(fps_choice)) > 0.4:
+            final_filters.append(f"fps={int(fps_choice)}")
+        if final_filters:
+            progress("Привожу видео к выбранному разрешению и FPS", 90)
+            normalize_cmd = [
+                FFMPEG, "-hide_banner", "-y", "-nostdin", "-i", str(enhanced),
+                "-vf", ",".join(final_filters + ["format=yuv420p"]),
+                "-c:v", "libx264", "-preset", "slow", "-crf", "16",
+                "-c:a", "copy", "-movflags", "+faststart", str(dest),
+            ]
+            encode_with_progress(
+                normalize_cmd, duration, timeout=10800,
+                progress_start=90, progress_span=8,
+            )
+        else:
+            enhanced.replace(dest)
+        # Do not let video intermediates fill the user's disk.
+        for intermediate in (
+            prepared, out / "video2x_upscaled.mp4", out / "video2x_rife.mp4",
+        ):
+            if intermediate != dest:
+                intermediate.unlink(missing_ok=True)
     if not dest.is_file() or dest.stat().st_size < 100_000:
         raise RuntimeError("Файл рендера не создан.")
+    finished = probe(dest)
     progress("Клип готов", 100)
     return {
         "ok": True, "id": job_id, "file": "final.mp4",
-        "width": target_w, "height": target_h,
-        "fps": fps, "source_resolution": str(iw) + "x" + str(ih),
+        "width": finished["width"], "height": finished["height"],
+        "fps": finished["fps"],
+        "source_resolution": str(iw) + "x" + str(ih),
         "captions": caption_count, "tracked_samples": len(centres),
         "optical_flow": optical,
+        "video2x": {
+            "enabled": ai_enabled, "upscale": ai_model,
+            "rife_multiplier": rife_multiplier,
+        },
     }
 
 
