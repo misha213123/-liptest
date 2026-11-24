@@ -178,6 +178,7 @@ let STREAMER_RENDER_JOB = null;
 let FILM_RENDER_JOB = null;
 let FILM_HIGHLIGHTS_JOB = null;
 let FILM_PREVIEW_BUSY = false;
+let FILM_DETAIL_INSTALLING = false;
 
 // Film Studio uses Python -> FFmpeg -> Video2X subprocesses. Killing only
 // Python on Windows leaves the heavy Vulkan child running after Ctrl+C.
@@ -1457,6 +1458,60 @@ except Exception as e:
 
     // Film Studio OpenAI key status: never return credentials or test with a billable call.
     // Only local browser access is supported because the server has auth disabled.
+    // Optional neural Real-ESRGAN restoration installer.
+    // The user must explicitly click Install; no surprise downloads.
+    if (p === '/api/film/detail/status' && req.method === 'GET') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Local only.' });
+      execFile(PY, [path.join(__dirname, 'film_ai_detail.py')], {
+        timeout: 12000, maxBuffer: 2048,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      }, (err, stdout) => {
+        if (err) return json(res, 500, { installed: false, error: 'Cannot check AI restoration tools.' });
+        try {
+          const data = JSON.parse(String(stdout || '').trim());
+          return json(res, 200, {
+            installed: !!data.installed, engine: 'Real-ESRGAN NCNN Vulkan',
+            max_clip_seconds: 30,
+            installing: FILM_DETAIL_INSTALLING,
+          });
+        } catch {
+          return json(res, 500, { installed: false, error: 'Invalid restoration status.' });
+        }
+      });
+      return;
+    }
+
+    if (p === '/api/film/detail/install' && req.method === 'POST') {
+      if (!isLocalRequest(req)) return json(res, 403, { error: 'Local only.' });
+      const origin = String(req.headers.origin || '');
+      if (origin) {
+        let safe = false;
+        try { const u = new URL(origin); safe = u.host === req.headers.host &&
+          ['http:', 'https:'].includes(u.protocol); } catch {}
+        if (!safe) return json(res, 403, { error: 'Bad origin.' });
+      }
+      if (!isWin) return json(res, 422, { error: 'Installer supports Windows only.' });
+      if (FILM_DETAIL_INSTALLING) return json(res, 409, { error: 'Installation already running.' });
+      if (FILM_RENDER_JOB && FILM_RENDER_JOB.code === undefined)
+        return json(res, 409, { error: 'Stop the render before installing neural models.' });
+      FILM_DETAIL_INSTALLING = true;
+      const script = path.join(ROOT, 'scripts', 'install-ai-detail-restore.ps1');
+      execFile('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', script,
+      ], {
+        cwd: ROOT, timeout: 300000, maxBuffer: 8192, windowsHide: true
+      }, (err) => {
+        FILM_DETAIL_INSTALLING = false;
+        if (err) return json(res, 500, {
+          ok: false, error: 'Real-ESRGAN installer failed. Check internet access or run scripts/install-ai-detail-restore.ps1 manually.'
+        });
+        return json(res, 200, { ok: true, installed: true,
+          message: 'Real-ESRGAN NCNN Vulkan installed. Try a 5-second scene.' });
+      });
+      return;
+    }
+
     if (p === '/api/film/openai/status' && req.method === 'GET') {
       if (!isLocalRequest(req)) {
         return json(res, 403, { error: 'Available only on this computer.' });
