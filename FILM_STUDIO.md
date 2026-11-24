@@ -505,6 +505,65 @@ installation in the UI. Keep GPU drivers up to date.
   The default smooth/vivid color preset does *not* enable neural inference;
   it continues working as before.
 
+## Face Beauty and Smart Colors · local Ultra HD-like enhancements
+
+Film Studio now includes a dedicated **Face Beauty + Smart Colors** editor
+with **real video/thumbnail processing**, not CSS-only controls. Both are
+enabled by default in the latest UI; they can be turned off independently.
+
+### Face Beauty (localized skin retouch)
+
+- Detects up to 5 faces using the project's existing OpenCV frontal/profile
+  cascades at intervals, reuses face locations between checks and resets
+  locations after hard scene changes. Face focus/crop tracking remains a
+  separate existing feature.
+- **Гладкость кожи (0–100%)** applies bilateral, edge-aware smoothing,
+  blended only inside a feathered face ellipse intersected with a broad
+  YCrCb skin-color mask. Approximate eye/lip exclusion zones preserve face
+  features, although the mask is not a learned skin segmentation model.
+- **Выравнивание тона лица (0–100%)** gently smooths local skin luminance
+  without blurring the entire frame.
+- Processing occurs on selected **source-resolution frames**, before motion
+  interpolation and caption burn-in. Smoothing therefore cannot directly
+  blur the subtitles or the extra 60fps optical-flow frames.
+- Works locally without an OpenAI API charge or upload. CPU processing of
+  large/high-FPS clips can take considerably longer than ordinary FFmpeg.
+
+### Smart Colors (adaptive color correction)
+
+- **Smart Colors (0–100%)** applies CLAHE local-contrast enhancement in
+  Lab color space, plus adaptive HSV saturation. Low-saturation areas
+  receive a stronger vibrancy boost than already-saturated regions.
+- **Чёткость краёв (0–100%)** applies restrained edge contrast. It is
+  not neural super-resolution and cannot recreate true lost detail.
+- The result is then passed to the existing manual gamma, saturation,
+  contrast, brightness and film-restoration filters. High MAX filter values
+  may still create clipped colors or unnatural facial tones.
+
+### Practical workflow
+
+1. Choose a 5–10-second section and enable **Face Beauty** and
+   **Smart Colors**.
+2. Start with the **Красивый Ultra HD** preset (skin 42, tone 38,
+   color 55, edge clarity 27) or **Натурально** for subtle retouch.
+3. Adjust sliders, choose **Обновить кадр с фильтрами**, compare the
+   before/after preview, then render with the existing smooth 60fps preset.
+4. **Сильная ретушь · MAX** uses heavy smoothing; prefer a natural
+   amount to avoid waxy skin. If no faces are detected, face retouch
+   deliberately leaves that frame unchanged. Smart Colors still applies.
+5. Neural **AI Detail Restore** (separate optional external executable)
+   may be enabled independently, but maximum sharpening/restoration can
+   counteract very strong skin smoothing.
+
+This feature replicates the *workflow* of localized beauty and adaptive
+color improvement, **not** CapCut's proprietary algorithms, AI UHD model,
+Topaz Proteus/Iris or an exact photographic reconstruction. Previews are
+processed locally at thumbnail resolution and can differ slightly from
+the full-resolution export. The local frame processor writes a temporary
+video-only MP4, then Film Studio muxes the **original scene audio** and
+applies face tracking, FFmpeg 60fps interpolation and subtitles as before.
+Intermediate video is removed after export.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
