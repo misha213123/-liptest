@@ -40,6 +40,8 @@ from film_openai_max import transcribe_max
 from film_captions import save_ass, validate as validate_caption_style
 from film_transcript_cache import transcribe_cached
 from film_filters import color_filters
+from film_ai_detail import restore_clip as run_neural_detail_restore
+from film_ai_detail import require_binary as require_neural_detail_restore
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -435,6 +437,13 @@ def render(job: dict) -> dict:
             )
     ai_model, rife_multiplier = video2x_options(job)
     ai_enabled = ai_model != "off" or rife_multiplier > 1
+    detail_requested = job.get("ai_detail_restore", False) is True
+    if detail_requested:
+        if ai_enabled:
+            raise ValueError("Выбери либо AI Detail Restore, либо Video2X, не оба режима одновременно.")
+        if str(job.get("size") or 1080) != "1080":
+            raise ValueError("Для AI Detail Restore выбери 1080p. Режим 2K/4K доступен через обычный FFmpeg.")
+        require_neural_detail_restore()
     if ai_enabled:
         # Fail before downloading a long film if the external CLI is unavailable.
         require_video2x(ai_model, rife_multiplier)
@@ -443,6 +452,8 @@ def render(job: dict) -> dict:
     start, end = sec(job.get("start", 0)), sec(job.get("end", 0))
     if end <= start or end - start > 300:
         raise ValueError("Выбери отрезок от 1 до 300 секунд.")
+    if detail_requested and end - start > 30:
+        raise ValueError("AI Detail Restore на GTX 1650 поддерживает отрезки до 30 секунд. Уменьши сцену.")
     if metadata["duration"] and end > metadata["duration"] + 0.5:
         raise ValueError("Конец клипа выходит за пределы исходного видео.")
     ratio = str(job.get("ratio") or "9:16")
@@ -545,7 +556,7 @@ def render(job: dict) -> dict:
             vf.append(_ass_filter(ass))
     vf.append("format=yuv420p")
     progress("Рендер Ultra HD / плавность", 61)
-    prepared = out / "film_prepared.mp4" if ai_enabled else dest
+    prepared = out / "film_prepared.mp4" if (ai_enabled or detail_requested) else dest
     cmd = [
         FFMPEG, "-hide_banner", "-y", "-nostdin", "-ss", str(start),
         "-i", str(source), "-t", str(duration), "-vf", ",".join(vf),
@@ -555,10 +566,12 @@ def render(job: dict) -> dict:
     ]
     encode_with_progress(
         cmd, duration, timeout=10800, progress_start=62,
-        progress_span=9 if ai_enabled else 36,
+        progress_span=9 if (ai_enabled or detail_requested) else 36,
     )
     video2x_warning = ""
     ai_succeeded = False
+    detail_warning = ""
+    detail_succeeded = False
     if ai_enabled:
         progress("Запускаю Video2X (на видеокарте Vulkan)", 72)
         enhanced = prepared
@@ -616,6 +629,28 @@ def render(job: dict) -> dict:
         ):
             if intermediate != dest:
                 intermediate.unlink(missing_ok=True)
+    elif detail_requested:
+        progress("AI Detail Restore: Real-ESRGAN NCNN (Vulkan, tile=64)", 72)
+        try:
+            restored = run_neural_detail_restore(
+                prepared, out, FFMPEG, duration, probe(prepared)["fps"],
+                report=progress, tile=int(job.get("ai_detail_tile", 64)),
+            )
+            restored.replace(dest)
+            detail_succeeded = True
+            print("[detail] Neural frame restoration completed.", flush=True)
+        except Exception as error:
+            detail_warning = (
+                "AI Detail Restore не завершился, сохранил обычное "
+                "видео 60 FPS без нейросетевого улучшения: "
+                + str(error)[:350]
+            )
+            print("[detail] WARNING: " + detail_warning, flush=True)
+            progress("AI Detail Restore: сохраняю готовый MP4 без AI", 95)
+            prepared.replace(dest)
+        finally:
+            if prepared.exists():
+                prepared.unlink(missing_ok=True)
     if not dest.is_file() or dest.stat().st_size < 100_000:
         raise RuntimeError("Файл рендера не создан.")
     finished = probe(dest)
@@ -627,6 +662,11 @@ def render(job: dict) -> dict:
         "source_resolution": str(iw) + "x" + str(ih),
         "captions": caption_count, "tracked_samples": len(centres),
         "optical_flow": optical,
+        "detail_restore": {
+            "enabled": detail_succeeded, "requested": detail_requested,
+            "engine": "Real-ESRGAN NCNN Vulkan",
+            "warning": detail_warning,
+        },
         "video2x": {
             "enabled": ai_succeeded, "requested": ai_enabled,
             "upscale": ai_model if ai_succeeded else "off",
