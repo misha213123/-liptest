@@ -626,3 +626,22 @@ or falsely labelled as integrated into Film Studio.
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
 Ensure FFmpeg has the libass/subtitles filter. If the provider blocks the film URL, use the local upload.
 Test 1080p at source FPS first, then enable optional 2160p and optical flow.
+
+## Adjustable AI deblur strength (2026-11-25)
+
+Film Studio's **AI Detail Restore** now includes a 0–100% strength control.
+The control blends the original prepared frame with the genuine Real-ESRGAN
+NCNN Vulkan output: 0% keeps the original, 50% gives a restrained restoration,
+and 100% applies the full neural result. This is an image blend, not a promise
+that lost source detail can be recovered perfectly; high strength can invent
+textures or create temporal flicker.
+
+The one-frame AI preview now uses the source crop's native width (up to 1080 px)
+instead of the previous fixed 360 px thumbnail. The server accepts up to 8 MB
+for the high-quality JPEG preview. The same strength value is sent to preview
+and export. The export still runs neural restoration at source FPS, then motion
+interpolation, then subtitles. The strength slider does not alter 60 FPS or
+caption timing.
+
+Recommended first test on a GTX 1650 4 GB: 5 seconds, 1080p, Real-ESRGAN x4plus,
+GPU tile 32 or 64, strength 100%; compare 50% if faces or skin look artificial.
