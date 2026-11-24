@@ -274,6 +274,14 @@
 'use strict';
 const $=id=>document.getElementById(id);
 let catalog=null,uploadedId='',busy=false;
+const lastFilmInputKey='filmStudioLastLocalInputV1';
+try {
+  const last=localStorage.getItem(lastFilmInputKey)||'';
+  if(/^[a-f0-9]{24}\.(mp4|mkv|mov|webm|m4v)$/.test(last)) uploadedId=last;
+} catch {}
+function rememberFilmInput(id){
+  try {localStorage.setItem(lastFilmInputKey,id)} catch {}
+}
 let captionStyle='bold',previewTimer=null,previewWorking=false,previewQueued=false,previewLoaded=false,preparedPreviewShown=false;
 let colorTone='neutral',activeColorLook='natural';
 let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
@@ -335,6 +343,7 @@ async function importBrowserDownload(id,isAutomatic=false){
     const data=await response.json();
     if(!response.ok||!data.ok)throw new Error(data.error||'Не удалось импортировать видео');
     uploadedId=data.input_id;
+    rememberFilmInput(uploadedId);
     scheduleFilmPreview();
     status('downloadsStatus','✅ Импортирован: '+data.filename+' ('+numberMB(data.bytes)+'). '+
       (data.method==='hardlink'?'Без повторного копирования.':'Скопирован локально.')+
@@ -383,6 +392,7 @@ $('catalogBtn').onclick=async()=>{
     const r=await fetch('/api/film/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
     const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Не удалось загрузить каталог');
     catalog=j;uploadedId='';
+    try {localStorage.removeItem(lastFilmInputKey)}catch{}
     $('catalogPanel').hidden=false;
     $('catalogTitle').textContent=j.title;
     $('catalogType').textContent=j.type==='series'?'Сериал':'Фильм';
@@ -409,6 +419,7 @@ $('uploadBtn').onclick=()=>{
     let j={};try{j=JSON.parse(xhr.responseText)}catch{}
     if(xhr.status===200&&j.ok){
       uploadedId=j.input_id;
+      rememberFilmInput(uploadedId);
       scheduleFilmPreview();
       status('uploadStatus','Файл готов: '+j.filename+' ('+Math.round(j.bytes/1048576)+' МБ). Будет использован для нарезки.');
     }else status('uploadStatus','Ошибка: '+(j.error||'Не удалось сохранить файл'));
@@ -626,6 +637,10 @@ $('nextFrameBtn').onclick=()=>movePreview(5);
 $('captions').addEventListener('change',()=>{
   $('captionSample').hidden=!$('captions').checked||!previewLoaded;
 });
+if(uploadedId){
+  status('previewStatus','Найден ранее импортированный файл. Проверяю миниатюру...');
+  scheduleFilmPreview();
+}
 $('renderBtn').onclick=async()=>{
   if(busy)return;
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
