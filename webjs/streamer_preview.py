@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 import sys
@@ -17,7 +18,8 @@ from openai import OpenAI
 
 from clipper_core import AutoClipperCore
 from config.config_manager import ConfigManager
-from utils.helpers import get_ffmpeg_path, get_ytdlp_path
+from utils.helpers import get_ffmpeg_path, get_ytdlp_path, get_deno_path, get_app_dir
+import yt_dlp
 from utils.logger import debug_log
 
 
@@ -60,6 +62,81 @@ def build_core(cfg: dict) -> AutoClipperCore:
     )
 
 
+def fast_source_frame(url: str, timestamp: float, image_path: Path) -> dict:
+    """Extract one preview JPEG from a source video stream without downloading a clip."""
+    opts = {
+        "format": "bestvideo[height<=720]/best[height<=720]/bestvideo/best",
+        "skip_download": True,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 20,
+        "retries": 2,
+    }
+    is_youtube = "youtube.com" in url or "youtu.be" in url
+    if is_youtube:
+        deno = get_deno_path()
+        if deno and Path(deno).exists():
+            opts["js_runtimes"] = {"deno": {"path": deno}}
+            opts["remote_components"] = ["ejs:github"]
+        opts["extractor_args"] = {"youtube": {"player_client": ["default", "-web_embedded"]}}
+    app_dir = get_app_dir()
+    for cookie_path in (app_dir / "cookies.txt", Path("cookies.txt")):
+        if cookie_path.is_file() and cookie_path.stat().st_size > 0:
+            opts["cookiefile"] = str(cookie_path)
+            break
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not isinstance(info, dict):
+        raise RuntimeError("Не удалось получить данные видео.")
+
+    # yt-dlp may put chosen stream in requested_formats or directly in info.
+    selected = next(
+        (fmt for fmt in info.get("requested_formats", [])
+         if fmt.get("vcodec") != "none" and fmt.get("url")), info
+    )
+    media_url = selected.get("url")
+    if not media_url:
+        raise RuntimeError("Источник не предоставил адрес видеопотока.")
+    headers = selected.get("http_headers") or info.get("http_headers") or {}
+    header_string = "".join(
+        f"{name}: {value}\r\n"
+        for name, value in headers.items()
+        if name.lower() not in ("host", "content-length", "range")
+    )
+    cmd = [
+        get_ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
+        "-rw_timeout", "20000000",
+        "-ss", str(timestamp),
+    ]
+    if header_string:
+        cmd += ["-headers", header_string]
+    cmd += [
+        "-i", str(media_url), "-map", "0:v:0", "-frames:v", "1",
+        "-q:v", "2", str(image_path),
+    ]
+    debug_log(f"[streamer-preview] Быстрый кадр по таймкоду {fmt_time(timestamp)} (без загрузки видео)")
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=55, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Быстрое получение кадра превысило 55 секунд") from exc
+    if proc.returncode != 0 or not image_path.is_file() or image_path.stat().st_size < 100:
+        # Signed media URLs may be in FFmpeg errors: never echo them to the UI/log.
+        tail = "\n".join((proc.stderr or "").splitlines()[-4:])
+        tail = re.sub(r"https?://\S+", "[media URL]", tail)
+        raise RuntimeError("FFmpeg не получил кадр напрямую: " + tail[-500:])
+
+    return {
+        "title": info.get("title") or "",
+        "channel": info.get("channel") or info.get("uploader") or "",
+        "duration": float(info.get("duration") or 0),
+    }
+
+
 def main():
     if len(sys.argv) < 4:
         raise SystemExit("Usage: streamer_preview.py <url> <timestamp> <result_json>")
@@ -81,55 +158,40 @@ def main():
     sample_path = preview_dir / f"{token}_sample.mp4"
     image_path = preview_dir / f"{token}.jpg"
 
-    # A short section is enough for a stable preview frame and is much cheaper
-    # than downloading the whole VOD.
     start = max(0.0, timestamp)
-    end = start + 3.0
-
-    debug_log(f"[streamer-preview] Загружаю 3 сек. с {fmt_time(start)}")
-    downloaded = core.download_video_section(
-        url,
-        fmt_time(start),
-        fmt_time(end),
-        str(sample_path),
-        resolution="720p",
-    )
-
-    ffmpeg = get_ffmpeg_path()
-    cmd = [
-        ffmpeg,
-        "-y",
-        "-ss",
-        "1.0",
-        "-i",
-        str(downloaded),
-        "-frames:v",
-        "1",
-        "-q:v",
-        "2",
-        str(image_path),
-    ]
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-    )
-    if proc.returncode != 0 or not image_path.exists():
-        raise RuntimeError("Не удалось получить кадр:\n" + "\n".join(proc.stderr.splitlines()[-20:]))
-
     info = {}
     try:
-        info = core.fetch_video_info(url)
-    except Exception as exc:
-        debug_log(f"[streamer-preview] metadata warning: {exc}")
-
-    try:
-        Path(downloaded).unlink(missing_ok=True)
-    except Exception:
-        pass
+        info = fast_source_frame(url, start, image_path)
+    except Exception as direct_exc:
+        debug_log(f"[streamer-preview] Быстрый кадр недоступен: {str(direct_exc)[:400]}")
+        debug_log("[streamer-preview] Резервный способ: загружаю только 3 секунды, видео без аудио.")
+        end = start + 3.0
+        # The normal section downloader is the compatibility fallback for
+        # extractors that cannot seek directly to a remote frame.
+        downloaded = core.download_video_section(
+            url, fmt_time(start), fmt_time(end), str(sample_path),
+            resolution="360p",
+        )
+        cmd = [
+            get_ffmpeg_path(), "-y", "-nostdin", "-loglevel", "error",
+            "-ss", "1.0", "-i", str(downloaded),
+            "-map", "0:v:0", "-frames:v", "1", "-q:v", "2", str(image_path),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=60,
+                encoding="utf-8", errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if proc.returncode or not image_path.is_file():
+                tail = re.sub(r"https?://\S+", "[media URL]", (proc.stderr or "")[-600:])
+                raise RuntimeError("Не удалось получить кадр из фрагмента: " + tail)
+        finally:
+            Path(downloaded).unlink(missing_ok=True)
+        try:
+            info = core.fetch_video_info(url)
+        except Exception as exc:
+            debug_log(f"[streamer-preview] Метаданные недоступны: {str(exc)[:200]}")
 
     payload = {
         "ok": True,
