@@ -36,6 +36,7 @@ from film_video2x import (
 )
 from film_runtime import face_detector, transcribe_segments
 from film_captions import save_ass, validate as validate_caption_style
+from film_filters import color_filters
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -401,19 +402,13 @@ def render(job: dict) -> dict:
     y_expr = _curve(centres, 1, ih, ch)
 
     vf = [
+        "setpts=PTS-STARTPTS",
         f"crop={cw}:{ch}:x='{x_expr}':y='{y_expr}'",
         f"scale={render_w}:{render_h}:flags=lanczos",
         "setsar=1",
     ]
-    if bool(job.get("enhance", True)):
-        gamma = min(1.20, max(0.85, float(job.get("gamma", 1.05))))
-        saturation = min(1.30, max(0.75, float(job.get("saturation", 1.10))))
-        brightness = min(0.12, max(-0.05, float(job.get("brightness", 0.02))))
-        contrast = min(1.30, max(0.80, float(job.get("contrast", 1.06))))
-        vf.extend([
-            f"eq=brightness={brightness:.3f}:gamma={gamma:.3f}:contrast={contrast:.3f}:saturation={saturation:.3f}",
-            "unsharp=5:5:0.32:5:5:0.0" if ai_enabled else "unsharp=5:5:0.42:5:5:0.0",
-        ])
+    # The same filters are used by the 1-frame mini-preview.
+    vf.extend(color_filters(job, ai_enabled=ai_enabled))
     # RIFE works on actual source frames. Do not duplicate/interpolate
     # the frames with FFmpeg before passing them into the neural network.
     fps = metadata["fps"] if fps_choice == "source" else int(fps_choice)
