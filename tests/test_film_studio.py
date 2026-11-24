@@ -311,5 +311,68 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
             color_filters({"color_tone":"invalid"})
 
 
+class FilmThumbnailTests(unittest.TestCase):
+    def test_midpoint_frame_preserves_ratio_and_color(self):
+        import tempfile
+        from unittest.mock import patch
+        import film_preview
+
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            inputs = base / "inputs"
+            inputs.mkdir()
+            filename = "0123456789abcdef01234567.mp4"
+            (inputs / filename).write_bytes(b"fake-video")
+            destination = base / "thumbnail.jpg"
+            recorded = []
+            def fake_ffmpeg(command, timeout=0):
+                recorded.extend(command)
+                destination.write_bytes(b"\xff\xd8" + b"\x00" * 800)
+            with patch.object(film_preview, "INPUT_DIR", inputs), \
+                 patch.object(film_preview, "probe", return_value={
+                     "width": 1280, "height": 720,
+                     "duration": 60.0, "fps": 25.0
+                 }), \
+                 patch.object(film_preview, "run", side_effect=fake_ffmpeg):
+                result = film_preview.render_preview({
+                    "input_id": filename,
+                    "start": 0, "end": 10,
+                    "preview_position": 50,
+                    "ratio": "9:16",
+                    "face_tracking": False,
+                    "color_tone": "warm",
+                }, destination)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["at"], 5)
+            self.assertEqual((result["width"], result["height"]), (360, 640))
+            self.assertEqual(result["face_detected"], False)
+            self.assertEqual(recorded[recorded.index("-ss") + 1], "5.0")
+            filters = recorded[recorded.index("-vf") + 1]
+            self.assertIn("crop=404:720", filters)
+            self.assertIn("scale=360:640", filters)
+            self.assertIn("colorbalance=", filters)
+
+    def test_invalid_frame_position_does_not_process(self):
+        import tempfile
+        from unittest.mock import patch
+        import film_preview
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            inputs = base / "inputs"
+            inputs.mkdir()
+            name = "0123456789abcdef01234567.mp4"
+            (inputs / name).write_bytes(b"mock")
+            with patch.object(film_preview, "INPUT_DIR", inputs), \
+                 patch.object(film_preview, "probe", return_value={
+                     "width": 1280, "height": 720,
+                     "duration": 60, "fps": 25
+                 }):
+                with self.assertRaisesRegex(ValueError, "Позиция"):
+                    film_preview.render_preview({
+                        "input_id": name, "start": 0, "end": 10,
+                        "preview_position": 500
+                    }, base / "frame.jpg")
+
+
 if __name__ == "__main__":
     unittest.main()
