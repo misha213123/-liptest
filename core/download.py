@@ -1676,19 +1676,19 @@ class DownloadMixin:
             # clip and making RunPod hit anti-bot protection much sooner.
             res = str(resolution or "1080p").strip().lower()
             res_map = {
-                "2160p": 2160, "1440p": 1440, "1080p": 1080,
+                "4320p": 4320, "2160p": 2160, "1440p": 1440, "1080p": 1080,
                 "720p": 720, "480p": 480, "360p": 360,
                 "240p": 240, "144p": 144,
             }
-            target_h = 2160 if res in ("auto", "auto (best)", "best", "otomatis") else res_map.get(res, 1080)
-            # Force a sensible minimum (clips/shorts look bad below 720p) while
-            # still respecting the requested max resolution.
-            min_h = 720 if target_h >= 720 else target_h
-            format_selector = (
-                f"bestvideo[height>={min_h}][height<={target_h}]+bestaudio/"
-                f"best[height>={min_h}][height<={target_h}]/"
-                f"bestvideo+bestaudio/best"
-            )
+            if res in ("auto", "auto (best)", "best", "otomatis"):
+                # No resolution cap for final clips: choose the highest-quality streams.
+                format_selector = "bestvideo+bestaudio/best"
+            else:
+                target_h = res_map.get(res, 1080)
+                format_selector = (
+                    f"bestvideo[height<={target_h}]+bestaudio/"
+                    f"best[height<={target_h}]/best"
+                )
 
             section_str = f"*{start_time}-{end_time}"
             output_path = Path(output_path)
@@ -1715,18 +1715,18 @@ class DownloadMixin:
                 if self.is_cancelled():
                     raise Exception("Cancelled by user")
 
-                # Remove stale .part files from a previous attempt
-                for stale in list(output_dir.glob(f"{output_stem}.*")):
-                    try:
-                        if stale.exists():
-                            stale.unlink()
-                    except OSError:
-                        pass
-
+                # Keep .part files so native yt-dlp downloads may resume.
+                # FFmpeg-based section downloads may restart, but must not delete
+                # completed/partial data before deciding whether it is usable.
                 cmd = self._ytdlp_command_prefix() + [
                     "-f", format_selector,
                     "--format-sort", "res,br",
                     "--newline",
+                    "--continue",
+                    "--socket-timeout", "30",
+                    "--retries", "5",
+                    "--fragment-retries", "5",
+                    "--concurrent-fragments", "4",
                     "--download-sections", section_str,
                     "--merge-output-format", "mp4",
                     "-o", str(output_path),
@@ -1773,6 +1773,7 @@ class DownloadMixin:
                 # Also collect all stderr lines into a buffer for error reporting
                 # (drain threads consume the pipe, so process.stderr.read() is empty after).
                 _stderr_buf = []
+                activity = {"last_progress": time.monotonic()}
 
                 def _drain_stream(stream, is_stderr: bool = False):
                     try:
@@ -1782,6 +1783,8 @@ class DownloadMixin:
                                 _stderr_buf.append(line)
                             if not line:
                                 continue
+                            if "[download]" in line or (is_stderr and "time=" in line):
+                                activity["last_progress"] = time.monotonic()
                             if "[download]" in line and "%" in line:
                                 percent, total, speed, eta = self._parse_ytdlp_progress_line(line)
                                 if percent is not None:
@@ -1810,11 +1813,12 @@ class DownloadMixin:
                 for t in threads:
                     t.start()
 
-                # Wait loop with cancellation + a hard timeout so a stalled
-                # yt-dlp (e.g. info-extraction hang on some YouTube videos)
-                # can't block the whole pipeline forever.
-                start_time = time.time()
-                download_timeout = 300  # seconds; stall is usually immediate, but allow real downloads
+                # A long VOD must not fail just because it exceeds five minutes.
+                # Stop when neither output bytes nor downloader progress move.
+                started_at = time.monotonic()
+                last_total_bytes = 0
+                idle_timeout = max(60, int(os.environ.get("CLIPPER_DOWNLOAD_IDLE_SECONDS", "300")))
+                total_timeout = max(idle_timeout, int(os.environ.get("CLIPPER_DOWNLOAD_MAX_SECONDS", "14400")))
                 while process.poll() is None:
                     if self.is_cancelled():
                         process.terminate()
@@ -1823,8 +1827,27 @@ class DownloadMixin:
                         except Exception:
                             process.kill()
                         raise Exception("Cancelled by user")
-                    if time.time() - start_time > download_timeout:
-                        self.log(f"  ⚠ Download timed out after {download_timeout}s, terminating stalled yt-dlp...")
+                    now = time.monotonic()
+                    try:
+                        current_bytes = sum(
+                            p.stat().st_size for p in output_dir.glob(f"{output_stem}*")
+                            if p.is_file()
+                        )
+                    except OSError:
+                        current_bytes = last_total_bytes
+                    if current_bytes > last_total_bytes:
+                        activity["last_progress"] = now
+                    last_total_bytes = current_bytes
+
+                    stalled_for = now - activity["last_progress"]
+                    elapsed = now - started_at
+                    if stalled_for > idle_timeout or elapsed > total_timeout:
+                        reason = (
+                            f"no download progress for {int(stalled_for)}s"
+                            if stalled_for > idle_timeout
+                            else f"total runtime exceeded {total_timeout}s"
+                        )
+                        self.log(f"  ⚠ yt-dlp stalled ({reason}); stopping attempt...")
                         try:
                             process.terminate()
                             try:
@@ -1833,8 +1856,8 @@ class DownloadMixin:
                                 process.kill()
                         except Exception:
                             pass
-                        raise Exception(f"Download timed out after {download_timeout}s (yt-dlp appears stalled)")
-                    time.sleep(0.5)
+                        raise Exception(f"Download stalled: {reason}")
+                    time.sleep(1)
 
                 for t in threads:
                     t.join(timeout=5)
