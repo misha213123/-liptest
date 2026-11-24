@@ -175,11 +175,12 @@
         <div style="margin-top:16px">
           <label for="speechEngine">Распознавание голоса</label>
           <select id="speechEngine">
-            <option value="local" selected>Локальный Faster-Whisper · бесплатно</option>
-            <option value="openai">OpenAI Cloud · таймкоды слов (платный API)</option>
+            <option value="openai_max" selected>OpenAI МАКСИМУМ · GPT-Transcribe + таймкоды слов</option>
+            <option value="openai">OpenAI Whisper-1 · только таймкоды слов</option>
+            <option value="local">Локальный Faster-Whisper · бесплатно</option>
           </select>
           <p id="openaiStatus" class="hint" role="status">Проверяю локальные настройки OpenAI-ключа...</p>
-          <p id="openaiDisclosure" class="hint" hidden>При выборе OpenAI звуковой отрывок отправляется в облачный API с оплатой по тарифам OpenAI. Используется модель whisper-1 с таймкодами слов (поддержка до 26.02.2027). Ключ не передаётся в браузер и не добавляется в проект.</p>
+          <p id="openaiDisclosure" class="hint" hidden>В режиме «МАКСИМУМ» выполняются ДВА платных запроса: GPT-Transcribe распознаёт диалоги, Whisper-1 определяет временные метки. Текст сопоставляется с метками без выдумывания времени новых слов. Оба запроса отправляют выбранный аудиоотрывок OpenAI. Whisper-1 доступен до 26.02.2027. Ключ остаётся на сервере.</p>
         </div>
         <div class="grid2" style="margin-top:14px">
           <div><label for="whisperModel">Точность локального Whisper</label>
@@ -335,7 +336,7 @@ async function loadOpenaiStatus(){
   updateSpeechEngine();
 }
 function updateSpeechEngine(){
-  const cloud=$('speechEngine').value==='openai';
+  const cloud=['openai','openai_max'].includes($('speechEngine').value);
   $('whisperModel').disabled=cloud;
   $('openaiDisclosure').hidden=!cloud;
   $('openaiStatus').style.color=cloud&&!openaiConfigured?'#ffbe90':'';
@@ -728,7 +729,7 @@ if(uploadedId){
 }
 $('renderBtn').onclick=async()=>{
   if(busy)return;
-  if($('captions').checked&&$('speechEngine').value==='openai'&&!openaiConfigured){
+  if($('captions').checked&&['openai','openai_max'].includes($('speechEngine').value)&&!openaiConfigured){
     return status('renderStatus','OpenAI API-ключ не настроен. Укажи OPENAI_API_KEY на компьютере и перезапусти сервер, либо выбери локальный Whisper.');
   }
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
