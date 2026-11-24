@@ -113,6 +113,34 @@ class Video2XIntegrationTests(unittest.TestCase):
         )[0][1]
         self.assertEqual(cmd[cmd.index("-s") + 1], "2")
 
+    def test_preserve_native_crop_for_realesrgan_plus(self):
+        from film_video2x import intermediate_dimensions
+        # 720p 16:9 cropped to 9:16 is about 404x720.
+        # This must not be reduced to 270x480 before model inference.
+        self.assertEqual(
+            intermediate_dimensions(404, 720, 1080, 1920, "realesrgan-plus"),
+            (404, 720),
+        )
+        self.assertEqual(
+            intermediate_dimensions(404, 720, 2160, 3840, "realesrgan-plus"),
+            (540, 960),
+        )
+
+    def test_bounded_intermediate_for_larger_source(self):
+        from film_video2x import intermediate_dimensions
+        w, h = intermediate_dimensions(
+            1080, 1920, 1080, 1920, "realesrgan-plus"
+        )
+        self.assertGreaterEqual(w, 270)
+        self.assertLessEqual(w, 410)
+        self.assertGreaterEqual(h, 480)
+        self.assertLessEqual(h, 730)
+        # No processing regressions for non-neural or RIFE-only exports.
+        self.assertEqual(
+            intermediate_dimensions(404, 720, 1080, 1920, "off"),
+            (1080, 1920),
+        )
+
     def test_anime4k_and_no_ai(self):
         from film_video2x import build_steps
         self.assertFalse(build_steps(
