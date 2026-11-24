@@ -179,6 +179,31 @@ so this unsupported option is not offered by the UI in this release.
 These changes fix CLI model lookup and scale selection; actual neural
 processing still depends on the local Vulkan driver and available GPU memory.
 
+## Stop stuck Video2X jobs safely (Windows)
+
+Film Studio has an **Stop render and Video2X** button for active jobs.
+It calls the local-only `/api/film/render/cancel` endpoint, which uses
+Windows `taskkill /PID <Film Python renderer PID> /T /F` to terminate the
+renderer and all its FFmpeg/Video2X descendants without deleting the original
+downloaded input. Shutdown via Ctrl+C also attempts to terminate the film job.
+
+If old orphaned Video2X processes were created by earlier versions, inspect:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "name = 'video2x.exe'" |
+  Select-Object ProcessId,ParentProcessId,CommandLine
+```
+
+After confirming these are stale Auto Clipper jobs, stop **only their PIDs**.
+Do not use `Stop-Process -Name video2x -Force` if another independent Video2X
+task is running.
+
+A zero-byte MP4 may remain on disk until FFmpeg writes its final index;
+do not infer a GPU hang from the MP4's size alone. With Windows WDDM and Vulkan,
+`nvidia-smi` also might not accurately show all GPU work. For GTX 1650 4GB,
+first test a 3-5 second clip with Real-ESRGAN Plus at 1080p and RIFE disabled;
+if it completes, test RIFE separately.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
