@@ -309,9 +309,56 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate("bold", pos)
 
+    def test_manual_restoration_sliders_generate_real_filters(self):
+        from film_filters import color_filters, restoration_filters
+        job = {
+            "enhance": True, "artifact_reduction": 45,
+            "denoise": 35, "microdetail": 25,
+            "sharpen": 55, "film_grain": 10,
+            "color_tone": "warm",
+        }
+        prior, after = restoration_filters(job)
+        self.assertTrue(prior[0].startswith("deblock="))
+        self.assertTrue(prior[1].startswith("hqdn3d="))
+        self.assertTrue(after[0].startswith("unsharp=3:3"))
+        self.assertTrue(after[1].startswith("unsharp=5:5"))
+        self.assertTrue(after[2].startswith("noise=alls="))
+        both = color_filters(job)
+        self.assertIn("eq=brightness=", ",".join(both))
+        self.assertEqual(both[:2], prior)
+        self.assertIn("colorbalance=", ",".join(both))
+        self.assertEqual(both[-3:], after)
+        self.assertEqual(color_filters({"enhance":False,**job,"enhance":False}), [])
+        with self.assertRaises(ValueError):
+            restoration_filters({"denoise":"nan"})
+        with self.assertRaises(ValueError):
+            restoration_filters({"sharpen":"inf"})
+
+    def test_restoration_ffmpeg_filter_graph_when_installed(self):
+        import shutil
+        import subprocess
+        from film_filters import color_filters
+        executable = shutil.which("ffmpeg")
+        if not executable:
+            self.skipTest("FFmpeg not installed in CI environment")
+        job = {
+            "enhance": True, "artifact_reduction": 35,
+            "denoise": 40, "microdetail": 25,
+            "sharpen": 45, "film_grain": 12,
+            "color_tone": "warm",
+        }
+        cmd = [
+            executable, "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-f", "lavfi", "-i", "testsrc2=size=128x72:rate=5:duration=1",
+            "-vf", ",".join(color_filters(job)), "-frames:v", "2",
+            "-f", "null", "-"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr[:1100])
+
     def test_real_color_filters_for_preview_and_render(self):
         from film_filters import color_filters, PRESETS
-        self.assertEqual(len(PRESETS), 7)
+        self.assertEqual(len(PRESETS), 8)
         self.assertEqual(color_filters({"enhance": False}), [])
         warm = dict(PRESETS["warm"])
         warm["color_tone"] = warm.pop("tone")
