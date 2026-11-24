@@ -29,23 +29,29 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Parse Video2X installer with Windows PowerShell 5.1
+      - name: Parse Video2X and AI Detail installers with Windows PowerShell 5.1
         shell: powershell
         run: |
-          $scriptPath = 'scripts/install-video2x.ps1'
-          $raw = [System.IO.File]::ReadAllBytes((Resolve-Path $scriptPath).Path)
-          if (@($raw | Where-Object { $_ -gt 127 }).Count -ne 0) {
-            throw 'The installer must be ASCII for Windows PowerShell 5.1 compatibility.'
-          }
-          $tokens = $null
-          $errorsFound = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path $scriptPath).Path,
+          $scriptPaths = @(
+            'scripts/install-video2x.ps1',
+            'scripts/install-ai-detail-restore.ps1'
+          )
+          foreach ($scriptPath in $scriptPaths) {
+            $full = (Resolve-Path $scriptPath).Path
+            $raw = [System.IO.File]::ReadAllBytes($full)
+            if (@($raw | Where-Object { $_ -gt 127 }).Count -ne 0) {
+              throw ('Installer must be ASCII: ' + $scriptPath)
+            }
+            $tokens = $null
+            $errorsFound = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $full,
               [ref]$tokens,
               [ref]$errorsFound
-          ) | Out-Null
-          if ($null -ne $errorsFound -and $errorsFound.Count -gt 0) {
-            $errorsFound | ForEach-Object { Write-Error $_.Message }
-            exit 1
+            ) | Out-Null
+            if ($null -ne $errorsFound -and $errorsFound.Count -gt 0) {
+              $errorsFound | ForEach-Object { Write-Error $_.Message }
+              throw ('PowerShell syntax invalid: ' + $scriptPath)
+            }
+            Write-Host ($scriptPath + ' Windows PowerShell 5.1 syntax OK')
           }
-          Write-Host 'Windows PowerShell 5.1 syntax: OK'
