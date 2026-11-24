@@ -415,6 +415,149 @@ class FilmTranscriptCachingTests(unittest.TestCase):
             self.assertEqual(count["calls"],2)
 
 
+class FilmBeautySmartColorsTests(unittest.TestCase):
+    def test_bounded_skin_and_smart_color_controls(self):
+        from film_beauty import settings, active
+        self.assertFalse(active(settings({})))
+        natural = settings({
+            "face_beauty": True, "beauty_skin": 42, "beauty_tone": 38,
+            "smart_colors": True, "smart_color_strength": 55,
+            "smart_clarity": 27,
+        })
+        self.assertTrue(active(natural))
+        self.assertAlmostEqual(natural["skin"], .42)
+        self.assertAlmostEqual(natural["tone"], .38)
+        self.assertAlmostEqual(natural["colors"], .55)
+        for bad in [
+            {"beauty_skin": -1}, {"beauty_tone": 101},
+            {"smart_color_strength": "nan"},
+            {"smart_clarity": "inf"}, {"face_beauty": "yes"},
+        ]:
+            with self.assertRaises(ValueError):
+                settings(bad)
+
+    def test_skin_mask_keeps_eyes_and_background_untouched(self):
+        import cv2
+        import numpy as np
+        from film_beauty import beauty_face
+        rng = np.random.default_rng(42)
+        # Synthetic face-colored BGR region with modest noise; avoid requiring
+        # a real portrait/identity in the public GitHub test suite.
+        frame = np.clip(
+            np.full((128, 128, 3), [120, 152, 185], dtype=np.int16)
+            + rng.integers(-18, 19, (128, 128, 3)), 0, 255
+        ).astype(np.uint8)
+        before = frame.copy()
+        beauty_face(frame, (15, 12, 96, 100), cv2, np, 1.0, .8)
+        # An off-face pixel is never retouched.
+        self.assertTrue(np.array_equal(frame[3:8, 3:8], before[3:8, 3:8]))
+        # Foreground cheek pixels change, but eyes and lips retain structure.
+        cheek_region = np.abs(
+            frame[63:76, 34:46].astype(int) - before[63:76, 34:46].astype(int)
+        )
+        self.assertGreater(int(cheek_region.sum()), 5)
+        eye_region = np.abs(
+            frame[45:52, 43:75].astype(int) - before[45:52, 43:75].astype(int)
+        )
+        # Soft mask may feather slightly near the eye boundary, but the
+        # protected eye band is much less affected than cheek skin.
+        self.assertLess(eye_region.mean(), cheek_region.mean())
+
+    def test_smart_colors_changes_actual_pixels_and_preview(self):
+        import cv2
+        import numpy as np
+        import tempfile
+        from film_beauty import smart_colors, process_preview_image
+        source = np.tile(
+            np.linspace(48, 170, 96, dtype=np.uint8), (64, 1)
+        )
+        frame = np.stack((source, source, np.clip(source + 8,0,255)), axis=-1)
+        updated = smart_colors(frame.copy(), cv2, np, .85, .35)
+        self.assertEqual(updated.shape, frame.shape)
+        self.assertGreater(np.abs(updated.astype(int) - frame.astype(int)).sum(), 300)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/"thumb.jpg"
+            self.assertTrue(cv2.imwrite(str(path), frame))
+            original = path.read_bytes()
+            summary = process_preview_image(path, {
+                "smart_colors": True, "smart_color_strength": 85,
+                "smart_clarity": 35,
+            }, Path(tmp))
+            self.assertTrue(summary["enabled"])
+            self.assertNotEqual(path.read_bytes(), original)
+            self.assertEqual(summary["faces"], 0)
+
+    def test_face_detector_is_used_only_for_beauty(self):
+        import cv2
+        import numpy as np
+        from film_beauty import VideoProcessor, settings
+        class FakeDetector:
+            def __init__(self): self.calls=0
+            def detectMultiScale(self, *args, **kwargs):
+                self.calls+=1
+                return np.array([[17, 13, 76, 88]], dtype=np.int32)
+        detector=FakeDetector()
+        processor=VideoProcessor(
+            settings({"face_beauty":True,"beauty_skin":70,"beauty_tone":35}),
+            Path("."), cv2=cv2, np=np, detector=detector,
+        )
+        frame=np.full((128,128,3),[120,152,185],dtype=np.uint8)
+        processor.process(frame.copy())
+        self.assertGreaterEqual(detector.calls,1)
+        self.assertGreater(processor.faces_seen,0)
+        no_detector=VideoProcessor(
+            settings({"smart_colors":True,"smart_color_strength":40}),
+            Path("."),cv2=cv2,np=np,
+        )
+        no_detector.process(frame.copy())
+        self.assertEqual(no_detector.faces_seen,0)
+
+    def test_actual_ffmpeg_beauty_clip_has_expected_frames(self):
+        import shutil
+        import subprocess
+        import tempfile
+        from film_beauty import process_clip, settings
+        ffmpeg=shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("FFmpeg is not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)
+            original=folder/"original.mp4"
+            altered=folder/"skin-and-colors.mp4"
+            src_cmd=[
+                ffmpeg,"-hide_banner","-loglevel","error","-y",
+                "-f","lavfi","-i","testsrc2=size=160x90:rate=12:duration=1.0",
+                "-f","lavfi","-i","sine=frequency=440:sample_rate=48000:duration=1.0",
+                "-c:v","mpeg4","-c:a","aac","-shortest",str(original),
+            ]
+            result=subprocess.run(src_cmd,capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stderr[:1000])
+            captured=[]
+            converted,info=process_clip(
+                original,altered,ffmpeg,.10,.55,12.0,160,90,
+                settings({"smart_colors":True,"smart_color_strength":50,
+                          "smart_clarity":20}),
+                folder, report=lambda *args: captured.append(args),
+            )
+            self.assertEqual(converted,altered)
+            self.assertTrue(converted.is_file())
+            self.assertGreater(info["frames"],3)
+            self.assertTrue(captured)
+            # The pipeline retains source audio by muxing the original later.
+            merged=folder/"final.mp4"
+            command=[
+                ffmpeg,"-hide_banner","-loglevel","error","-y",
+                "-i",str(converted),"-ss","0.10","-i",str(original),
+                "-t","0.55","-map","0:v:0","-map","1:a:0?",
+                "-c:v","libx264","-preset","ultrafast","-c:a","aac",
+                str(merged),
+            ]
+            result=subprocess.run(command,capture_output=True,text=True,timeout=45)
+            self.assertEqual(result.returncode,0,result.stderr[:1000])
+            self.assertTrue(merged.is_file())
+            self.assertGreater(merged.stat().st_size,2500)
+
+
 class FilmSmoothVividPresetTests(unittest.TestCase):
     def test_smooth_vivid_is_real_saturated_warm_grade(self):
         from film_filters import PRESETS, color_filters
