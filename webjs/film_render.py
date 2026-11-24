@@ -34,7 +34,7 @@ from film_video2x import (
     upscale_factor as video2x_upscale_factor,
     intermediate_dimensions as video2x_intermediate_dimensions,
 )
-from film_runtime import face_detector, transcribe_segments
+from film_runtime import face_detector, optional_profile_detector, transcribe_segments
 from film_captions import save_ass, validate as validate_caption_style
 from film_filters import color_filters
 
@@ -197,7 +197,10 @@ def authorized_input(job: dict) -> Path:
     return target
 
 
-def _track_centres(video: Path, start: float, duration: float, width: int, height: int):
+def _track_centres(
+    video: Path, start: float, duration: float,
+    width: int, height: int, focus: str = "auto",
+):
     """Follow a face using Haar detections plus optical flow between detections.
 
     Frontal face Haar by itself can miss profiles/occluded faces in films.
@@ -207,10 +210,14 @@ def _track_centres(video: Path, start: float, duration: float, width: int, heigh
     try:
         import cv2
         import numpy as np
+        if focus not in ("auto", "left", "center", "right"):
+            raise ValueError("Неизвестный выбор лица.")
         detector = face_detector(cv2, ROOT / "output" / "film_models")
+        profile_detector = optional_profile_detector(cv2, ROOT / "output" / "film_models")
         cap = cv2.VideoCapture(str(video))
         points = []
-        last_x, last_y = width / 2, height / 2
+        preferred_x = {"auto": 0.5, "left": 0.25, "center": 0.5, "right": 0.75}[focus] * width
+        last_x, last_y = preferred_x, height / 2
         last_gray = None
         features = None
         detected = 0
@@ -233,22 +240,46 @@ def _track_centres(video: Path, start: float, duration: float, width: int, heigh
                     if float(cv2.absdiff(gray, last_gray).mean()) > 45:
                         scene_cuts += 1
                         features = None
-                        last_x, last_y = width / 2, height / 2
+                        last_x, last_y = preferred_x, height / 2
                         changed = True
-                faces = detector.detectMultiScale(
-                    gray, scaleFactor=1.10, minNeighbors=4, minSize=(26, 26)
-                )
+                faces = list(detector.detectMultiScale(
+                    gray, scaleFactor=1.08, minNeighbors=3, minSize=(24, 24)
+                ))
+                if profile_detector is not None:
+                    try:
+                        profiles = profile_detector.detectMultiScale(
+                            gray, scaleFactor=1.1, minNeighbors=3, minSize=(28,28)
+                        )
+                        faces.extend(list(profiles))
+                        flipped = cv2.flip(gray, 1)
+                        other_side = profile_detector.detectMultiScale(
+                            flipped, scaleFactor=1.1, minNeighbors=3, minSize=(28,28)
+                        )
+                        faces.extend([
+                            (gray.shape[1]-x-w, y, w, h)
+                            for x,y,w,h in other_side
+                        ])
+                    except cv2.error:
+                        pass
                 if len(faces):
                     candidates = [
                         ((x + w/2)/factor, (y + h/2)/factor, w * h, x, y, w, h)
                         for x,y,w,h in faces
                     ]
-                    picked = max(
-                        candidates,
-                        key=lambda p: p[2] - .001 * (
-                            (p[0]-last_x)**2 + (p[1]-last_y)**2
+                    if focus == "auto":
+                        picked = max(
+                            candidates,
+                            key=lambda p: p[2] - .035 * (
+                                (p[0]-last_x)**2 + (p[1]-last_y)**2
+                            )
                         )
-                    )
+                    else:
+                        picked = max(
+                            candidates,
+                            # User can select which side to follow when
+                            # several actors appear in the same shot.
+                            key=lambda p: -.13*(p[0]-preferred_x)**2 + .01*p[2]
+                        )
                     fx, fy = picked[:2]
                     last_x = last_x * .58 + fx * .42
                     last_y = last_y * .58 + fy * .42
@@ -288,7 +319,8 @@ def _track_centres(video: Path, start: float, duration: float, width: int, heigh
         finally:
             cap.release()
         print(
-            f"[faces] Face detected in {detected}/{len(points)} samples, "
+            f"[faces] Tracking focus={focus}; "
+            f"face detected in {detected}/{len(points)} samples, "
             f"optical-flow follow in {followed} samples, "
             f"hard cuts {scene_cuts}.",
             flush=True,
@@ -395,7 +427,10 @@ def render(job: dict) -> dict:
 
     face_tracking = bool(job.get("face_tracking", True))
     progress("Отслеживаю лица и выравниваю кадр", 19)
-    centres = _track_centres(source, start, duration, iw, ih) if face_tracking else []
+    centres = _track_centres(
+        source, start, duration, iw, ih,
+        str(job.get("face_focus") or "auto"),
+    ) if face_tracking else []
     progress("Кадрирование подготовлено", 22)
     if face_tracking:
         print(f"[faces] Найдено {len(centres)} точек отслеживания", flush=True)
