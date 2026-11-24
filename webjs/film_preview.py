@@ -56,7 +56,10 @@ def render_preview(job: dict, output: Path) -> dict:
     detected = False
     if bool(job.get("face_tracking", True)):
         track_start = max(0, frame_time - 0.65)
-        points = _track_centres(source, track_start, max(.05, frame_time - track_start), iw, ih)
+        points = _track_centres(
+            source, track_start, max(.05, frame_time - track_start),
+            iw, ih, str(job.get("face_focus") or "auto"),
+        )
         if points:
             detected = True
             # Last sampled point corresponds to the requested preview moment,
