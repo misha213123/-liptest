@@ -1817,6 +1817,7 @@ class DownloadMixin:
                 # Stop when neither output bytes nor downloader progress move.
                 started_at = time.monotonic()
                 last_total_bytes = 0
+                stall_reason = None
                 idle_timeout = max(60, int(os.environ.get("CLIPPER_DOWNLOAD_IDLE_SECONDS", "300")))
                 total_timeout = max(idle_timeout, int(os.environ.get("CLIPPER_DOWNLOAD_MAX_SECONDS", "14400")))
                 while process.poll() is None:
@@ -1856,11 +1857,19 @@ class DownloadMixin:
                                 process.kill()
                         except Exception:
                             pass
-                        raise Exception(f"Download stalled: {reason}")
+                        stall_reason = f"Download stalled: {reason}"
+                        break
                     time.sleep(1)
 
                 for t in threads:
                     t.join(timeout=5)
+
+                if stall_reason:
+                    last_error = stall_reason
+                    self.log(f"  ✗ Section attempt {attempt} failed: {last_error}")
+                    if attempt < MAX_ATTEMPTS:
+                        time.sleep(2)
+                    continue
 
                 if process.returncode == 0:
                     # Check we actually have a file before accepting
