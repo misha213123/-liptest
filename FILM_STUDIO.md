@@ -280,6 +280,44 @@ but AI super-resolution and actual timed subtitles still require a render.
   seconds with Video2X disabled first, then enable neural enhancement only
   once frame selection and text timing are correct.
 
+## Optional OpenAI cloud subtitles with word timestamps
+
+Film Studio > Step 2 > **Speech recognition** now offers:
+
+- **Local Faster-Whisper**: on-device, no OpenAI charges.
+- **OpenAI Cloud**: transcribe just the selected audio excerpt via the official OpenAI Audio Transcriptions API, returning word timestamps in the existing ASS subtitle renderer.
+- The UI status shows only whether an API key is configured and where it was found; never the key value. The selected mode is passed in the local render payload as `speech_engine`, not the credential.
+- Selecting OpenAI incurs separate API usage fees. The app does not make a paid API call merely to display key status. Speech audio is sent to OpenAI only if OpenAI is explicitly selected and a render is started.
+
+**Important migration note:** At the time of this integration, the recommended `gpt-transcribe` model returns a transcript, but **word-level timestamps** for edited captions are still documented only for `whisper-1`. We use `whisper-1` with `response_format="verbose_json"` and `timestamp_granularities=["word"]`. This legacy model is scheduled to shut down on **2027-02-26**. Once a supported new word-timing model becomes available, the adapter must migrate. Do not assume support after that date.
+
+Official docs: https://developers.openai.com/api/docs/guides/speech-to-text
+
+### Key configuration (local Windows only)
+
+The adapter accepts `OPENAI_API_KEY` from the environment. It also reuses a key already present in local `config.json` under `ai_providers.caption_maker.openai_api_key`, `openai_api_key`, or a clearly identified **official OpenAI API** provider entry. It deliberately ignores keys for OpenRouter/other services.
+
+If the OpenAI status indicator reports **not configured**, launch the server with a key in your current PowerShell session. Avoid putting the key into command history or GitHub:
+
+```powershell
+cd "$HOME\Desktop\auto-clipper-v2"
+$secret = Read-Host 'OpenAI API key' -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+try { $env:OPENAI_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+.\start-web.bat
+```
+
+The key remains in that shell's environment until the shell closes. Do **not** enter a key in chat or commit it to Git. The key is not stored in Film Studio job JSON, URL, UI, or render log.
+
+### Audio / reliability
+
+- The module extracts only the user's selected ≤5-minute scene as 16 kHz mono WAV. Such a WAV is under the current 25 MB limit; we explicitly cap upload at 24 MiB.
+- The OpenAI response is converted into Whisper-compatible `words` objects and uses the same bold/karaoke/cinema/minimal/boxed ASS styles, offset controls and final MP4 path.
+- Word timestamps are model estimates. Incorrect dialogue, music, overlapping speakers and translation mismatches may still need manual review; OpenAI cloud is not a guarantee of lip-synced words.
+- Authentication/rate-limit/network errors show sanitized messages, without tokens. There is no silent fallback that would misrepresent a locally generated transcript as OpenAI output.
+- Subtitle requests require an active OpenAI API account and may incur charges. ChatGPT Plus is separate from API billing.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
