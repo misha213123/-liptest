@@ -288,6 +288,18 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
             if name == "boxed":
                 self.assertIn("1,0,0,0,100,100,0,0,3,", text)
 
+    def test_caption_audio_offset_moves_all_words(self):
+        from types import SimpleNamespace as NS
+        from film_captions import subtitle_ass
+        words = [NS(start=.5, end=.9, word="спасибо")]
+        segments = [NS(start=.5, end=.9, text="спасибо", words=words)]
+        shifted, _ = subtitle_ass(segments, 1080, 1920, "bold", 78, .3)
+        early, _ = subtitle_ass(segments, 1080, 1920, "bold", 78, -.2)
+        self.assertIn("0:00:00.80,0:00:01.20", shifted)
+        self.assertIn("0:00:00.30,0:00:00.70", early)
+        with self.assertRaises(ValueError):
+            subtitle_ass(segments, 1080, 1920, "bold", 78, 25)
+
     def test_caption_style_and_position_validation(self):
         from film_captions import validate, subtitle_ass
         self.assertEqual(validate("cinema", 75), ("cinema", 75))
@@ -299,7 +311,7 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
 
     def test_real_color_filters_for_preview_and_render(self):
         from film_filters import color_filters, PRESETS
-        self.assertEqual(len(PRESETS), 6)
+        self.assertEqual(len(PRESETS), 7)
         self.assertEqual(color_filters({"enhance": False}), [])
         warm = dict(PRESETS["warm"])
         warm["color_tone"] = warm.pop("tone")
@@ -326,8 +338,8 @@ class FilmThumbnailTests(unittest.TestCase):
             destination = base / "thumbnail.jpg"
             recorded = []
             def fake_ffmpeg(command, timeout=0):
-                recorded.extend(command)
-                destination.write_bytes(b"\xff\xd8" + b"\x00" * 800)
+                recorded.append(command)
+                Path(command[-1]).write_bytes(b"\xff\xd8" + b"\x00" * 800)
             with patch.object(film_preview, "INPUT_DIR", inputs), \
                  patch.object(film_preview, "probe", return_value={
                      "width": 1280, "height": 720,
@@ -346,11 +358,15 @@ class FilmThumbnailTests(unittest.TestCase):
             self.assertEqual(result["at"], 5)
             self.assertEqual((result["width"], result["height"]), (360, 640))
             self.assertEqual(result["face_detected"], False)
-            self.assertEqual(recorded[recorded.index("-ss") + 1], "5.0")
-            filters = recorded[recorded.index("-vf") + 1]
+            self.assertEqual(len(recorded), 2)
+            self.assertEqual(recorded[0][recorded[0].index("-ss") + 1], "5.0")
+            original = recorded[0][recorded[0].index("-vf") + 1]
+            filters = recorded[1][recorded[1].index("-vf") + 1]
             self.assertIn("crop=404:720", filters)
             self.assertIn("scale=360:640", filters)
+            self.assertNotIn("colorbalance=", original)
             self.assertIn("colorbalance=", filters)
+            self.assertTrue(destination.with_name("thumbnail_before.jpg").exists())
 
     def test_invalid_frame_position_does_not_process(self):
         import tempfile
