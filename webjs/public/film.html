@@ -33,9 +33,9 @@
     .drop{border:1px dashed #5c8277;padding:23px;border-radius:13px;background:#162623;text-align:center}
     progress{width:100%;height:12px;accent-color:#83b3a4}
     pre{white-space:pre-wrap;overflow:auto;max-height:300px;font-family:Consolas,monospace;color:#a8bbb6;font-size:12px;line-height:1.5;background:#0b1214;border-radius:10px;padding:12px}
-    .preview{aspect-ratio:9/16;max-height:590px;margin:auto;width:min(100%,355px);background:#050708!important;border-radius:14px;border:1px solid #2c3c3e;display:grid;place-items:center;overflow:hidden;position:relative}
+    .preview{aspect-ratio:9/16;max-height:none;margin:auto;width:min(100%,330px);background:#050708!important;border-radius:14px;border:1px solid #2c3c3e;display:grid;place-items:center;overflow:hidden;position:relative}
     [hidden]{display:none!important}
-    #previewImage{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:1}
+    #previewImage{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;z-index:1;display:block}
     #resultVideo{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;z-index:5;background:#000}
     .caption-sample{position:absolute;z-index:3;left:4%;width:92%;transform:translateY(50%);text-align:center;pointer-events:none;font-family:Arial,sans-serif;font-size:clamp(14px,2.5vw,23px);font-weight:900;line-height:1.12;color:#fff;text-shadow:-2px -2px 0 #0b0b0b,2px 2px 0 #0b0b0b,0 3px 8px #000}
     .caption-sample[data-style="cinema"]{font-family:"Segoe UI",sans-serif;font-size:clamp(13px,2vw,18px);font-weight:500;text-shadow:0 2px 5px #000,0 0 8px #000}
@@ -64,7 +64,7 @@
     video{width:100%;height:100%;object-fit:contain;background:#000}
     .hint{margin-top:9px;font-size:12px;color:#9fb6af}
     .notice{border-left:3px solid #7d9a91;padding:10px 13px;background:#1b2929;color:#c5d6cf;border-radius:0 10px 10px 0;font-size:12px}
-    @media(max-width:900px){.columns{grid-template-columns:1fr}.card{padding:15px}.wrap{padding:12px}.preview{max-height:430px}}
+    @media(max-width:900px){.columns{grid-template-columns:1fr}.card{padding:15px}.wrap{padding:12px}.preview{width:min(100%,240px);max-height:none}}
     @media(max-width:560px){.grid3,.grid2,.fieldset{grid-template-columns:1fr}.row{flex-wrap:wrap}.row>*{width:100%}.nav a{padding:8px 10px;font-size:12px}}
   </style>
 </head>
@@ -249,8 +249,16 @@
           <div id="captionSample" class="caption-sample" data-style="bold" hidden>КОГДА ВСЁ <span>ИЗМЕНИЛОСЬ</span></div>
           <video id="resultVideo" controls playsinline hidden></video>
         </div>
-        <button id="previewBtn" type="button" class="secondary" style="width:100%;margin-top:10px">Показать миниатюру сцены</button>
-        <div id="previewStatus" class="status muted">Это будет реальный кадр исходника с фильтрами и рамкой. Текст до распознавания речи — пример.</div>
+        <div style="margin-top:14px">
+          <label for="previewPosition">Какой кадр из выбранного отрезка: <strong id="previewPositionLabel">50%</strong></label>
+          <div class="row" style="align-items:center">
+            <button type="button" id="prevFrameBtn" class="secondary" aria-label="Более ранний кадр" style="flex:0">−</button>
+            <input id="previewPosition" type="range" min="5" max="95" value="50" step="5" aria-label="Момент миниатюры" style="flex:1">
+            <button type="button" id="nextFrameBtn" class="secondary" aria-label="Более поздний кадр" style="flex:0">+</button>
+          </div>
+        </div>
+        <button id="previewBtn" type="button" class="secondary" style="width:100%;margin-top:10px">Обновить кадр с фильтрами</button>
+        <div id="previewStatus" class="status muted" role="status">После импорта выбери кадр, чтобы увидеть реальную обрезку и фильтры. Текст субтитров до распознавания речи — демонстрационный.</div>
         <div id="outputMeta" class="status muted">Формат: 9:16 · 1080p · исходный FPS</div>
         <a id="download" class="button" href="#" download hidden style="width:100%">Скачать готовый MP4</a>
       </section>
@@ -530,7 +538,8 @@ function scheduleFilmPreview(){
 }
 async function loadFilmPreview(){
   if(!uploadedId){
-    status('previewStatus','Для миниатюры сначала импортируй файл через загрузку или папку Downloads.');
+    status('previewStatus','Сначала импортируй MP4/MKV через папку загрузок или загрузку файла. Для прямой ссылки на сайт миниатюра появится после получения исходника.');
+    $('emptyPreview').hidden=false;
     return;
   }
   if(previewWorking){previewQueued=true;return}
@@ -542,6 +551,7 @@ async function loadFilmPreview(){
   }
   const payload={
     input_id:uploadedId,start,end,ratio:$('ratio').value,
+    preview_position:Number($('previewPosition').value),
     face_tracking:$('face').checked,enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
@@ -549,7 +559,7 @@ async function loadFilmPreview(){
   };
   previewWorking=true;
   $('previewBtn').disabled=true;
-  status('previewStatus','Готовлю кадр с твоим кадрированием и цветокоррекцией...');
+  status('previewStatus','Извлекаю кадр с кадрированием и цветокоррекцией...');
   try{
     const response=await fetch('/api/film/preview',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -557,29 +567,60 @@ async function loadFilmPreview(){
     });
     const result=await response.json();
     if(!response.ok||!result.ok)throw new Error(result.error||'Не удалось создать кадр');
-    const image=$('previewImage');
-    image.onload=()=>{
-      previewLoaded=true;
-      image.hidden=false;
-      $('resultVideo').hidden=true;
-      $('resultVideo').pause();
-      $('captionSample').hidden=!$('captions').checked;
-      $('emptyPreview').hidden=true;
-      status('previewStatus',
-        (payload.face_tracking
-          ? (result.face_detected?'Лицо обнаружено и учтено в кадрировании. ':'Лицо не найдено в выбранном кадре; использовано центральное кадрирование. ')
-          : 'Кадрирование по центру. ')+
-        'Цвет и кадрирование настоящие; текст субтитров — пример.');
-    };
-    image.src=result.image_url+'?t='+Date.now();
+    if(!result.image_data&&!result.image_url)throw new Error('Сервер не вернул JPG.');
+    // Complete image loading BEFORE reporting success. In the old version
+    // onload could silently fail, resulting in a blank white/black preview.
+    const img = new Image();
+    const source = result.image_data || result.image_url+'?t='+Date.now();
+    await new Promise((resolve,reject)=>{
+      img.onload=()=>img.naturalWidth>0&&img.naturalHeight>0
+        ? resolve() : reject(new Error('JPG без размеров.'));
+      img.onerror=()=>reject(new Error('Не удалось загрузить кадр. Проверь сервер и исходник.'));
+      img.src=source;
+    });
+    const display=$('previewImage');
+    display.src=source;
+    display.hidden=false;
+    $('resultVideo').pause();
+    $('resultVideo').hidden=true;
+    previewLoaded=true;
+    $('captionSample').hidden=!$('captions').checked;
+    $('emptyPreview').hidden=true;
+    const at=Number(result.at);
+    const timeLabel=Number.isFinite(at)?'На отметке '+at.toFixed(1)+' с. ':'';
+    status('previewStatus',
+      timeLabel+
+      (payload.face_tracking
+        ? (result.face_detected
+          ? 'Лицо обнаружено. '
+          : 'Лицо на этом кадре не обнаружено — обрезка по центру. ')
+        : 'Обрезка по центру. ')+
+      'Кадр и цвет реальные. Субтитры на JPG — пример оформления.');
   }catch(err){
-    status('previewStatus','Миниатюра: '+err.message);
+    status('previewStatus','Ошибка миниатюры: '+err.message);
+    if(!previewLoaded){
+      $('emptyPreview').hidden=false;
+      $('emptyPreview').textContent='Кадр не создан — смотри ошибку под миниатюрой';
+    }
   }finally{
-    previewWorking=false;$('previewBtn').disabled=false;
+    previewWorking=false;
+    $('previewBtn').disabled=false;
     if(previewQueued){previewQueued=false;scheduleFilmPreview()}
   }
 }
 $('previewBtn').onclick=loadFilmPreview;
+const previewSlider=$('previewPosition');
+previewSlider.oninput=()=>{
+  $('previewPositionLabel').textContent=previewSlider.value+'%';
+};
+previewSlider.onchange=scheduleFilmPreview;
+function movePreview(delta){
+  previewSlider.value=Math.max(5,Math.min(95,Number(previewSlider.value)+delta));
+  previewSlider.dispatchEvent(new Event('input'));
+  scheduleFilmPreview();
+}
+$('prevFrameBtn').onclick=()=>movePreview(-5);
+$('nextFrameBtn').onclick=()=>movePreview(5);
 ['start','end'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
 ['face','enhance'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
 $('captions').addEventListener('change',()=>{
