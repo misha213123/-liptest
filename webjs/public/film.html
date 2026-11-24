@@ -814,7 +814,10 @@ $('installDetailRestoreBtn').onclick=async()=>{
     $('detailRestoreStatus').textContent='Не удалось установить: '+e.message;
   }finally{b.disabled=false;}
 };
-$('aiDetailStrength').oninput=()=>{\n  $('aiDetailStrengthVal').textContent=$('aiDetailStrength').value+'%';\n};\n$('aiDetailRestore').onchange=()=>{
+$('aiDetailStrength').oninput=()=>{
+  $('aiDetailStrengthVal').textContent=$('aiDetailStrength').value+'%';
+};
+$('aiDetailRestore').onchange=()=>{
   if(!$('aiDetailRestore').checked)return;
   $('size').value='1080';
   $('fps').value='60';
@@ -1438,6 +1441,7 @@ $('renderBtn').onclick=async()=>{
     ai_detail_restore:$('aiDetailRestore').checked,
     ai_detail_model:$('aiDetailModel').value,
     ai_detail_tile:Number($('aiDetailTile').value),
+    ai_detail_strength:Number($('aiDetailStrength').value),
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
     speech_engine:$('speechEngine').value,
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
