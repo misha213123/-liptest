@@ -1605,6 +1605,14 @@ except Exception as e:
               at: details.at,
               width: details.width, height: details.height,
               image_data: 'data:image/jpeg;base64,' + bytes.toString('base64'),
+              before_image_data: (() => {
+                const before = path.join(directory, id + '_before.jpg');
+                if (!fs.existsSync(before)) return null;
+                const original = fs.readFileSync(before);
+                if (original.length < 500 || original.length > 2*1024*1024 ||
+                    original[0] !== 0xff || original[1] !== 0xd8) return null;
+                return 'data:image/jpeg;base64,' + original.toString('base64');
+              })(),
               image_url: '/video/film/preview/' + id + '.jpg'
             });
           } catch (error) {
