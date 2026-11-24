@@ -15,6 +15,7 @@ from film_render import (
 )
 from core.streamer_export import ASPECT_PRESETS
 from film_filters import color_filters
+from film_beauty import process_preview_image
 
 
 def render_preview(job: dict, output: Path) -> dict:
@@ -84,7 +85,10 @@ def render_preview(job: dict, output: Path) -> dict:
         ], timeout=75)
         if not filename.exists() or filename.stat().st_size < 500:
             raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
+    # Reuse the real pixel processor on preview, never fake it with CSS.
+    beauty = process_preview_image(output, job, ROOT / "output" / "film_models")
     return {"ok": True, "width": w, "height": h,
+            "beauty": beauty,
             "at": round(frame_time, 3), "face_detected": detected,
             "source_width": iw, "source_height": ih,
             "crop_width": crop_w, "crop_height": crop_h}
