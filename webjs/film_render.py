@@ -396,12 +396,27 @@ def render(job: dict) -> dict:
         cmd, duration, timeout=10800, progress_start=62,
         progress_span=9 if ai_enabled else 36,
     )
+    video2x_warning = ""
+    ai_succeeded = False
     if ai_enabled:
         progress("Запускаю Video2X (на видеокарте Vulkan)", 72)
-        enhanced = run_video2x(
-            prepared, out, ai_model, rife_multiplier,
-            target_w, target_h, report=progress,
-        )
+        enhanced = prepared
+        try:
+            enhanced = run_video2x(
+                prepared, out, ai_model, rife_multiplier,
+                target_w, target_h, report=progress,
+            )
+            ai_succeeded = True
+        except Exception as err:
+            video2x_warning = (
+                "Video2X не завершился, готовый клип будет экспортирован "
+                "обычным FFmpeg (без AI-улучшения и RIFE): " + str(err)[:400]
+            )
+            print("[video2x] WARNING: " + video2x_warning, flush=True)
+            # This is a legitimate finished video with face crop, captions
+            # and color grading. Do not discard it when Vulkan gets stuck.
+            enhanced = prepared
+            progress("Video2X недоступен; сохраняю обычный MP4", 88)
         enhanced_info = probe(enhanced)
         final_filters = []
         if enhanced_info["width"] != target_w or enhanced_info["height"] != target_h:
@@ -409,7 +424,7 @@ def render(job: dict) -> dict:
         if fps_choice != "source" and abs(enhanced_info["fps"] - float(fps_choice)) > 0.4:
             final_filters.append(f"fps={int(fps_choice)}")
         if final_filters:
-            progress("Привожу видео к выбранному разрешению и FPS", 90)
+            progress("Финальный экспорт MP4", 90)
             normalize_cmd = [
                 FFMPEG, "-hide_banner", "-y", "-nostdin", "-i", str(enhanced),
                 "-vf", ",".join(final_filters + ["format=yuv420p"]),
@@ -422,7 +437,7 @@ def render(job: dict) -> dict:
             )
         else:
             enhanced.replace(dest)
-        # Do not let video intermediates fill the user's disk.
+        # Do not let old video intermediates fill up the user's disk.
         for intermediate in (
             prepared, out / "video2x_upscaled.mp4", out / "video2x_rife.mp4",
         ):
@@ -440,8 +455,10 @@ def render(job: dict) -> dict:
         "captions": caption_count, "tracked_samples": len(centres),
         "optical_flow": optical,
         "video2x": {
-            "enabled": ai_enabled, "upscale": ai_model,
-            "rife_multiplier": rife_multiplier,
+            "enabled": ai_succeeded, "requested": ai_enabled,
+            "upscale": ai_model if ai_succeeded else "off",
+            "rife_multiplier": rife_multiplier if ai_succeeded else 1,
+            "warning": video2x_warning,
         },
     }
 
