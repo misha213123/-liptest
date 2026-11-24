@@ -40,6 +40,10 @@ from film_openai_max import transcribe_max
 from film_captions import save_ass, validate as validate_caption_style
 from film_transcript_cache import transcribe_cached
 from film_filters import color_filters
+from film_beauty import (
+    settings as beauty_settings, active as beauty_active,
+    preflight as beauty_preflight, process_clip as beauty_process_clip,
+)
 from film_ai_detail import restore_clip as run_neural_detail_restore
 from film_ai_detail import require_binary as require_neural_detail_restore
 
@@ -449,6 +453,10 @@ def render(job: dict) -> dict:
         require_video2x(ai_model, rife_multiplier)
     source = authorized_input(job)
     metadata = probe(source)
+    beauty_opts = beauty_settings(job)
+    beauty_enabled = beauty_active(beauty_opts)
+    if beauty_enabled:
+        beauty_preflight(beauty_opts, OUT / "film_models")
     start, end = sec(job.get("start", 0)), sec(job.get("end", 0))
     if end <= start or end - start > 300:
         raise ValueError("Выбери отрезок от 1 до 300 секунд.")
@@ -555,19 +563,42 @@ def render(job: dict) -> dict:
         if caption_count:
             vf.append(_ass_filter(ass))
     vf.append("format=yuv420p")
+    beauty_stats = {}
+    beauty_source = out / "beauty_source.mp4"
+    if beauty_enabled:
+        beauty_source, beauty_stats = beauty_process_clip(
+            source, beauty_source, FFMPEG, start, duration,
+            metadata["fps"], iw, ih, beauty_opts,
+            OUT / "film_models", report=progress,
+        )
     progress("Рендер Ultra HD / плавность", 61)
     prepared = out / "film_prepared.mp4" if (ai_enabled or detail_requested) else dest
+    if beauty_enabled:
+        # Video comes from the retouched excerpt (timestamps start at zero).
+        # Audio comes from the original full episode at the selected timestamp.
+        # No second beauty pass is applied to optical-flow generated frames.
+        input_args = [
+            "-i", str(beauty_source),
+            "-ss", str(start), "-i", str(source),
+            "-t", str(duration), "-map", "0:v:0", "-map", "1:a:0?",
+        ]
+    else:
+        input_args = ["-ss", str(start), "-i", str(source), "-t", str(duration)]
     cmd = [
-        FFMPEG, "-hide_banner", "-y", "-nostdin", "-ss", str(start),
-        "-i", str(source), "-t", str(duration), "-vf", ",".join(vf),
+        FFMPEG, "-hide_banner", "-y", "-nostdin", *input_args,
+        "-vf", ",".join(vf),
         "-c:v", "libx264", "-preset", "slow", "-crf", "16",
         "-c:a", "aac", "-b:a", "256k",
         "-movflags", "+faststart", str(prepared),
     ]
-    encode_with_progress(
-        cmd, duration, timeout=10800, progress_start=62,
-        progress_span=9 if (ai_enabled or detail_requested) else 36,
-    )
+    try:
+        encode_with_progress(
+            cmd, duration, timeout=10800, progress_start=62,
+            progress_span=9 if (ai_enabled or detail_requested) else 36,
+        )
+    finally:
+        if beauty_enabled:
+            beauty_source.unlink(missing_ok=True)
     video2x_warning = ""
     ai_succeeded = False
     detail_warning = ""
@@ -664,6 +695,13 @@ def render(job: dict) -> dict:
         "source_resolution": str(iw) + "x" + str(ih),
         "captions": caption_count, "tracked_samples": len(centres),
         "optical_flow": optical,
+        "face_beauty": {
+            "enabled": beauty_enabled and beauty_opts["beauty"],
+            "smart_colors": beauty_enabled and beauty_opts["smart"],
+            "frames": beauty_stats.get("frames", 0),
+            "detected_face_regions": beauty_stats.get("faces_detected_frames", 0),
+            "engine": "OpenCV skin mask / CLAHE",
+        },
         "detail_restore": {
             "enabled": detail_succeeded, "requested": detail_requested,
             "engine": "Real-ESRGAN NCNN Vulkan",
