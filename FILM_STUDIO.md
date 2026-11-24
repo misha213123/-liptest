@@ -13,6 +13,47 @@ git pull --ff-only origin feature/movie-series-studio
 .\start-web.bat
 ```
 
+## HDrezka Grabber browser download integration
+
+- Extension repository: https://github.com/kristal374/HDrezka-Grabber
+- Chrome Web Store: https://chromewebstore.google.com/detail/hdrezka-grabber/aamnmboocelpaiagegjicbefiinkcoal/
+- Film Studio uses a **local Downloads-folder bridge**, not the extension API.
+  This means it works even if the extension updates, and no GPL-licensed
+  browser extension code is bundled with Auto Clipper.
+- Install the extension separately. On the supported film/series website,
+  select the season, episode, voice track and source quality; download a video
+  that you are authorized to edit.
+- Keep the downloaded MP4/MKV/MOV/WEBM in your regular Windows Downloads folder.
+- Open http://localhost:3000/film.html and use
+  **Browser Downloads -> Refresh -> Import**, or enable the opt-in auto-import
+  checkbox **before** the download finishes.
+- The page checks every six seconds for completed files (at least 12 seconds
+  without file modification). It discovers files in Downloads and up to two
+  subfolder levels (for example Series / Season / Episode).
+- A completed file is registered in output/film_inputs using a hardlink when
+  possible (instant, no additional disk usage); otherwise it is copied locally.
+  The original Downloads file is never deleted or moved.
+- Auto-import only operates **while the Film Studio page is open**.
+  Existing files are listed, not auto-imported retroactively.
+  Auto-import is disabled by default to avoid importing unrelated downloads.
+- The import APIs are restricted to requests from this computer's loopback
+  interface. Other devices on the local network cannot browse Downloads or
+  request imports. No browser cookies, extension permissions, or site credentials
+  are shared with Auto Clipper.
+- To use a different browser download directory, set `FILM_DOWNLOADS_DIR`
+  before running the Node server:
+
+```powershell
+$env:FILM_DOWNLOADS_DIR = "D:\Videos\Downloads"
+.\start-web.bat
+```
+
+- Only fully downloaded files between 1 KiB and 8 GiB with supported extensions
+  are eligible. In-progress .crdownload and .part files are excluded.
+- Selecting a downloaded file does not infer its season, voice language or licensing;
+  the browser extension handles these choices before download.
+- This does not bypass any website protection or guarantee downloading from HDrezka.
+
 ## Workflow
 
 - Paste an hdrezka.rest film or series link to request available seasons, episodes and voice translations. Source availability depends on the provider.
