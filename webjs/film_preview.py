@@ -84,7 +84,7 @@ def render_preview(job: dict, output: Path) -> dict:
         run([
             FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
             "-ss", str(frame_time), "-i", str(source), "-frames:v", "1",
-            "-vf", ",".join(filters), "-q:v", "3", str(filename)
+            "-vf", ",".join(filters), "-q:v", "2", str(filename)
         ], timeout=75)
         if not filename.exists() or filename.stat().st_size < 500:
             raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
