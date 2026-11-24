@@ -566,9 +566,15 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
             default,_=subtitle_ass(sample,1080,1920,style,78,0,3,False)
             small,_=subtitle_ass(sample,1080,1920,style,40,0,3,False,30,"lower")
             big,_=subtitle_ass(sample,1080,1920,style,90,0,3,False,180,"upper")
-            self.assertIn("мы сильные",small)
-            self.assertNotIn("Мы Сильные",small)
-            self.assertIn("МЫ СИЛЬНЫЕ",big)
+            if style == "karaoke":
+                self.assertIn("}мы", small)
+                self.assertIn("}сильные", small)
+                self.assertIn("}МЫ", big)
+                self.assertIn("}СИЛЬНЫЕ", big)
+            else:
+                self.assertIn("мы сильные", small)
+                self.assertIn("МЫ СИЛЬНЫЕ", big)
+            self.assertNotIn("Мы Сильные", small)
             def size(doc):
                 return int(doc.split("Style: Default,")[1].split(",",3)[1])
             self.assertLess(size(small),size(default))
