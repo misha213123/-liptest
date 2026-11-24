@@ -24,6 +24,19 @@ Output: output/film_clips/<job_id>/final.mp4.
 Source uploads: output/film_inputs.
 Remote source cache: output/film_source_cache.
 
+## Quick Video2X CLI install (Windows)
+
+Run from the Auto Clipper repository directory (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-video2x.ps1
+```
+
+The script downloads **only the official Video2X CLI ZIP** from the latest
+k4yt3x/video2x GitHub release, checks the release SHA256 digest when provided,
+extracts to %LOCALAPPDATA%\Programs\video2x, and sets VIDEO2X_BIN for your user.
+Restart the Auto Clipper server after installation.
+
 ## Video2X 6.x integration (optional AI enhancement)
 
 Official source: https://github.com/k4yt3x/video2x
