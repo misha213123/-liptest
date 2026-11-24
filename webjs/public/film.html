@@ -120,6 +120,10 @@
           <div><label for="gamma">Гамма изображения: <span id="gammaVal">1.05</span></label><input type="range" id="gamma" min=".85" max="1.20" step=".01" value="1.05"></div>
           <div><label for="saturation">Насыщенность: <span id="satVal">1.10</span></label><input type="range" id="saturation" min=".75" max="1.30" step=".01" value="1.10"></div>
         </div>
+        <div class="grid2" style="margin-top:15px">
+          <div><label for="brightness">Яркость: <span id="brightVal">0.02</span></label><input type="range" id="brightness" min="-.05" max=".12" step=".005" value=".02"></div>
+          <div><label for="contrast">Контраст: <span id="contrastVal">1.06</span></label><input type="range" id="contrast" min=".80" max="1.30" step=".01" value="1.06"></div>
+        </div>
         <div class="card" style="margin:18px 0 0;background:#162524;border-color:#3d645a">
           <div style="display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap">
             <div>
@@ -276,15 +280,18 @@ $('ultraPresetBtn').onclick=()=>{
   $('enhance').checked=true;
   $('gamma').value='1.07';
   $('saturation').value='1.14';
+  $('brightness').value='0.03';
+  $('contrast').value='1.10';
   $('optical').checked=false;
   $('gamma').dispatchEvent(new Event('input'));
-  $('saturation').dispatchEvent(new Event('input'));
   updateVideo2X();
 };
 updateVideo2X();
-['gamma','saturation'].forEach(id=>$(id).oninput=()=>{
+['gamma','saturation','brightness','contrast'].forEach(id=>$(id).oninput=()=>{
   $('gammaVal').textContent=Number($('gamma').value).toFixed(2);
   $('satVal').textContent=Number($('saturation').value).toFixed(2);
+  $('brightVal').textContent=Number($('brightness').value).toFixed(3);
+  $('contrastVal').textContent=Number($('contrast').value).toFixed(2);
 });
 updateSize();
 $('renderBtn').onclick=async()=>{
@@ -300,6 +307,7 @@ $('renderBtn').onclick=async()=>{
     face_tracking:$('face').checked,captions:$('captions').checked,
     optical_flow:$('optical').checked,enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
+    brightness:Number($('brightness').value),contrast:Number($('contrast').value),
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value)
   };
