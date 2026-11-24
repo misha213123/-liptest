@@ -353,6 +353,8 @@ def _make_subtitles(
     style: str = "bold", position: int = 78,
     model: str = "medium", language: str = "ru", offset: float = 0.0,
     engine: str = "local",
+    words_per_caption: int = 3,
+    remove_punctuation: bool = False,
 ):
     validate_caption_style(style, position)
     audio = out / "speech.wav"
@@ -374,8 +376,15 @@ def _make_subtitles(
         segments = transcribe_segments(str(audio), model_name=model, language=language)
     progress("Речь распознана; формирую субтитры", 47)
     ass = out / "subtitles.ass"
-    count = save_ass(segments, ass, w, h, style, position, offset)
-    progress(f"Субтитры готовы: {count} фрагментов · шаблон {style}", 58)
+    count = save_ass(
+        segments, ass, w, h, style, position, offset,
+        words_per_caption, remove_punctuation,
+    )
+    progress(
+        f"Субтитры готовы: {count} фрагментов · шаблон {style} · "
+        f"слов на экране: {words_per_caption} · "
+        f"без пунктуации: {remove_punctuation}", 58,
+    )
     return ass, count
 
 
@@ -508,6 +517,8 @@ def render(job: dict) -> dict:
             str(job.get("speech_language") or "ru"),
             float(job.get("caption_offset", 0)),
             str(job.get("speech_engine") or "local"),
+            int(job.get("caption_words", 3)),
+            job.get("caption_no_punctuation", False),
         )
         if caption_count:
             vf.append(_ass_filter(ass))
