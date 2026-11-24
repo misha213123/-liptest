@@ -42,10 +42,11 @@ def render_preview(job: dict, output: Path) -> dict:
         raise ValueError("Таймкод вне видео.")
     frame_time = min(start + 1, (start + end) / 2)
     center_x, center_y = iw / 2, ih / 2
-    found = 0
+    detected = False
     if bool(job.get("face_tracking", True)):
         points = _track_centres(source, frame_time, .6, iw, ih)
         if points:
+            detected = True
             center_x = points[0][1]
             center_y = points[0][2]
         # This does not claim a face if Haar returned only fallback positions.
@@ -64,7 +65,8 @@ def render_preview(job: dict, output: Path) -> dict:
     ], timeout=75)
     if not output.exists() or output.stat().st_size < 500:
         raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
-    return {"ok": True, "width": w, "height": h, "at": frame_time}
+    return {"ok": True, "width": w, "height": h,
+            "at": frame_time, "face_detected": detected}
 
 
 if __name__ == "__main__":
