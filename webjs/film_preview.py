@@ -72,16 +72,18 @@ def render_preview(job: dict, output: Path) -> dict:
     y = min(ih - crop_h, max(0, round(center_y - crop_h / 2)))
     w = 360
     h = max(2, int(round(w * by / bx / 2) * 2))
-    filters = [f"crop={crop_w}:{crop_h}:{x}:{y}", f"scale={w}:{h}:flags=lanczos"]
-    filters.extend(color_filters(job, preview=True))
+    base_filters = [f"crop={crop_w}:{crop_h}:{x}:{y}", f"scale={w}:{h}:flags=lanczos"]
+    enhanced_filters = base_filters + color_filters(job, preview=True)
     output.parent.mkdir(parents=True, exist_ok=True)
-    run([
-        FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
-        "-ss", str(frame_time), "-i", str(source), "-frames:v", "1",
-        "-vf", ",".join(filters), "-q:v", "3", str(output)
-    ], timeout=75)
-    if not output.exists() or output.stat().st_size < 500:
-        raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
+    before = output.with_name(output.stem + "_before.jpg")
+    for filename, filters in ((before, base_filters), (output, enhanced_filters)):
+        run([
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
+            "-ss", str(frame_time), "-i", str(source), "-frames:v", "1",
+            "-vf", ",".join(filters), "-q:v", "3", str(filename)
+        ], timeout=75)
+        if not filename.exists() or filename.stat().st_size < 500:
+            raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
     return {"ok": True, "width": w, "height": h,
             "at": round(frame_time, 3), "face_detected": detected,
             "source_width": iw, "source_height": ih,
