@@ -37,11 +37,14 @@
     [hidden]{display:none!important}
     #previewImage{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;z-index:1;display:block}
     #resultVideo{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;z-index:5;background:#000}
-    .caption-sample{position:absolute;z-index:3;left:4%;width:92%;transform:translateY(50%);text-align:center;pointer-events:none;font-family:Arial,sans-serif;font-size:clamp(14px,2.5vw,23px);font-weight:900;line-height:1.12;color:#fff;text-shadow:-2px -2px 0 #0b0b0b,2px 2px 0 #0b0b0b,0 3px 8px #000}
+    .caption-sample{position:absolute;z-index:6;left:4%;width:92%;transform:none;text-align:center;cursor:grab;touch-action:none;user-select:none;pointer-events:auto;font-family:Arial,sans-serif;font-size:clamp(14px,2.5vw,23px);font-weight:900;line-height:1.12;color:#fff;text-shadow:-2px -2px 0 #0b0b0b,2px 2px 0 #0b0b0b,0 3px 8px #000}
     .caption-sample[data-style="cinema"]{font-family:"Segoe UI",sans-serif;font-size:clamp(13px,2vw,18px);font-weight:500;text-shadow:0 2px 5px #000,0 0 8px #000}
     .caption-sample[data-style="minimal"]{font-family:"Segoe UI",sans-serif;font-size:clamp(14px,2.2vw,20px);font-weight:700;text-shadow:0 2px 4px #000}
-    .caption-sample[data-style="boxed"]{font-size:clamp(13px,2.1vw,20px);text-shadow:none;background:rgba(0,0,0,.78);padding:7px 10px;border-radius:5px;width:auto;max-width:90%;left:50%;transform:translate(-50%,50%)}
+    .caption-sample[data-style="boxed"]{font-size:clamp(13px,2.1vw,20px);text-shadow:none;background:rgba(0,0,0,.78);padding:7px 10px;border-radius:5px;width:auto;max-width:90%;left:50%;transform:translateX(-50%)}
     .caption-sample[data-style="karaoke"] span{color:#ffeb55}
+    .caption-sample:active{cursor:grabbing}
+    .caption-sample:not([hidden]):hover{outline:1px dashed rgba(255,255,255,.75);outline-offset:5px}
+    #preview.caption-editable{outline:2px dashed rgba(135,187,172,.45);outline-offset:3px}
     .caption-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:12px}
     .color-gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 15px}
     .color-option{background:#1a2527;border:1px solid #3a4d49;border-radius:9px;min-height:62px;padding:8px 4px;display:grid;place-items:center;gap:4px;font-weight:700}
@@ -248,9 +251,24 @@
           </div>
         </div>
         <p class="hint">Максимум слов на одном экране. При длинной паузе группа заканчивается раньше; исходные таймкоды слов сохраняются.</p>
+        <div class="grid2" style="margin-top:14px">
+          <div>
+            <label for="captionSize">Размер субтитров: <strong id="captionSizeValue">100%</strong></label>
+            <input id="captionSize" type="range" min="30" max="180" step="5" value="100">
+          </div>
+          <div>
+            <label for="captionCase">Регистр слов</label>
+            <select id="captionCase">
+              <option value="lower" selected>все строчные — без случайных заглавных</option>
+              <option value="source">как распознал OpenAI</option>
+              <option value="upper">ВСЕ ЗАГЛАВНЫЕ</option>
+            </select>
+          </div>
+        </div>
         <div style="margin-top:14px">
           <label for="captionPosition">Положение субтитров: <span id="captionPositionValue">78%</span> высоты кадра</label>
-          <input id="captionPosition" type="range" min="50" max="90" step="1" value="78">
+          <input id="captionPosition" type="range" min="10" max="95" step="1" value="78">
+          <p class="hint">Перетащи текст мышкой или пальцем прямо на миниатюре справа — положение изменится и сохранится в готовом видео.</p>
         </div>
         <div style="margin-top:16px">
           <label for="speechEngine">Распознавание голоса</label>
@@ -408,7 +426,7 @@
         <div id="preview" class="preview">
           <span id="emptyPreview" class="muted" style="text-align:center;padding:20px">Импортируй серию и нажми «Показать миниатюру»</span>
           <img id="previewImage" alt="Кадр с выбранным кадрированием и цветокоррекцией" hidden>
-          <div id="captionSample" class="caption-sample" data-style="bold" hidden>КОГДА ВСЁ <span>ИЗМЕНИЛОСЬ</span></div>
+          <div id="captionSample" class="caption-sample" data-style="bold" role="slider" aria-label="Перетащите субтитры по вертикали" aria-valuemin="10" aria-valuemax="95" tabindex="0" hidden>когда всё изменилось</div>
           <video id="resultVideo" controls playsinline hidden></video>
         </div>
         <div style="margin-top:14px">
@@ -424,7 +442,7 @@
           <button id="afterColorBtn" type="button">После обработки</button>
         </div>
         <button id="previewBtn" type="button" class="secondary" style="width:100%;margin-top:10px">Обновить кадр с фильтрами</button>
-        <div id="previewStatus" class="status muted" role="status">После импорта выбери кадр, чтобы увидеть реальную обрезку и фильтры. Текст субтитров до распознавания речи — демонстрационный.</div>
+        <div id="previewStatus" class="status muted" role="status">Выбери кадр и перетащи субтитры мышкой прямо по миниатюре. Размер и регистр настраиваются слева. Текст до распознавания речи — пример.</div>
         <div id="outputMeta" class="status muted">Формат: 9:16 · 1080p · исходный FPS</div>
         <a id="download" class="button" href="#" download hidden style="width:100%">Скачать готовый MP4</a>
       </section>
@@ -789,20 +807,66 @@ refreshColorOptions();
 applySmoothVividPreset(false);
 function refreshCaptionDemo(){
   const demo=$('captionSample');
+  const selectedCase=$('captionCase').value;
   demo.dataset.style=captionStyle;
   demo.style.bottom=(100-Number($('captionPosition').value))+'%';
-  const sample=['КОГДА,','ВСЁ','РЕЗКО','ИЗМЕНИЛОСЬ.','НИКТО','НЕ','ОЖИДАЛ','ЭТОГО!'];
+  const baseByStyle={bold:.074,karaoke:.068,cinema:.056,minimal:.063,boxed:.061};
+  const base=(baseByStyle[captionStyle]||.063)*Math.max(160,$('preview').clientWidth||330);
+  demo.style.fontSize=Math.max(8,Math.round(base*Number($('captionSize').value)/100))+'px';
+  demo.setAttribute('aria-valuenow',$('captionPosition').value);
+  const sample=['Когда,','всё','резко','изменилось.','Никто','не','ожидал','этого!'];
   const count=Number($('captionWords').value)||3;
-  const chosen=sample.slice(0,count).map(text=>$('captionNoPunctuation').checked
-    ?text.replace(/[.,!?;:«»"…]/g,''):text);
-  demo.innerHTML=captionStyle==='karaoke'
-    ?'<span>'+chosen[0]+'</span> '+chosen.slice(1).join(' ')
-    :chosen.join(' ');
+  const chosen=sample.slice(0,count).map(text=>{
+    let result=$('captionNoPunctuation').checked
+      ?text.replace(/[.,!?;:«»"…]/g,''):text;
+    return selectedCase==='lower'?result.toLowerCase():
+      selectedCase==='upper'||(selectedCase==='source'&&captionStyle==='bold')
+      ?result.toUpperCase():result;
+  });
+  demo.replaceChildren();
+  if(captionStyle==='karaoke'&&chosen.length){
+    const marked=document.createElement('span');
+    marked.textContent=chosen[0];
+    demo.appendChild(marked);
+    if(chosen.length)demo.appendChild(document.createTextNode(' '+chosen.slice(1).join(' ')));
+  }else{
+    demo.textContent=chosen.join(' ');
+  }
   for(const button of document.querySelectorAll('.caption-option')){
     button.classList.toggle('active',button.dataset.style===captionStyle);
   }
   $('captionPositionValue').textContent=$('captionPosition').value+'%';
+  $('captionSizeValue').textContent=$('captionSize').value+'%';
 }
+function setCaptionPositionByPointer(e){
+  const rect=$('preview').getBoundingClientRect();
+  if(!rect.height)return;
+  const percent=Math.round((e.clientY-rect.top)/rect.height*100);
+  $('captionPosition').value=String(Math.max(10,Math.min(95,percent)));
+  refreshCaptionDemo();
+}
+const captionDrag=$('captionSample');
+captionDrag.addEventListener('pointerdown',e=>{
+  if(captionDrag.hidden)return;
+  e.preventDefault();
+  captionDrag.setPointerCapture(e.pointerId);
+  setCaptionPositionByPointer(e);
+});
+captionDrag.addEventListener('pointermove',e=>{
+  if(captionDrag.hasPointerCapture(e.pointerId)){
+    e.preventDefault();
+    setCaptionPositionByPointer(e);
+  }
+});
+captionDrag.addEventListener('pointerup',e=>{
+  if(captionDrag.hasPointerCapture(e.pointerId))captionDrag.releasePointerCapture(e.pointerId);
+});
+captionDrag.addEventListener('keydown',e=>{
+  if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+  e.preventDefault();
+  $('captionPosition').value=String(Math.max(10,Math.min(95,Number($('captionPosition').value)+(e.key==='ArrowUp'?-1:1))));
+  refreshCaptionDemo();
+});
 document.querySelectorAll('.caption-option').forEach(button=>{
   button.onclick=()=>{
     captionStyle=button.dataset.style;
@@ -810,6 +874,8 @@ document.querySelectorAll('.caption-option').forEach(button=>{
   };
 });
 $('captionPosition').oninput=refreshCaptionDemo;
+$('captionSize').oninput=refreshCaptionDemo;
+$('captionCase').onchange=refreshCaptionDemo;
 $('captionWords').onchange=refreshCaptionDemo;
 $('captionNoPunctuation').onchange=refreshCaptionDemo;
 $('captionOffset').oninput=()=>{
@@ -1156,7 +1222,9 @@ $('renderBtn').onclick=async()=>{
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
     caption_offset:Number($('captionOffset').value),
     caption_words:Number($('captionWords').value),
-    caption_no_punctuation:$('captionNoPunctuation').checked
+    caption_no_punctuation:$('captionNoPunctuation').checked,
+    caption_size_percent:Number($('captionSize').value),
+    caption_case:$('captionCase').value
   };
   busy=true;preparedPreviewShown=false;
   $('renderBtn').disabled=true;$('cancelFilmBtn').disabled=false;
