@@ -1592,9 +1592,24 @@ except Exception as e:
           }
           let details = {};
           try { details = JSON.parse(String(stdout || '').trim().split(/\r?\n/).pop()); } catch {}
-          return json(res, 200, { ok: true,
-            face_detected: !!details.face_detected,
-            image_url: '/video/film/preview/' + id + '.jpg' });
+          try {
+            const bytes = fs.readFileSync(outputFile);
+            // Return the JPEG inline: avoids a second request which could
+            // otherwise fail and leave the preview as a blank rectangle.
+            if (bytes.length < 500 || bytes.length > 2 * 1024 * 1024 ||
+                bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+              throw new Error('FFmpeg generated an invalid JPEG preview.');
+            }
+            return json(res, 200, { ok: true,
+              face_detected: !!details.face_detected,
+              at: details.at,
+              width: details.width, height: details.height,
+              image_data: 'data:image/jpeg;base64,' + bytes.toString('base64'),
+              image_url: '/video/film/preview/' + id + '.jpg'
+            });
+          } catch (error) {
+            return json(res, 422, { error: 'Миниатюра повреждена: ' + error.message });
+          }
         });
       });
       return;
