@@ -530,7 +530,7 @@ def render(job: dict) -> dict:
         "setpts=PTS-STARTPTS",
         f"crop={cw}:{ch}:x='{x_expr}':y='{y_expr}'",
     ]
-    if optical:
+    if optical and not detail_requested:
         vf.append(optical_motion_filter(metadata["fps"], fps, True))
         print(
             f"[motion] Real motion-compensated interpolation "
@@ -543,7 +543,7 @@ def render(job: dict) -> dict:
         "setsar=1",
     ]
     vf.extend(color_filters(job, ai_enabled=ai_enabled))
-    if fps_choice != "source" and rife_multiplier == 1 and not optical:
+    if fps_choice != "source" and rife_multiplier == 1 and not optical and not detail_requested:
         vf.append(f"fps={int(fps)}")
     caption_count = 0
     if bool(job.get("captions", True)):
@@ -560,7 +560,7 @@ def render(job: dict) -> dict:
             int(job.get("caption_size_percent", 100)),
             str(job.get("caption_case") or "lower"),
         )
-        if caption_count:
+        if caption_count and not detail_requested:
             vf.append(_ass_filter(ass))
     vf.append("format=yuv420p")
     beauty_stats = {}
@@ -661,29 +661,70 @@ def render(job: dict) -> dict:
             if intermediate != dest:
                 intermediate.unlink(missing_ok=True)
     elif detail_requested:
-        progress("AI Detail Restore: Real-ESRGAN NCNN (Vulkan, tile=64)", 72)
+        # Genuine model inference runs on the source frame rate and before
+        # optical-flow frame synthesis. Otherwise 30→60 FPS doubles the
+        # number of expensive GPU frames and can harm temporal consistency.
+        # ASS captions are added ONLY after the neural stage so letters are
+        # pixel-sharp and untouched by the upscaler.
+        detail_model = str(job.get("ai_detail_model") or "realesrgan-x4plus")
+        detail_tile = int(job.get("ai_detail_tile", 64))
+        print(
+            f"[detail] Model={detail_model}, tile={detail_tile}, "
+            f"source FPS={metadata['fps']:.3f}; "
+            "AI -> motion interpolation -> subtitles.",
+            flush=True,
+        )
+        progress("AI Detail Restore: восстанавливаю исходные кадры нейросетью", 72)
+        processed = prepared
         try:
-            restored = run_neural_detail_restore(
+            processed = run_neural_detail_restore(
                 prepared, out, FFMPEG, duration, probe(prepared)["fps"],
                 report=progress, crop_width=cw, crop_height=ch,
                 target_width=target_w, target_height=target_h,
-                tile=int(job.get("ai_detail_tile", 64)),
+                tile=detail_tile, model=detail_model,
             )
-            restored.replace(dest)
             detail_succeeded = True
             print("[detail] Neural frame restoration completed.", flush=True)
         except Exception as error:
             detail_warning = (
-                "AI Detail Restore не завершился, сохранил обычное "
-                "видео 60 FPS без нейросетевого улучшения: "
-                + str(error)[:350]
+                "Real-ESRGAN не завершился; сохраняю обычное "
+                "видео с 60 FPS и субтитрами: " + str(error)[:350]
             )
             print("[detail] WARNING: " + detail_warning, flush=True)
-            progress("AI Detail Restore: сохраняю готовый MP4 без AI", 95)
-            prepared.replace(dest)
-        finally:
-            if prepared.exists():
-                prepared.unlink(missing_ok=True)
+            progress("Нейросеть недоступна — завершаю экспорт через FFmpeg", 89)
+
+        processed_info = probe(processed)
+        finish_filters = []
+        if fps_choice != "source" and abs(processed_info["fps"] - float(fps)) > .4:
+            interpolator = optical_motion_filter(
+                processed_info["fps"], fps, optical
+            )
+            finish_filters.append(interpolator or f"fps={int(fps)}")
+            if interpolator:
+                print(
+                    f"[motion] Post-AI motion-compensated interpolation "
+                    f"{processed_info['fps']:.2f} -> {fps} FPS.",
+                    flush=True,
+                )
+        if caption_count:
+            finish_filters.append(_ass_filter(ass))
+        finish_filters.append("format=yuv420p")
+
+        progress("Собираю финальный MP4: плавность, звук, чёткие субтитры", 90)
+        finish_command = [
+            FFMPEG, "-hide_banner", "-y", "-nostdin",
+            "-i", str(processed), "-vf", ",".join(finish_filters),
+            "-c:v", "libx264", "-preset", "slow", "-crf", "16",
+            "-c:a", "copy", "-movflags", "+faststart", str(dest),
+        ]
+        # Do not delete the prepared fallback until final MP4 is written.
+        encode_with_progress(
+            finish_command, duration, timeout=10800,
+            progress_start=90, progress_span=8,
+        )
+        for intermediate in (prepared, out / "ai_detail_restored.mp4"):
+            if intermediate != dest:
+                intermediate.unlink(missing_ok=True)
     if not dest.is_file() or dest.stat().st_size < 100_000:
         raise RuntimeError("Файл рендера не создан.")
     finished = probe(dest)
@@ -705,6 +746,7 @@ def render(job: dict) -> dict:
         "detail_restore": {
             "enabled": detail_succeeded, "requested": detail_requested,
             "engine": "Real-ESRGAN NCNN Vulkan",
+            "model": str(job.get("ai_detail_model") or "realesrgan-x4plus") if detail_requested else "off",
             "warning": detail_warning,
         },
         "video2x": {
