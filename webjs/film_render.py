@@ -32,6 +32,7 @@ from film_video2x import (
     require_binary as require_video2x,
     run_steps as run_video2x,
     upscale_factor as video2x_upscale_factor,
+    intermediate_dimensions as video2x_intermediate_dimensions,
 )
 from film_runtime import face_detector, transcribe_segments
 
@@ -336,24 +337,24 @@ def render(job: dict) -> dict:
     target_w, target_h = round(base_w * size / 1080), round(base_h * size / 1080)
     target_w += target_w % 2
     target_h += target_h % 2
-    # Match the actual on-disk Video2X model scale.
-    # Real-ESRGAN Plus is 4x, not 2x in official Video2X 6.4.0.
-    # Pre-render only 1/4 dimensions for a 4K result to avoid
-    # accidentally generating 8K and exhausting video memory.
-    scale = video2x_upscale_factor(ai_model)
-    if scale > 1:
-        render_w = max(2, (round(target_w / scale) // 2) * 2)
-        render_h = max(2, (round(target_h / scale) // 2) * 2)
-    else:
-        render_w, render_h = target_w, target_h
-    if scale > 1:
-        print(f"[video2x] Preparing {render_w}x{render_h} for {scale}x AI upscale "
-              f"to {target_w}x{target_h}.", flush=True)
     iw, ih = metadata["width"], metadata["height"]
     cw = min(iw, int(ih * target_w / target_h))
     ch = min(ih, int(iw * target_h / target_w))
-    cw = max(2, cw - cw%2)
-    ch = max(2, ch - ch%2)
+    cw = max(2, cw - cw % 2)
+    ch = max(2, ch - ch % 2)
+    # Avoid feeding a 270x480 image to an AI model when the cropped source
+    # contains roughly 404x720 pixels. Preserve native source detail as far
+    # as practical without producing a gigantic 4x AI intermediate.
+    scale = video2x_upscale_factor(ai_model)
+    render_w, render_h = video2x_intermediate_dimensions(
+        cw, ch, target_w, target_h, ai_model
+    )
+    if scale > 1:
+        print(
+            f"[video2x] Source crop {cw}x{ch}; preparing {render_w}x{render_h} "
+            f"for native {scale}x AI upscale, target {target_w}x{target_h}.",
+            flush=True,
+        )
 
     job_id = str(job.get("id") or uuid.uuid4().hex[:12])
     out = RENDER_DIR / job_id
