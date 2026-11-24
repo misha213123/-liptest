@@ -836,13 +836,61 @@ $('#layoutMode').onchange=syncLayoutMode;
 $('#camPct').oninput=updateLayoutPreview;$('#gameX').oninput=updateLayoutPreview;syncLayoutMode();
 
 async function loadPreview(){
- const url=$('#sourceUrl').value.trim();if(!/^https?:\/\//.test(url))return alert('Вставь ссылку.');
- $('#previewBtn').disabled=true;$('#previewStatus').textContent='⏳ Получаю кадр...';
- const r=await fetch('/api/streamer/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,timestamp:$('#previewTime').value.trim()})});
- const d=await r.json();if(!r.ok){$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+(d.error||'Ошибка');return}
- const timer=setInterval(async()=>{const s=await(await fetch('/api/streamer/preview/status')).json();if(!s.running){clearInterval(timer);$('#previewBtn').disabled=false;if(s.result&&s.result.ok){image=new Image();image.onload=()=>{const ar=image.naturalWidth/image.naturalHeight;const cw=Math.min(960,image.naturalWidth||960);canvas.width=cw;canvas.height=Math.round(cw/ar);if(templatePendingRect){applyTemplateWebcamRect(templatePendingRect);templatePendingRect=null}else{const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;queueRedraw()}}};image.src=s.result.image_url+'?t='+Date.now();$('#previewStatus').textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');$('#sourceState').textContent='Источник готов';$('#sourceState').className='badge text-[11px] text-emerald-300'}else $('#previewStatus').textContent='❌ '+((s.result&&s.result.error)||'Ошибка')}},900)
+ const url=$('#sourceUrl').value.trim();
+ if(!/^https?:\/\//.test(url))return alert('Вставь ссылку.');
+ $('#previewBtn').disabled=true;
+ const status=$('#previewStatus');
+ status.style.whiteSpace='pre-wrap';
+ status.textContent='⏳ Получаю кадр...';
+ try{
+   const r=await fetch('/api/streamer/preview',{
+     method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({url:url,timestamp:$('#previewTime').value.trim()})
+   });
+   const d=await r.json();
+   if(!r.ok)throw new Error(d.error||'Не удалось запустить получение кадра');
+   const timer=setInterval(async()=>{
+     try{
+       const response=await fetch('/api/streamer/preview/status');
+       if(!response.ok)throw new Error('HTTP '+response.status);
+       const s=await response.json();
+       if(s.running){
+         const last=(s.log||'').trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]||'';
+         status.textContent='⏳ Получаю кадр...'+(last?'\n'+last.slice(-180):'');
+         return;
+       }
+       clearInterval(timer);
+       $('#previewBtn').disabled=false;
+       if(s.result&&s.result.ok){
+         image=new Image();
+         image.onload=()=>{
+           const ar=image.naturalWidth/image.naturalHeight;
+           const cw=Math.min(960,image.naturalWidth||960);
+           canvas.width=cw;canvas.height=Math.round(cw/ar);
+           if(templatePendingRect){applyTemplateWebcamRect(templatePendingRect);templatePendingRect=null}
+           else{const pn=$('#profileSelect').value;if(pn)applyProfile(pn);else{rect=null;queueRedraw()}}
+           status.textContent='✅ '+(s.result.title||'Кадр готов')+(s.result.channel?' — '+s.result.channel:'');
+           $('#sourceState').textContent='Источник готов';
+           $('#sourceState').className='badge text-[11px] text-emerald-300';
+         };
+         image.onerror=()=>{status.textContent='❌ Кадр создан, но JPEG не загрузился. Попробуй ещё раз.'};
+         image.src=s.result.image_url+'?t='+Date.now();
+       }else{
+         const detail=(s.log||'').trim().split(/\r?\n/).filter(Boolean).slice(-5).join('\n').slice(-900);
+         status.textContent='❌ '+((s.result&&s.result.error)||'Python не вернул результат')+(detail?'\n\nЖурнал:\n'+detail:'');
+       }
+     }catch(e){
+       clearInterval(timer);
+       $('#previewBtn').disabled=false;
+       status.textContent='❌ Проверка кадра не удалась: '+e.message;
+     }
+   },900);
+ }catch(e){
+   $('#previewBtn').disabled=false;
+   status.textContent='❌ '+e.message;
+ }
 }
-$('#previewBtn').onclick=()=>loadPreview().catch(e=>{$('#previewBtn').disabled=false;$('#previewStatus').textContent='❌ '+e.message});
+$('#previewBtn').onclick=loadPreview;
 
 function parseUiTime(value){
  const raw=String(value||'').trim().replace(',','.');
