@@ -107,7 +107,7 @@ or add the folder containing video2x.exe to PATH. The adapter also searches
 
 **Film Studio UI controls:**
 
-- Upscale: off, Real-ESRGAN Plus, Real-ESRGAN General v3, AnimeVideo v3, or Anime4K v4 A+A.
+- Upscale: off, Real-ESRGAN Plus (4x), AnimeVideo v3 (2x), or Anime4K v4 A+A.
 - AI FPS: RIFE v4.26 at original FPS, x2, or x4 with scene-change threshold 20.
 - One-click Ultra AI preset: Real-ESRGAN Plus, RIFE x2, 2160p output, gamma 1.07, saturation 1.14.
 - Existing face-follow crop, audio-derived captions, color adjustment and selected aspect ratio run before the Video2X stage.
@@ -156,6 +156,28 @@ $env:FILM_WHISPER_DEVICE = "cpu"
 - CPU speech recognition may be slower than a properly configured NVIDIA CUDA
   environment. This setting only affects speech recognition; Video2X can still
   use the Vulkan GPU for upscaling and RIFE.
+
+## Video2X Real-ESRGAN Plus 4x fix (November 2026)
+
+Video2X 6.4.0 contains `models/realesrgan/realesrgan-plus-x4.param`
+and `realesrgan-plus-x4.bin`, **not** `realesrgan-plus-x2`.
+The adapter now selects the packaged model's native factor, prepares a
+proportionally smaller video for requested 4K output, runs Video2X
+with its models directory as the working directory, and checks model
+assets **before** starting the expensive FFmpeg/video render.
+
+If a model is missing from an incomplete installation, reinstall the
+**full official Video2X CLI ZIP** using:
+
+```powershell
+cd "$HOME\Desktop\auto-clipper-v2"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-video2x.ps1
+```
+
+The official v6.4.0 archive does not include `realesr-generalv3`,
+so this unsupported option is not offered by the UI in this release.
+These changes fix CLI model lookup and scale selection; actual neural
+processing still depends on the local Vulkan driver and available GPU memory.
 
 ## Troubleshooting
 
