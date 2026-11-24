@@ -51,6 +51,46 @@ def run(command, timeout=7200):
     return p
 
 
+def encode_with_progress(command: list[str], duration: float, timeout: int = 10800):
+    """Keep the UI updated during long 4K/optical-flow encodes."""
+    command = command[:1] + ["-progress", "pipe:1", "-nostats"] + command[1:]
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
+        creationflags=FLAGS,
+    )
+    started = time.monotonic()
+    lines = []
+    last_percent = 60
+    try:
+        for line in process.stdout:
+            line = line.strip()
+            if line:
+                lines.append(line)
+                if len(lines) > 80:
+                    lines.pop(0)
+            if line.startswith("out_time="):
+                raw = line[len("out_time="):]
+                try:
+                    current = sec(raw)
+                    pct = min(98, 62 + int(current / max(1, duration) * 36))
+                    if pct > last_percent:
+                        progress("Кодирую итоговый MP4", pct)
+                        last_percent = pct
+                except (ValueError, ZeroDivisionError):
+                    pass
+            if time.monotonic() - started > timeout:
+                process.kill()
+                raise TimeoutError("Рендер превысил установленный лимит времени.")
+        code = process.wait(timeout=30)
+        if code:
+            raise RuntimeError("FFmpeg не завершил рендер:\n" + "\n".join(lines[-20:])[-2500:])
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+
 def probe(path: Path) -> dict:
     p = run(
         [FFPROBE, "-v", "error", "-show_entries",
@@ -302,7 +342,9 @@ def render(job: dict) -> dict:
     progress("Получен исходник " + str(iw) + "x" + str(ih), 16)
 
     face_tracking = bool(job.get("face_tracking", True))
+    progress("Отслеживаю лица и выравниваю кадр", 19)
     centres = _track_centres(source, start, duration, iw, ih) if face_tracking else []
+    progress("Кадрирование подготовлено", 22)
     if face_tracking:
         print(f"[faces] Найдено {len(centres)} точек отслеживания", flush=True)
     x_expr = _curve(centres, 0, iw, cw)
@@ -341,7 +383,7 @@ def render(job: dict) -> dict:
         "-c:a", "aac", "-b:a", "256k",
         "-movflags", "+faststart", str(dest),
     ]
-    run(cmd, timeout=10800)
+    encode_with_progress(cmd, duration, timeout=10800)
     if not dest.is_file() or dest.stat().st_size < 100_000:
         raise RuntimeError("Файл рендера не создан.")
     progress("Клип готов", 100)
