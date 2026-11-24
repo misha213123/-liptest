@@ -634,7 +634,9 @@ def render(job: dict) -> dict:
         try:
             restored = run_neural_detail_restore(
                 prepared, out, FFMPEG, duration, probe(prepared)["fps"],
-                report=progress, tile=int(job.get("ai_detail_tile", 64)),
+                report=progress, crop_width=cw, crop_height=ch,
+                target_width=target_w, target_height=target_h,
+                tile=int(job.get("ai_detail_tile", 64)),
             )
             restored.replace(dest)
             detail_succeeded = True
