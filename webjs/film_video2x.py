@@ -10,6 +10,8 @@ import re
 import shutil
 import subprocess
 import time
+import queue
+import threading
 from pathlib import Path
 
 SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -162,16 +164,46 @@ def run_steps(
         )
         started = time.monotonic()
         tail = []
+        messages = queue.Queue()
+        last_reported = 0
+
+        def drain():
+            try:
+                for line in proc.stdout:
+                    messages.put(line)
+            finally:
+                messages.put(None)
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         try:
-            for line in proc.stdout:
-                line = re.sub(r"\x1b\[[0-9;]*[mK]", "", line.strip())
-                if line:
-                    tail.append(line[-260:])
-                    if len(tail) > 35:
-                        tail.pop(0)
+            while True:
                 if time.monotonic() - started > timeout_seconds:
-                    proc.kill()
                     raise RuntimeError(f"Video2X: {label} превысил ограничение времени.")
+                try:
+                    raw = messages.get(timeout=0.5)
+                except queue.Empty:
+                    if proc.poll() is not None and not reader.is_alive():
+                        break
+                    continue
+                if raw is None:
+                    break
+                line = re.sub(r"\x1b\[[0-9;]*[mK]", "", raw.strip())
+                if not line:
+                    continue
+                tail.append(line[-260:])
+                if len(tail) > 35:
+                    tail.pop(0)
+                # Video2X writes percentages through its terminal progress view.
+                # Forward grounded real progress rather than inventing an ETA.
+                if report:
+                    match = re.search(r"(?<!\d)(\d{1,3}(?:\.\d+)?)%", line)
+                    if match:
+                        value = max(0, min(100, float(match.group(1))))
+                        local_pct = int(value * 0.08)
+                        if local_pct > last_reported:
+                            last_reported = local_pct
+                            report(f"Video2X: {label} {value:.0f}%", min(89, 72 + index * 10 + local_pct))
             returncode = proc.wait(timeout=20)
             if returncode != 0:
                 raise RuntimeError(
