@@ -390,5 +390,124 @@ class FilmThumbnailTests(unittest.TestCase):
                     }, base / "frame.jpg")
 
 
+class FilmOpenAISubtitlesTests(unittest.TestCase):
+    def test_key_status_uses_environment_without_exposing_token(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from film_openai import find_api_key, availability
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-TEST-NOT-REAL"}, clear=True):
+                key, source = find_api_key(Path(tmp))
+                self.assertEqual(key, "sk-TEST-NOT-REAL")
+                self.assertEqual(source, "OPENAI_API_KEY")
+                data = availability(Path(tmp))
+                self.assertTrue(data["configured"])
+                self.assertNotIn(key, str(data))
+
+    def test_reuses_saved_official_openai_key_but_not_openrouter(self):
+        import os
+        import json
+        import tempfile
+        from unittest.mock import patch
+        from film_openai import find_api_key
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            directory = Path(tmp)
+            config = directory / "config.json"
+            config.write_text(json.dumps({
+                "ai_providers": {
+                    "hook_maker": {
+                        "api_key": "sk-openrouter-not-real",
+                        "base_url": "https://openrouter.ai/api/v1"
+                    },
+                    "highlight_finder": {
+                        "api_key": "sk-correct-openai-not-real",
+                        "base_url": "https://api.openai.com/v1"
+                    }
+                }
+            }), encoding="utf-8")
+            key, source = find_api_key(directory)
+            self.assertEqual(key, "sk-correct-openai-not-real")
+            self.assertEqual(source, "config.ai_providers.highlight_finder")
+
+    def test_cloud_words_convert_to_timed_caption_segments(self):
+        from types import SimpleNamespace as NS
+        from film_openai import normalise_words
+        raw = [
+            NS(word="Добрый", start=0.2, end=.53),
+            NS(word="день", start=.53, end=.95),
+            NS(word="вам", start=1.3, end=1.6),
+            NS(word="привет", start=1.7, end=2.0),
+        ]
+        segments = normalise_words(raw)
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0].text, "Добрый день вам")
+        self.assertEqual(segments[0].start, .2)
+        self.assertEqual(segments[0].end, 1.6)
+        self.assertEqual(segments[1].words[0].word, "привет")
+        from film_captions import subtitle_ass
+        result, count = subtitle_ass(segments, 1080, 1920, "karaoke", 78)
+        self.assertEqual(count, 2)
+        self.assertIn("Dialogue: 0,0:00:00.20,0:00:01.60", result)
+        self.assertIn(r"{\kf", result)
+
+    def test_real_openai_request_shape_is_word_timed(self):
+        import os
+        import tempfile
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from film_openai import transcribe_openai
+
+        requests = []
+        class Transcriptions:
+            def create(self, **kwargs):
+                requests.append(kwargs)
+                self_file = kwargs["file"]
+                self.assertFalse(self_file.closed)
+                return NS(words=[NS(word="Hello", start=.1, end=.5)])
+        class Audio:
+            transcriptions = Transcriptions()
+        class Client:
+            audio = Audio()
+        def factory(**kwargs):
+            self.assertEqual(kwargs["base_url"], "https://api.openai.com/v1")
+            self.assertEqual(kwargs["api_key"], "sk-TEST-NOT-REAL")
+            return Client()
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "speech.wav"
+            file.write_bytes(b"fake wav" + b"\x00" * 2048)
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-TEST-NOT-REAL"}, clear=True):
+                words = transcribe_openai(file, "en", client_factory=factory, root=Path(tmp))
+        self.assertEqual(len(words), 1)
+        self.assertEqual(words[0].words[0].start, .1)
+        self.assertEqual(requests[0]["model"], "whisper-1")
+        self.assertEqual(requests[0]["response_format"], "verbose_json")
+        self.assertEqual(requests[0]["timestamp_granularities"], ["word"])
+        self.assertEqual(requests[0]["language"], "en")
+
+    def test_failed_api_call_does_not_leak_token(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from film_openai import transcribe_openai
+        class FakeAPIError(Exception):
+            status_code = 401
+        class Create:
+            def create(self, **kwargs):
+                raise FakeAPIError("sk-TEST-NOT-REAL must not appear")
+        class Client:
+            def __init__(self):
+                self.audio = type("Audio", (), {"transcriptions": Create()})()
+        with tempfile.TemporaryDirectory() as tmp:
+            file = Path(tmp) / "audio.wav"
+            file.write_bytes(b"\0" * 2000)
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-TEST-NOT-REAL"}, clear=True):
+                with self.assertRaises(RuntimeError) as ctx:
+                    transcribe_openai(file, client_factory=lambda **kwargs: Client(), root=Path(tmp))
+        self.assertIn("ключ отклонён", str(ctx.exception))
+        self.assertNotIn("sk-TEST", str(ctx.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()
