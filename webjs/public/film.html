@@ -391,6 +391,18 @@
               <button id="ultraPresetBtn" class="secondary" type="button">Ultra AI · тяжёлый режим</button>
             </div>
           </div>
+          <div class="card" style="margin:15px 0;background:#102326;border:1px solid #577b76">
+            <label class="toggle" style="cursor:pointer">
+              <input type="checkbox" id="aiDetailRestore">
+              <span><strong>AI Detail Restore · реальная нейросеть</strong>
+                <small style="display:block;color:#abc4be">Восстановление деталей через Real-ESRGAN NCNN Vulkan, отдельно от Video2X</small></span>
+            </label>
+            <div class="row" style="align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px">
+              <button id="installDetailRestoreBtn" type="button" class="secondary">Установить нейросеть на компьютер</button>
+              <span id="detailRestoreStatus" class="hint" role="status">Проверяю нейросетевой движок…</span>
+            </div>
+            <p class="hint">Дополнительный тяжёлый режим для сцен до 30 секунд, только 1080p. Обработка выполняется GPU-блоками 64 px, 60 FPS сохраняются. При сбое будет готов обычный MP4. AI может создавать искусственные детали; качество Topaz не гарантируется. Установка начинается только по кнопке.</p>
+          </div>
           <div class="grid2" style="margin-top:14px">
             <div>
               <label for="video2xUpscale">AI-улучшение изображения</label>
@@ -661,6 +673,7 @@ function updateVideo2X(){
   const model=$('video2xUpscale').value;
   const mult=Number($('video2xRife').value);
   const active=model!=='off'||mult>1;
+  if(active)$('aiDetailRestore').checked=false;
   $('optical').disabled=mult>1;
   if(mult>1)$('optical').checked=false;
   $('video2xInfo').textContent=active
@@ -669,6 +682,49 @@ function updateVideo2X(){
   updateSize();
 }
 $('video2xUpscale').onchange=updateVideo2X;
+let detailRestoreInstalled=false;
+async function checkDetailRestore(){
+  try{
+    const r=await fetch('/api/film/detail/status',{cache:'no-store'});
+    const info=await r.json();
+    if(!r.ok)throw new Error(info.error||'Ошибка проверки');
+    detailRestoreInstalled=!!info.installed;
+    $('detailRestoreStatus').textContent=detailRestoreInstalled
+      ?'Нейросеть доступна. Выбери короткий клип.'
+      :'Нейросеть не установлена. Нажми кнопку установки.';
+    $('installDetailRestoreBtn').hidden=detailRestoreInstalled;
+  }catch(e){
+    detailRestoreInstalled=false;
+    $('detailRestoreStatus').textContent='Ошибка проверки: '+e.message;
+  }
+}
+$('installDetailRestoreBtn').onclick=async()=>{
+  const b=$('installDetailRestoreBtn');
+  b.disabled=true;
+  $('detailRestoreStatus').textContent='Скачиваю официальный Real-ESRGAN NCNN Vulkan с GitHub…';
+  try{
+    const r=await fetch('/api/film/detail/install',{method:'POST'});
+    const j=await r.json();
+    if(!r.ok||!j.ok)throw new Error(j.error||'Ошибка установки');
+    await checkDetailRestore();
+  }catch(e){
+    $('detailRestoreStatus').textContent='Не удалось установить: '+e.message;
+  }finally{b.disabled=false;}
+};
+$('aiDetailRestore').onchange=()=>{
+  if(!$('aiDetailRestore').checked)return;
+  $('size').value='1080';
+  $('fps').value='60';
+  $('video2xUpscale').value='off';
+  $('video2xRife').value='1';
+  $('aiDetailRestore').checked=false;
+  $('optical').disabled=false;
+  $('optical').checked=true;
+  updateVideo2X();
+  status('renderStatus','AI Detail Restore включён: нейросеть для коротких сцен, плавность 60 FPS сохраняется.');
+};
+checkDetailRestore();
+
 const restorationPresets={
   balanced:{artifactReduction:8,denoise:12,microdetail:12,sharpen:36,filmGrain:0},
   clean:{artifactReduction:48,denoise:54,microdetail:8,sharpen:18,filmGrain:0},
@@ -725,6 +781,7 @@ function applySmoothVividPreset(showMessage=true){
   $('fps').value='60';
   $('video2xUpscale').value='off';
   $('video2xRife').value='1';
+  $('aiDetailRestore').checked=false;
   $('optical').disabled=false;
   $('optical').checked=true;
   $('enhance').checked=true;
@@ -751,6 +808,7 @@ $('referencePresetBtn').onclick=()=>{
   $('fps').value='60';
   $('video2xUpscale').value='off';
   $('video2xRife').value='1';
+  $('aiDetailRestore').checked=false;
   $('optical').disabled=false;
   $('optical').checked=true;
   $('enhance').checked=true;
@@ -1222,6 +1280,10 @@ $('renderBtn').onclick=async()=>{
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
   const start=timestamp($('start').value),end=timestamp($('end').value);
   if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>300)return status('renderStatus','Неверные таймкоды: продолжительность от 1 секунды до 5 минут.');
+  if($('aiDetailRestore').checked&&(end-start>30||Number($('size').value)!==1080))
+    return status('renderStatus','AI Detail Restore: выбери отрывок до 30 секунд и 1080p.');
+  if($('aiDetailRestore').checked&&!detailRestoreInstalled)
+    return status('renderStatus','Сначала установи нейросеть кнопкой «Установить нейросеть на компьютер».');
   const payload={
     input_id:uploadedId,url:uploadedId?'':$('sourceUrl').value.trim(),
     season:uploadedId?'':$('season').value,episode:uploadedId?'':$('episode').value,
@@ -1240,6 +1302,7 @@ $('renderBtn').onclick=async()=>{
     color_tone:colorTone,
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
+    ai_detail_restore:$('aiDetailRestore').checked,
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
     speech_engine:$('speechEngine').value,
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
@@ -1274,7 +1337,11 @@ $('renderBtn').onclick=async()=>{
         if(s.running){status('renderStatus','Рендер... '+Math.round(s.progress||5)+'%');return}
         clearInterval(timer);busy=false;$('renderBtn').disabled=false;$('cancelFilmBtn').disabled=true;
         if(!s.result||!s.result.ok)throw new Error(s.result&&s.result.error||'Рендер завершился с ошибкой');
-        status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+Number(s.result.fps).toFixed(2)+' FPS · '+s.result.captions+' субтитров'+(s.result.video2x&&s.result.video2x.enabled?' · Video2X AI ✓':''));
+        status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+Number(s.result.fps).toFixed(2)+' FPS · '+s.result.captions+' субтитров'+
+          (s.result.video2x&&s.result.video2x.enabled?' · Video2X AI ✓':'')+
+          (s.result.detail_restore&&s.result.detail_restore.enabled?' · Neural AI Detail ✓':''));
+        if(s.result.detail_restore&&s.result.detail_restore.warning)
+          status('detailRestoreStatus',s.result.detail_restore.warning);
         $('resultVideo').src=s.result.video_url+'?v='+Date.now();$('resultVideo').hidden=false;
         $('captionSample').hidden=true;$('previewImage').hidden=true;
         if(s.result.video2x&&s.result.video2x.warning){
