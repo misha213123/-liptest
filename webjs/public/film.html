@@ -147,7 +147,16 @@
           <label class="toggle"><input id="enhance" type="checkbox" checked> Цвет + чёткость HQ</label>
           <label class="toggle"><input id="optical" type="checkbox"> Optical Flow (медленно)</label>
         </div>
-        <p class="hint">Автослежение использует распознавание лиц и отслеживание движения между кадрами. При крупных сменах сцен возможен сброс; проверь предпросмотр. Речь распознаёт Faster-Whisper.</p>
+        <div style="margin-top:13px">
+          <label for="faceFocus">Кого удерживать в кадре, если людей несколько</label>
+          <select id="faceFocus">
+            <option value="auto">Автоматически — ближайшее лицо</option>
+            <option value="left">Человека слева</option>
+            <option value="center">Человека в центре</option>
+            <option value="right">Человека справа</option>
+          </select>
+        </div>
+        <p class="hint">Теперь распознаются лица анфас и в профиль, между кадрами удерживается движение лица. Режим слева/справа поможет при нескольких актёрах; говорящий по голосу пока не определяется.</p>
         <div style="height:1px;background:var(--line);margin:18px 0"></div>
         <h2>Шаблоны субтитров</h2>
         <p class="hint">Выбери оформление — оно применяется к настоящим субтитрам в MP4. На миниатюре сначала показан пример текста.</p>
@@ -161,6 +170,26 @@
         <div style="margin-top:14px">
           <label for="captionPosition">Положение субтитров: <span id="captionPositionValue">78%</span> высоты кадра</label>
           <input id="captionPosition" type="range" min="50" max="90" step="1" value="78">
+        </div>
+        <div class="grid2" style="margin-top:14px">
+          <div><label for="whisperModel">Точность распознавания</label>
+            <select id="whisperModel">
+              <option value="medium" selected>Medium · точнее, дольше</option>
+              <option value="small">Small · быстрее</option>
+            </select>
+          </div>
+          <div><label for="speechLanguage">Язык диалогов</label>
+            <select id="speechLanguage">
+              <option value="ru" selected>Русский</option>
+              <option value="auto">Определить автоматически</option>
+              <option value="en">Английский</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <label for="captionOffset">Синхронизация субтитров: <strong id="captionOffsetValue">0.00 с</strong></label>
+          <input id="captionOffset" type="range" min="-2" max="2" step=".05" value="0">
+          <p class="hint">Субтитры отстают от голоса — двигай в минус; появляются раньше голоса — двигай в плюс. Время применяется к итоговому MP4.</p>
         </div>
       </section>
 
@@ -541,6 +570,10 @@ document.querySelectorAll('.caption-option').forEach(button=>{
   };
 });
 $('captionPosition').oninput=refreshCaptionDemo;
+$('captionOffset').oninput=()=>{
+  const v=Number($('captionOffset').value);
+  $('captionOffsetValue').textContent=(v>0?'+':'')+v.toFixed(2)+' с';
+};
 refreshCaptionDemo();
 function scheduleFilmPreview(){
   if(!uploadedId)return;
@@ -563,7 +596,8 @@ async function loadFilmPreview(){
   const payload={
     input_id:uploadedId,start,end,ratio:$('ratio').value,
     preview_position:Number($('previewPosition').value),
-    face_tracking:$('face').checked,enhance:$('enhance').checked,
+    face_tracking:$('face').checked,face_focus:$('faceFocus').value,
+    enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
     color_tone:colorTone
@@ -633,7 +667,7 @@ function movePreview(delta){
 $('prevFrameBtn').onclick=()=>movePreview(-5);
 $('nextFrameBtn').onclick=()=>movePreview(5);
 ['start','end'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
-['face','enhance'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
+['face','enhance','faceFocus'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
 $('captions').addEventListener('change',()=>{
   $('captionSample').hidden=!$('captions').checked||!previewLoaded;
 });
@@ -651,14 +685,17 @@ $('renderBtn').onclick=async()=>{
     season:uploadedId?'':$('season').value,episode:uploadedId?'':$('episode').value,
     voice:uploadedId?'':$('voice').value,start,end,
     ratio:$('ratio').value,size:Number($('size').value),fps:$('fps').value,
-    face_tracking:$('face').checked,captions:$('captions').checked,
+    face_tracking:$('face').checked,face_focus:$('faceFocus').value,
+    captions:$('captions').checked,
     optical_flow:$('optical').checked,enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
     color_tone:colorTone,
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
-    caption_style:captionStyle,caption_position:Number($('captionPosition').value)
+    caption_style:captionStyle,caption_position:Number($('captionPosition').value),
+    whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
+    caption_offset:Number($('captionOffset').value)
   };
   busy=true;preparedPreviewShown=false;
   $('renderBtn').disabled=true;$('cancelFilmBtn').disabled=false;
