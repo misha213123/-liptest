@@ -6,8 +6,19 @@ $ProgressPreference = 'SilentlyContinue'
 $url = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip'
 $target = Join-Path $env:LOCALAPPDATA 'Programs\realesrgan-ncnn-vulkan'
 $exe = Join-Path $target 'realesrgan-ncnn-vulkan.exe'
-if (Test-Path -LiteralPath $exe) {
-    Write-Host 'Real-ESRGAN NCNN already installed:'
+$modelDir = Join-Path $target 'models'
+$required = @(
+  'realesrgan-x4plus.param', 'realesrgan-x4plus.bin',
+  'realesrnet-x4plus.param', 'realesrnet-x4plus.bin'
+)
+$complete = Test-Path -LiteralPath $exe
+foreach ($name in $required) {
+    if (-not (Test-Path -LiteralPath (Join-Path $modelDir $name))) {
+        $complete = $false
+    }
+}
+if ($complete) {
+    Write-Host 'Real-ESRGAN NCNN is fully installed:'
     Write-Host $exe
     exit 0
 }
@@ -26,8 +37,10 @@ try {
     }
     $root = $binary.Directory.FullName
     $models = Join-Path $root 'models'
-    if (-not (Test-Path -LiteralPath (Join-Path $models 'realesrgan-x4plus.param'))) {
-        throw 'Installer package does not contain required Real-ESRGAN models'
+    foreach ($name in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $models $name))) {
+            throw ('Installer package is missing required neural model: ' + $name)
+        }
     }
     New-Item -ItemType Directory -Force -Path $target | Out-Null
     Copy-Item -Path (Join-Path $root '*') -Destination $target -Recurse -Force
