@@ -48,6 +48,7 @@
     .color-option .swatch{display:block;width:45px;height:19px;border-radius:4px;background:linear-gradient(90deg,#242c39,#c2a78e,#eedbbb)}
     .color-option[data-look="vibrant"] .swatch{filter:saturate(1.55) contrast(1.18)}
     .color-option[data-look="ultra"] .swatch{filter:saturate(2) brightness(1.2) contrast(1.3)}
+    .color-option[data-look="smooth_vivid"] .swatch{filter:saturate(1.85) brightness(1.14) contrast(1.23) sepia(.13)}
     .color-option[data-look="reference"] .swatch{filter:saturate(1.7) sepia(.15) contrast(1.35)}
     .color-option[data-look="bright"] .swatch{filter:brightness(1.35)}
     .color-option[data-look="cinema"] .swatch{filter:contrast(1.25) sepia(.20)}
@@ -290,6 +291,7 @@
           <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
           <button class="color-option" data-look="vibrant" type="button"><span class="swatch"></span>Насыщенный</button>
           <button class="color-option" data-look="ultra" type="button"><span class="swatch"></span>Ultra · сочный</button>
+          <button class="color-option" data-look="smooth_vivid" type="button"><span class="swatch"></span>Кино · суперплавно</button>
           <button class="color-option" data-look="reference" type="button"><span class="swatch"></span>Кино · как в примере</button>
           <button class="color-option" data-look="bright" type="button"><span class="swatch"></span>Яркий</button>
           <button class="color-option" data-look="cinema" type="button"><span class="swatch"></span>Кино</button>
@@ -357,11 +359,12 @@
         <div class="card" style="margin:18px 0 0;background:#162524;border-color:#3d645a">
           <div style="display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap">
             <div>
-              <strong style="font-size:15px">Video2X · AI Ultra Quality</strong>
-              <p class="hint">Real-ESRGAN Plus 4× / Anime4K для улучшения, RIFE для плавности</p>
+              <strong style="font-size:15px">Плавность и максимальное качество</strong>
+              <p class="hint">Быстрый пресет без зависающего AI: компенсация движения между кадрами, живые насыщенные цвета, сглаживание шума и мягкая резкость. Video2X / RIFE — отдельно, если захочешь.</p>
             </div>
             <div class="row" style="gap:8px;flex-wrap:wrap">
-              <button id="referencePresetBtn" type="button">🎬 Как в примере · 60 FPS</button>
+              <button id="smoothPresetBtn" type="button">Максимальная плавность + сочные цвета · 60 FPS</button>
+              <button id="referencePresetBtn" type="button" class="secondary">Как в примере · 60 FPS</button>
               <button id="ultraPresetBtn" class="secondary" type="button">Ultra AI · тяжёлый режим</button>
             </div>
           </div>
@@ -673,6 +676,34 @@ for(const id of restorationFields){
 applyRestorationPreset('balanced');
 
 $('video2xRife').onchange=updateVideo2X;
+function applySmoothVividPreset(showMessage=true){
+  // Designed for GTX 1650 4GB: actual FFmpeg frame interpolation on CPU,
+  // filmic warm/high-saturation grade, light temporal smoothing and
+  // controlled sharpening. Keep the user's 9:16 / 5:4 / 1:1 crop choice.
+  $('size').value='1080';
+  $('fps').value='60';
+  $('video2xUpscale').value='off';
+  $('video2xRife').value='1';
+  $('optical').disabled=false;
+  $('optical').checked=true;
+  $('enhance').checked=true;
+  $('restorePreset').value='manual';
+  const restoration={
+    artifactReduction:22,
+    denoise:34,
+    microdetail:28,
+    sharpen:38,
+    filmGrain:0
+  };
+  for(const [name,value] of Object.entries(restoration))$(name).value=value;
+  refreshRestorationLabels();
+  selectColorLook('smooth_vivid');
+  updateVideo2X();
+  $('outputHint').textContent='Плавность: FFmpeg Motion-Compensated Optical Flow до 60 FPS, без дублирования кадров. Цвет: контраст 1.19, насыщенность 1.29, гамма 1.075, тёплый тон. 1080p H.264 CRF 16. Video2X выключен — не будет зависания на 72%.';
+  if(showMessage)status('renderStatus',
+    'Пресет включён: плавные 60 FPS на всём клипе + яркая насыщенная картинка, с подавлением шума. Формат кадра сохранён. Video2X выключен.');
+}
+$('smoothPresetBtn').onclick=()=>applySmoothVividPreset(true);
 $('referencePresetBtn').onclick=()=>{
   $('ratio').value='1:1';
   $('size').value='1080';
@@ -727,6 +758,7 @@ const colorLooks={
   natural:{gamma:1.02,brightness:0,contrast:1.04,saturation:1.06,tone:'neutral'},
   vibrant:{gamma:1.07,brightness:.025,contrast:1.11,saturation:1.23,tone:'neutral'},
   ultra:{gamma:1.10,brightness:.040,contrast:1.17,saturation:1.28,tone:'neutral'},
+  smooth_vivid:{gamma:1.075,brightness:.025,contrast:1.19,saturation:1.29,tone:'warm'},
   reference:{gamma:1.055,brightness:.015,contrast:1.18,saturation:1.24,tone:'warm'},
   bright:{gamma:1.12,brightness:.052,contrast:1.06,saturation:1.10,tone:'neutral'},
   cinema:{gamma:1.04,brightness:.003,contrast:1.15,saturation:1.09,tone:'warm'},
@@ -752,6 +784,9 @@ document.querySelectorAll('.color-option').forEach(button=>{
   button.onclick=()=>selectColorLook(button.dataset.look);
 });
 refreshColorOptions();
+// Make the requested smooth & vivid look the Film Studio default.
+// The ratio remains under the user's control.
+applySmoothVividPreset(false);
 function refreshCaptionDemo(){
   const demo=$('captionSample');
   demo.dataset.style=captionStyle;
