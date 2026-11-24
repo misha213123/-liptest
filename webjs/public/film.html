@@ -1478,7 +1478,7 @@ $('renderBtn').onclick=async()=>{
         if(!s.result||!s.result.ok)throw new Error(s.result&&s.result.error||'Рендер завершился с ошибкой');
         status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+Number(s.result.fps).toFixed(2)+' FPS · '+s.result.captions+' субтитров'+
           (s.result.video2x&&s.result.video2x.enabled?' · Video2X AI ✓':'')+
-          (s.result.detail_restore&&s.result.detail_restore.enabled?' · Neural AI Detail ✓':''));
+          (s.result.detail_restore&&s.result.detail_restore.enabled?' · Neural AI Detail '+s.result.detail_restore.strength+'% ✓':''));
         if(s.result.detail_restore&&s.result.detail_restore.warning)
           status('detailRestoreStatus',s.result.detail_restore.warning);
         $('resultVideo').src=s.result.video_url+'?v='+Date.now();$('resultVideo').hidden=false;
