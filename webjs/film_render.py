@@ -197,51 +197,106 @@ def authorized_input(job: dict) -> Path:
 
 
 def _track_centres(video: Path, start: float, duration: float, width: int, height: int):
+    """Follow a face using Haar detections plus optical flow between detections.
+
+    Frontal face Haar by itself can miss profiles/occluded faces in films.
+    LK flow keeps the same face moving between sparse detections. Hard scene
+    cuts reset tracked points, reducing the chance of following background.
+    """
     try:
         import cv2
+        import numpy as np
         detector = face_detector(cv2, ROOT / "output" / "film_models")
         cap = cv2.VideoCapture(str(video))
         points = []
         last_x, last_y = width / 2, height / 2
-        detections = 0
+        last_gray = None
+        features = None
+        detected = 0
+        followed = 0
+        scene_cuts = 0
         try:
-            count = min(110, max(3, int(duration / 1.5)))
+            count = min(180, max(4, int(duration * 2)))
             for i in range(count + 1):
                 t = duration * i / count
                 cap.set(cv2.CAP_PROP_POS_MSEC, (start + t) * 1000)
                 ok, frame = cap.read()
                 if not ok:
                     continue
-                fw = frame.shape[1]
-                fh = frame.shape[0]
-                factor = min(1, 640 / max(1, fw))
+                factor = min(1, 640 / max(1, frame.shape[1]))
                 small = cv2.resize(frame, None, fx=factor, fy=factor) if factor < 1 else frame
                 gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-                faces = detector.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(24, 24))
+                changed = False
+                if last_gray is not None and last_gray.shape == gray.shape:
+                    # Ignore optical-flow points after a hard cut.
+                    if float(cv2.absdiff(gray, last_gray).mean()) > 45:
+                        scene_cuts += 1
+                        features = None
+                        last_x, last_y = width / 2, height / 2
+                        changed = True
+                faces = detector.detectMultiScale(
+                    gray, scaleFactor=1.10, minNeighbors=4, minSize=(26, 26)
+                )
                 if len(faces):
-                    detections += 1
                     candidates = [
-                        ((x + w / 2) / factor, (y + h / 2) / factor, w * h)
-                        for x, y, w, h in faces
+                        ((x + w/2)/factor, (y + h/2)/factor, w * h, x, y, w, h)
+                        for x,y,w,h in faces
                     ]
-                    # Favor a stable subject when two people share the screen.
-                    face = max(
+                    picked = max(
                         candidates,
-                        key=lambda p: p[2] - 0.0008 * ((p[0]-last_x)**2 + (p[1]-last_y)**2),
+                        key=lambda p: p[2] - .001 * (
+                            (p[0]-last_x)**2 + (p[1]-last_y)**2
+                        )
                     )
-                    x, y = face[:2]
-                    last_x = last_x * 0.68 + x * 0.32
-                    last_y = last_y * 0.68 + y * 0.32
+                    fx, fy = picked[:2]
+                    last_x = last_x * .58 + fx * .42
+                    last_y = last_y * .58 + fy * .42
+                    detected += 1
+                    x,y,w,h = picked[3:]
+                    mask = np.zeros_like(gray)
+                    mask[max(0,y):min(mask.shape[0],y+h),
+                         max(0,x):min(mask.shape[1],x+w)] = 255
+                    features = cv2.goodFeaturesToTrack(
+                        gray, maxCorners=65, qualityLevel=.025,
+                        minDistance=5, mask=mask
+                    )
+                elif features is not None and last_gray is not None and not changed:
+                    try:
+                        new, status, _ = cv2.calcOpticalFlowPyrLK(
+                            last_gray, gray, features, None,
+                            winSize=(19,19), maxLevel=2
+                        )
+                        if new is not None and status is not None:
+                            good = status.ravel() == 1
+                            if int(good.sum()) >= 6:
+                                shifts = new[good].reshape(-1,2) - features[good].reshape(-1,2)
+                                dx, dy = np.median(shifts, axis=0) / factor
+                                if abs(dx) < width * .18 and abs(dy) < height * .18:
+                                    last_x = min(width, max(0, last_x + float(dx)))
+                                    last_y = min(height, max(0, last_y + float(dy)))
+                                    features = new[good].reshape(-1,1,2)
+                                    followed += 1
+                                else:
+                                    features = None
+                            else:
+                                features = None
+                    except cv2.error:
+                        features = None
+                last_gray = gray
                 points.append((t, last_x, last_y))
         finally:
             cap.release()
-        if detections:
-            print(f"[faces] Face detected in {detections}/{len(points)} sampled frames.", flush=True)
-        else:
-            print("[faces] No frontal faces detected in sampled frames; using center crop.", flush=True)
-        return points
+        print(
+            f"[faces] Face detected in {detected}/{len(points)} samples, "
+            f"optical-flow follow in {followed} samples, "
+            f"hard cuts {scene_cuts}.",
+            flush=True,
+        )
+        if not detected:
+            print("[faces] No face found; crop falls back to scene center.", flush=True)
+        return points if detected else []
     except Exception as err:
-        print("[faces] Face tracking unavailable; center crop fallback:", str(err)[:300], flush=True)
+        print("[faces] Tracking unavailable; center crop fallback:", str(err)[:260], flush=True)
         return []
 
 
