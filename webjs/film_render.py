@@ -28,6 +28,7 @@ os.chdir(ROOT)
 from core.streamer_export import ASPECT_PRESETS
 from utils.helpers import get_ffmpeg_path
 from film_video2x import options as video2x_options, require_binary as require_video2x, run_steps as run_video2x
+from film_runtime import face_detector, transcribe_segments
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -191,13 +192,11 @@ def authorized_input(job: dict) -> Path:
 def _track_centres(video: Path, start: float, duration: float, width: int, height: int):
     try:
         import cv2
-        cascade_file = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        detector = cv2.CascadeClassifier(cascade_file)
-        if detector.empty():
-            return []
+        detector = face_detector(cv2, ROOT / "output" / "film_models")
         cap = cv2.VideoCapture(str(video))
         points = []
         last_x, last_y = width / 2, height / 2
+        detections = 0
         try:
             count = min(110, max(3, int(duration / 1.5)))
             for i in range(count + 1):
@@ -213,6 +212,7 @@ def _track_centres(video: Path, start: float, duration: float, width: int, heigh
                 gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
                 faces = detector.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(24, 24))
                 if len(faces):
+                    detections += 1
                     candidates = [
                         ((x + w / 2) / factor, (y + h / 2) / factor, w * h)
                         for x, y, w, h in faces
@@ -228,9 +228,13 @@ def _track_centres(video: Path, start: float, duration: float, width: int, heigh
                 points.append((t, last_x, last_y))
         finally:
             cap.release()
+        if detections:
+            print(f"[faces] Face detected in {detections}/{len(points)} sampled frames.", flush=True)
+        else:
+            print("[faces] No frontal faces detected in sampled frames; using center crop.", flush=True)
         return points
-    except (ImportError, RuntimeError, ValueError) as err:
-        print("[faces] Автослежение недоступно:", str(err)[:200], flush=True)
+    except Exception as err:
+        print("[faces] Face tracking unavailable; center crop fallback:", str(err)[:300], flush=True)
         return []
 
 
@@ -248,22 +252,14 @@ def _curve(points, axis: int, size: int, crop_size: int) -> str:
 
 
 def _make_subtitles(source: Path, start: float, end: float, out: Path, w: int, h: int):
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        raise RuntimeError("Нужен faster-whisper. Установи зависимости из requirements.txt.") from exc
-
     audio = out / "speech.wav"
     progress("Извлекаю голос для субтитров", 24)
     run([FFMPEG, "-y", "-nostdin", "-loglevel", "error",
          "-ss", str(start), "-i", str(source), "-t", str(end-start),
          "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
     progress("Распознаю речь и точные таймкоды слов", 32)
-    try:
-        model = WhisperModel("small", device="cuda", compute_type="float16")
-    except Exception:
-        model = WhisperModel("small", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(str(audio), word_timestamps=True, vad_filter=True, beam_size=4)
+    segments = transcribe_segments(str(audio))
+    progress("Речь распознана; формирую субтитры", 47)
     events = []
     def stamp(t):
         t = max(0, float(t))
@@ -298,6 +294,7 @@ def _make_subtitles(source: Path, start: float, end: float, out: Path, w: int, h
         + "\n".join(events) + "\n"
     )
     ass.write_text(content, encoding="utf-8")
+    progress(f"Субтитры готовы: {len(events)} фрагментов", 58)
     return ass, len(events)
 
 
