@@ -565,7 +565,11 @@ async function loadFilmPreview(){
       $('resultVideo').pause();
       $('captionSample').hidden=!$('captions').checked;
       $('emptyPreview').hidden=true;
-      status('previewStatus','Миниатюра настоящего кадра готова. Цвет и кадрирование — реальные; текст субтитров показан для примера.');
+      status('previewStatus',
+        (payload.face_tracking
+          ? (result.face_detected?'Лицо обнаружено и учтено в кадрировании. ':'Лицо не найдено в выбранном кадре; использовано центральное кадрирование. ')
+          : 'Кадрирование по центру. ')+
+        'Цвет и кадрирование настоящие; текст субтитров — пример.');
     };
     image.src=result.image_url+'?t='+Date.now();
   }catch(err){
