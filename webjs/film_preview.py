@@ -16,6 +16,7 @@ from film_render import (
 from core.streamer_export import ASPECT_PRESETS
 from film_filters import color_filters
 from film_beauty import process_preview_image
+from film_ai_detail import restore_preview_frame
 
 
 def render_preview(job: dict, output: Path) -> dict:
@@ -87,8 +88,15 @@ def render_preview(job: dict, output: Path) -> dict:
             raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
     # Reuse the real pixel processor on preview, never fake it with CSS.
     beauty = process_preview_image(output, job, ROOT / "output" / "film_models")
+    neural_preview = job.get("ai_detail_preview", False) is True
+    if neural_preview:
+        restore_preview_frame(
+            output, FFMPEG, w, h,
+            model=str(job.get("ai_detail_model") or "realesrgan-x4plus"),
+            tile=int(job.get("ai_detail_tile", 64)),
+        )
     return {"ok": True, "width": w, "height": h,
-            "beauty": beauty,
+            "beauty": beauty, "ai_preview": neural_preview,
             "at": round(frame_time, 3), "face_detected": detected,
             "source_width": iw, "source_height": ih,
             "crop_width": crop_w, "crop_height": crop_h}
