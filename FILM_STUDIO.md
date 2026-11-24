@@ -235,6 +235,27 @@ if it completes, test RIFE separately.
 - GitHub CI tests syntax and formatting logic. A successful actual GPU
   4K/60 FPS result still requires a Windows Vulkan test on the real hardware.
 
+## Thumbnail reliability fix
+
+The Film Studio preview now:
+- Maintains exact aspect ratios without cropping the displayed JPG again
+  (`object-fit: contain` and responsive dimensions).
+- Defaults to a frame **halfway through the selected scene** instead of near
+  the start, which often shows a black film cut.
+- Exposes a frame-position slider (5–95%) and earlier/later buttons.
+  This only selects the preview still, not the scene's actual trimming times.
+- Pre-renders face detection to the requested still-frame position.
+- Sends the verified JPEG inline to the local browser, avoiding a
+  second HTTP fetch that could leave an empty/white image.
+- Shows an explicit image-loading error rather than reporting success before
+  the browser has decoded the picture.
+- Saves the most recent locally imported source ID in browser localStorage
+  so a page refresh can restore its thumbnail without reuploading.
+- Exposes the preview's timestamp and whether a face was found.
+
+Preview clips are generated using the normal FFmpeg color filters,
+but AI super-resolution and actual timed subtitles still require a render.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
