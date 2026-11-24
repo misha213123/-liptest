@@ -347,6 +347,49 @@ class FilmFreeAIEnhancementPipelineTests(unittest.TestCase):
 
 
 class FilmNeuralDetailTests(unittest.TestCase):
+    def test_free_ai_single_frame_preview_is_explicit_and_preserves_target(self):
+        import tempfile
+        from types import SimpleNamespace as NS
+        from unittest.mock import patch
+        from film_ai_detail import restore_preview_frame
+
+        calls=[]
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)
+            source=folder/"original-preview.jpg"
+            source.write_bytes(b"original-jpeg-for-test"*40)
+            exe=folder/"realesrgan-ncnn-vulkan.exe"
+            exe.write_bytes(b"not-a-real-binary")
+            models=folder/"models"
+            models.mkdir()
+
+            def fake_ffmpeg(cmd,timeout):
+                calls.append(cmd)
+                dest=Path(cmd[-1])
+                dest.write_bytes(b"processed-"+bytes(dest.suffix,"ascii")*300)
+
+            def fake_ncnn(cmd,**kw):
+                calls.append(cmd)
+                output=Path(cmd[cmd.index("-o")+1])
+                output.write_bytes(b"upscaled-frame-by-model"*40)
+                return NS(returncode=0)
+
+            with patch("film_ai_detail.require_binary", return_value=(exe,models)), \
+                 patch("film_ai_detail.run_cmd",side_effect=fake_ffmpeg), \
+                 patch("film_ai_detail.subprocess.run",side_effect=fake_ncnn):
+                restore_preview_frame(source,"ffmpeg",360,640,
+                                      model="realesrnet-x4plus",tile=32)
+            self.assertTrue(source.is_file())
+            self.assertNotIn(b"original",source.read_bytes())
+            ai_cmd=next(cmd for cmd in calls if "-n" in cmd)
+            self.assertEqual(ai_cmd[ai_cmd.index("-n")+1],"realesrnet-x4plus")
+            self.assertEqual(ai_cmd[ai_cmd.index("-t")+1],"32")
+            self.assertTrue(any("scale=360:640:flags=lanczos" in
+                                cmd for row in calls for cmd in row))
+            with self.assertRaises(ValueError):
+                restore_preview_frame(source,"ffmpeg",360,640,
+                                      model="unknown")
+
     def test_native_resolution_kept_for_720p_source_crops(self):
         from film_ai_detail import ai_source_dimensions
         self.assertEqual(ai_source_dimensions(404,720),(404,720))
