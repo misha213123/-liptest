@@ -95,11 +95,20 @@ def color_filters(job: dict, ai_enabled: bool = False, preview: bool = False) ->
     if not bool(job.get("enhance", True)):
         return []
     def bounded(key, default, minimum, maximum):
-        return min(maximum, max(minimum, float(job.get(key, default))))
-    gamma = bounded("gamma", 1.05, .85, 1.20)
-    saturation = bounded("saturation", 1.10, .75, 1.30)
-    brightness = bounded("brightness", .02, -.05, .12)
-    contrast = bounded("contrast", 1.06, .80, 1.30)
+        import math
+        try:
+            value = float(job.get(key, default))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Некорректная цветовая настройка: {key}") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"Некорректная цветовая настройка: {key}")
+        return min(maximum, max(minimum, value))
+    # User-requested pro range; very high values intentionally cause aggressive
+    # grading, so the preview should be checked before final export.
+    gamma = bounded("gamma", 1.05, .60, 1.60)
+    saturation = bounded("saturation", 1.10, .50, 2.50)
+    brightness = bounded("brightness", .02, -.20, .25)
+    contrast = bounded("contrast", 1.06, .50, 1.80)
     tone = str(job.get("color_tone") or "neutral").lower()
     if tone not in TONES:
         raise ValueError("Unknown color tone: " + tone)
