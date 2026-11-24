@@ -78,6 +78,56 @@ def face_detector(cv2, cache_dir: Path):
     return classifier
 
 
+# Official OpenCV 4.10.0 profile-face cascade for actors shown in profile.
+PROFILE_NAME = "haarcascade_profileface.xml"
+PROFILE_URL = (
+    "https://raw.githubusercontent.com/opencv/opencv/4.10.0/"
+    "data/haarcascades/haarcascade_profileface.xml"
+)
+PROFILE_GIT_BLOB = "486d8e3d83075578c446be96b75a2414efe75ecb"
+
+
+def _verify_profile(data: bytes) -> bool:
+    if not 100_000 < len(data) < MAX_CASCADE_BYTES or b"<opencv_storage>" not in data:
+        return False
+    header = b"blob " + str(len(data)).encode("ascii") + b"\0"
+    return hashlib.sha1(header + data).hexdigest() == PROFILE_GIT_BLOB
+
+
+def optional_profile_detector(cv2, cache_dir: Path):
+    """Best-effort profile detector, with full-face Haar still available offline."""
+    try:
+        installed = Path(cv2.data.haarcascades) / PROFILE_NAME
+        cache = cache_dir / PROFILE_NAME
+        if installed.is_file() and installed.stat().st_size > 100_000:
+            candidate = installed
+        elif cache.is_file() and _verify_profile(cache.read_bytes()):
+            candidate = cache
+        else:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            request = Request(PROFILE_URL, headers={"User-Agent": "AutoClipper-FilmStudio/1.0"})
+            with urlopen(request, timeout=12) as response:
+                data = response.read(MAX_CASCADE_BYTES + 1)
+            if not _verify_profile(data):
+                raise RuntimeError("Invalid OpenCV profile face cascade")
+            with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".tmp", delete=False) as temp:
+                temporary = Path(temp.name)
+                temp.write(data)
+            try:
+                temporary.replace(cache)
+            finally:
+                temporary.unlink(missing_ok=True)
+            candidate = cache
+        detector = cv2.CascadeClassifier(str(candidate))
+        if detector.empty():
+            raise RuntimeError("OpenCV profile face cascade did not load")
+        print("[faces] Frontal and profile face detectors enabled.", flush=True)
+        return detector
+    except Exception as exc:
+        print("[faces] Profile detector unavailable; frontal fallback: " + str(exc)[:130], flush=True)
+        return None
+
+
 def _cuda_dll_present() -> bool:
     """On Windows avoid a broken CUDA attempt if the required cuBLAS is absent."""
     if os.name != "nt":
