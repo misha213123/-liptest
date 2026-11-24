@@ -89,7 +89,10 @@ def _cuda_dll_present() -> bool:
         return False
 
 
-def transcribe_segments(audio_file: str, model_factory=None, device: str | None = None):
+def transcribe_segments(
+    audio_file: str, model_factory=None, device: str | None = None,
+    model_name: str = "medium", language: str = "ru",
+):
     """Return materialized segments with automatic CUDA -> CPU recovery.
 
     The segments iterable is lazy; runtime errors there must trigger fallback.
@@ -101,14 +104,32 @@ def transcribe_segments(audio_file: str, model_factory=None, device: str | None 
     choice = str(device or os.environ.get("FILM_WHISPER_DEVICE", "auto")).lower()
     if choice not in ("auto", "cuda", "cpu"):
         raise ValueError("FILM_WHISPER_DEVICE must be auto, cpu or cuda.")
+    model_name = str(model_name or "medium").lower()
+    if model_name not in ("small", "medium"):
+        raise ValueError("Доступны модели Whisper: small и medium.")
+    language = str(language or "auto").lower()
+    if language not in ("ru", "en", "auto"):
+        raise ValueError("Язык распознавания должен быть ru, en или auto.")
 
     def transcribe(target_device: str):
         args = {"device": target_device,
                 "compute_type": "float16" if target_device == "cuda" else "int8"}
-        model = model_factory("small", **args)
-        segments, _ = model.transcribe(
-            str(audio_file), word_timestamps=True,
-            vad_filter=True, beam_size=4,
+        model = model_factory(model_name, **args)
+        transcription = {
+            "word_timestamps": True,
+            # On a clipped movie segment preserve the original audio timeline:
+            # avoid removing silence before aligning the recognized words.
+            "vad_filter": False,
+            "beam_size": 5,
+            "condition_on_previous_text": False,
+        }
+        if language != "auto":
+            transcription["language"] = language
+        segments, info = model.transcribe(str(audio_file), **transcription)
+        print(
+            f"[speech] Whisper {model_name} ({target_device}), "
+            f"language={language}, VAD off; word timestamps enabled.",
+            flush=True,
         )
         # Eagerly consume lazy generator INSIDE the try/fallback boundary.
         return list(segments)
