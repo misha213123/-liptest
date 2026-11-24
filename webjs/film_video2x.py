@@ -24,6 +24,66 @@ MODELS = {
 }
 FRAME_MULTIPLIERS = (1, 2, 4)
 
+# Actual .param/.bin combinations shipped with Video2X 6.4.0.
+# realesrgan-plus-x2 does NOT exist; realesrgan-plus-x4 does.
+REAL_ESRGAN_SCALES = {
+    "realesrgan-plus": 4,
+    "realesr-generalv3": 4,  # Not shipped in Video2X 6.4.0; checked before launch.
+    "realesr-animevideov3": 2,
+}
+
+
+def upscale_factor(model: str) -> int:
+    """Native scale of the selected model; 1 for shader/off."""
+    if model not in MODELS:
+        raise ValueError("Неизвестная модель Video2X.")
+    return REAL_ESRGAN_SCALES.get(model, 1)
+
+
+def resources_root(executable: str) -> Path:
+    """Locate the official Video2X models folder near its executable."""
+    exe = Path(executable).resolve()
+    for parent in (exe.parent, *list(exe.parents)[1:4]):
+        if (parent / "models").is_dir():
+            return parent
+    # Let required_model_files report a useful missing-assets error.
+    return exe.parent
+
+
+def required_model_files(model: str, multiplier: int) -> list[Path]:
+    """Relative assets from the official Video2X 6.4.0 release archive."""
+    if model not in MODELS or multiplier not in FRAME_MULTIPLIERS:
+        raise ValueError("Неизвестные параметры модели Video2X.")
+    needed = []
+    if model in REAL_ESRGAN_SCALES:
+        scale = REAL_ESRGAN_SCALES[model]
+        stem = Path("models") / "realesrgan" / f"{model}-x{scale}"
+        needed += [Path(str(stem) + ext) for ext in (".param", ".bin")]
+    elif model.startswith("anime4k-"):
+        needed.append(Path("models") / "libplacebo" / f"{model}.glsl")
+    if multiplier > 1:
+        stem = Path("models") / "rife" / "rife-v4.26" / "flownet"
+        needed += [Path(str(stem) + ext) for ext in (".param", ".bin")]
+    return needed
+
+
+def validate_model_files(executable: str, model: str, multiplier: int) -> Path:
+    root = resources_root(executable)
+    missing = [
+        path for path in required_model_files(model, multiplier)
+        if not (root / path).is_file()
+    ]
+    if missing:
+        detail = ", ".join(str(p) for p in missing[:4])
+        raise RuntimeError(
+            "Video2X: отсутствуют необходимые файлы AI-модели: " + detail
+            + ". Папка моделей: " + str(root / "models")
+            + ". Распакуй официальный CLI ZIP Video2X 6.x целиком "
+              "(video2x.exe и папку models рядом), либо повтори "
+              "scripts/install-video2x.ps1. Не нужно скачивать модель по отдельности."
+        )
+    return root
+
 
 def options(job: dict) -> tuple[str, int]:
     model = str(job.get("video2x_upscale") or "off").strip().lower()
@@ -64,7 +124,7 @@ def find_binary() -> str | None:
     return None
 
 
-def require_binary() -> str:
+def require_binary(model: str = "off", multiplier: int = 1) -> str:
     exe = find_binary()
     if not exe:
         raise RuntimeError(
@@ -83,6 +143,7 @@ def require_binary() -> str:
     help_text = (probe.stdout or "") + "\n" + (probe.stderr or "")
     if "realesrgan" not in help_text.lower() or "rife" not in help_text.lower():
         raise RuntimeError("Нужна современная CLI-версия Video2X 6.x (не старая Python-версия).")
+    validate_model_files(exe, model, multiplier)
     return exe
 
 
@@ -107,7 +168,7 @@ def build_steps(
         if processor == "realesrgan":
             cmd = [
                 executable, "-i", str(current), "-o", str(target),
-                "-p", processor, "-s", "2", "--realesrgan-model", model_name,
+                "-p", processor, "-s", str(upscale_factor(model)), "--realesrgan-model", model_name,
                 *common,
             ]
         else:
@@ -145,7 +206,9 @@ def run_steps(
     """Return AI-processed file, leaving the original untouched on failures."""
     if model == "off" and multiplier == 1:
         return Path(source)
-    exe = require_binary()
+    exe = require_binary(model, multiplier)
+    resource_dir = resources_root(exe)
+    print("[video2x] Model resources loaded from " + str(resource_dir / "models"), flush=True)
     folder.mkdir(parents=True, exist_ok=True)
     steps = build_steps(
         exe, Path(source), folder, model, multiplier, output_width, output_height
@@ -158,7 +221,8 @@ def run_steps(
         if report:
             report(f"Video2X: {label} ({index+1}/{total})", 72 + index * 10)
         proc = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            command, cwd=str(resource_dir),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace",
             creationflags=SUBPROCESS_FLAGS, bufsize=1,
         )
