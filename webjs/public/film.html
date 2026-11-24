@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Фильмы и сериалы — Auto Clipper</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    :root{color-scheme:dark;--film-bg:#0b1013;--panel:#121a1d;--panel2:#192326;--line:#2c383c;--accent:#87bbac;--muted:#93a3a7;--text:#ecf2ef}
+    *{box-sizing:border-box}body{margin:0;background:var(--film-bg);color:var(--text);font-family:Inter,"Segoe UI",Arial,sans-serif;font-size:14px}
+    a{color:inherit}header{border-bottom:1px solid var(--line);background:#101719;position:sticky;top:0;z-index:5}
+    .wrap{max-width:1360px;margin:auto;padding:18px 22px}.top{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+    .identity{display:flex;align-items:center;gap:12px}.mark{background:#26453f;color:#d4f2e5;border:1px solid #52766d;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:18px}
+    h1{margin:0;font-size:19px;letter-spacing:-.5px}h2{font-size:17px;letter-spacing:-.3px;margin:0 0 14px}p{margin:0;color:var(--muted);line-height:1.5}
+    .nav{display:flex;gap:8px;flex-wrap:wrap}.nav a{padding:10px 14px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);text-decoration:none;font-weight:600}
+    .nav a.current{color:#d4f2e5;border-color:#5d9685;background:#234038}
+    .columns{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(320px,.85fr);gap:16px}
+    .card{border:1px solid var(--line);border-radius:16px;padding:20px;background:var(--panel);margin-bottom:16px}
+    .muted{font-size:12px;color:var(--muted)}label{display:block;color:#bfd0cc;font-size:12px;margin-bottom:7px}
+    input,select{width:100%;min-width:0;background:#0e1618;border:1px solid #37474a;border-radius:9px;color:#f2f5f3;padding:12px 13px;font-size:14px}
+    input:focus,select:focus{outline:2px solid #557f72;outline-offset:1px}
+    input[type="checkbox"]{width:auto;accent-color:#86b9a9;margin:0}
+    input[type="range"]{padding:0;accent-color:#8bbbae}
+    button,.button{border:1px solid #506d65;border-radius:9px;background:#294940;color:#f0fff7;font-weight:700;padding:12px 15px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:7px}
+    button:hover,.button:hover{background:#355a50}button:disabled{opacity:.45;cursor:not-allowed}
+    button.secondary{background:#1d2a2c;border-color:var(--line);color:#e3eeeb}
+    .row{display:flex;gap:10px;align-items:end}.row>*:first-child{flex:1}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+    .toggle{display:flex;align-items:center;gap:10px;background:#1a2527;border:1px solid var(--line);padding:12px;border-radius:10px;color:#d5e6e1}
+    .pill{border:1px solid #4b7568;color:#bce2d6;background:#1e3932;border-radius:100px;padding:5px 10px;font-size:12px;display:inline-block}
+    .status{margin:12px 0;white-space:pre-wrap;line-height:1.55;color:#c7dcd6}
+    .drop{border:1px dashed #5c8277;padding:23px;border-radius:13px;background:#162623;text-align:center}
+    progress{width:100%;height:12px;accent-color:#83b3a4}
+    pre{white-space:pre-wrap;overflow:auto;max-height:300px;font-family:Consolas,monospace;color:#a8bbb6;font-size:12px;line-height:1.5;background:#0b1214;border-radius:10px;padding:12px}
+    .preview{aspect-ratio:9/16;max-height:590px;margin:auto;width:min(100%,355px);background:#050708;border-radius:14px;border:1px solid #2c3c3e;display:grid;place-items:center;overflow:hidden}
+    video{width:100%;height:100%;object-fit:contain;background:#000}
+    .hint{margin-top:9px;font-size:12px;color:#9fb6af}
+    .notice{border-left:3px solid #7d9a91;padding:10px 13px;background:#1b2929;color:#c5d6cf;border-radius:0 10px 10px 0;font-size:12px}
+    @media(max-width:900px){.columns{grid-template-columns:1fr}.card{padding:15px}.wrap{padding:12px}.preview{max-height:430px}}
+    @media(max-width:560px){.grid3,.grid2,.fieldset{grid-template-columns:1fr}.row{flex-wrap:wrap}.row>*{width:100%}.nav a{padding:8px 10px;font-size:12px}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap top">
+    <div class="identity"><div class="mark">FS</div><div><h1>Film &amp; Series Studio</h1><p class="muted">Фильмы и сериалы → выбор сцены → готовый клип</p></div></div>
+    <nav class="nav" aria-label="Навигация">
+      <a href="/">Главная</a><a href="/streamer.html">Streamer Clips</a><a href="/film.html" class="current">Фильмы и сериалы</a><a href="/settings.html">Настройки AI</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap">
+  <div class="columns">
+    <main>
+      <section class="card">
+        <h2>1. Источник видео</h2>
+        <p class="hint" style="margin-bottom:16px">Ссылка HDrezka для выбора фильма, сезона, серии и озвучки. Или загрузи свой виде файл для монтажа без зависимости от сайта.</p>
+        <label for="sourceUrl">Ссылка на фильм или сериал</label>
+        <div class="row">
+          <input id="sourceUrl" type="url" placeholder="https://hdrezka.rest/series/...html">
+          <button id="catalogBtn" type="button">Получить сезоны</button>
+        </div>
+        <div id="catalogStatus" class="status muted" role="status"></div>
+        <div id="catalogPanel" hidden>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 12px">
+            <strong id="catalogTitle"></strong><span id="catalogType" class="pill"></span>
+          </div>
+          <div class="grid3">
+            <div><label for="season">Сезон</label><select id="season"></select></div>
+            <div><label for="episode">Серия</label><select id="episode"></select></div>
+            <div><label for="voice">Озвучка</label><select id="voice"></select></div>
+          </div>
+        </div>
+        <div style="height:1px;background:var(--line);margin:20px 0"></div>
+        <label for="filmFile">Альтернатива: свой видеофайл (MP4, MKV, MOV, WEBM)</label>
+        <div class="drop">
+          <input id="filmFile" type="file" accept=".mp4,.mkv,.mov,.m4v,.webm,video/*">
+          <p class="hint">Файлы до 8 ГБ сохраняются локально в output/film_inputs, без загрузки в интернет.</p>
+          <button id="uploadBtn" type="button" class="secondary" style="margin-top:12px">Загрузить исходник</button>
+          <progress id="uploadProgress" max="100" value="0" hidden></progress>
+        </div>
+        <div id="uploadStatus" class="status muted" role="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>2. Выбор момента и кадрирование</h2>
+        <div class="grid2">
+          <div><label for="start">Начало сцены</label><input id="start" value="00:01:00" placeholder="00:01:00"></div>
+          <div><label for="end">Конец сцены</label><input id="end" value="00:01:40" placeholder="00:01:40"></div>
+        </div>
+        <p class="hint">Первый вариант модуля использует выбранные тобой таймкоды. Максимум 5 минут на клип.</p>
+        <div class="fieldset" style="margin-top:18px">
+          <label class="toggle"><input id="face" type="checkbox" checked> Автослежение по лицу</label>
+          <label class="toggle"><input id="captions" type="checkbox" checked> Субтитры из голоса</label>
+          <label class="toggle"><input id="enhance" type="checkbox" checked> Цвет + чёткость HQ</label>
+          <label class="toggle"><input id="optical" type="checkbox"> Optical Flow (медленно)</label>
+        </div>
+        <p class="hint">Алгоритм следит за лицом в исходном видео. Распознавание речи выполняет Faster-Whisper с таймкодами слов; результат зависит от слышимости диалогов.</p>
+      </section>
+
+      <section class="card">
+        <h2>3. Качество и экспорт</h2>
+        <div class="grid3">
+          <div><label for="ratio">Соотношение</label><select id="ratio">
+            <option value="9:16">9:16 · Reels / Shorts</option><option value="4:5">4:5 · Instagram</option>
+            <option value="5:4">5:4 · горизонтальный</option><option value="1:1">1:1 · квадрат</option>
+            <option value="3:4">3:4 · вертикальный</option><option value="2:3">2:3 · вертикальный</option>
+            <option value="4:3">4:3 · классика</option><option value="16:9">16:9 · YouTube</option>
+            <option value="21:9">21:9 · киноформат</option>
+          </select></div>
+          <div><label for="size">Короткая сторона</label><select id="size">
+            <option value="1080">1080 · Full HD</option><option value="1440">1440 · 2K</option><option value="2160">2160 · 4K</option>
+          </select></div>
+          <div><label for="fps">Частота кадров</label><select id="fps">
+            <option value="source">Как у источника</option><option value="30">30 FPS</option><option value="60">60 FPS</option>
+          </select></div>
+        </div>
+        <div class="grid2" style="margin-top:15px">
+          <div><label for="gamma">Гамма изображения: <span id="gammaVal">1.05</span></label><input type="range" id="gamma" min=".85" max="1.20" step=".01" value="1.05"></div>
+          <div><label for="saturation">Насыщенность: <span id="satVal">1.10</span></label><input type="range" id="saturation" min=".75" max="1.30" step=".01" value="1.10"></div>
+        </div>
+        <p class="hint" id="outputHint">Ultra: Lanczos + x264 CRF 16 + AAC 256k. Апскейл до 4K не восстанавливает утраченные детали.</p>
+        <button id="renderBtn" style="width:100%;margin-top:18px;padding:15px;font-size:15px" type="button">Начать рендер клипа</button>
+        <div id="renderStatus" class="status muted" role="status"></div>
+        <progress id="renderProgress" max="100" value="0" hidden></progress>
+        <pre id="renderLog" hidden></pre>
+      </section>
+    </main>
+
+    <aside>
+      <section class="card">
+        <h2>Предпросмотр результата</h2>
+        <div id="preview" class="preview"><span id="emptyPreview" class="muted" style="text-align:center;padding:20px">После рендера здесь появится твой клип</span><video id="resultVideo" controls playsinline hidden></video></div>
+        <div id="outputMeta" class="status muted">Формат: 9:16 · 1080p · исходный FPS</div>
+        <a id="download" class="button" href="#" download hidden style="width:100%">Скачать готовый MP4</a>
+      </section>
+      <section class="card">
+        <h2>Что делает программа</h2>
+        <p class="hint">Выбирает лучшее доступное качество исходника, кадрирует под выбранный формат, отслеживает лицо, распознаёт речь, добавляет субтитры и рендерит MP4.</p>
+        <div class="notice" style="margin-top:15px">Доступ HDrezka к сериям, озвучкам и потокам не гарантирован. Защищённые или недоступные видео не обходятся. Используй контент, на который у тебя есть права.</div>
+      </section>
+    </aside>
+  </div>
+</div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+let catalog=null,uploadedId='',busy=false;
+function status(id,text){$(id).textContent=text;}
+function options(id,rows,empty){
+  const el=$(id);el.innerHTML='';
+  if(!rows.length){const opt=new Option(empty||'Нет данных','');el.add(opt);return}
+  rows.forEach(r=>el.add(new Option(r.name,r.id)));
+}
+function updateEpisodes(){
+  const season=catalog&&catalog.seasons.find(s=>String(s.id)===$('season').value);
+  options('episode',season?season.episodes:[],'Фильм / нет серий');
+  updateVoice();
+}
+function updateVoice(){
+  if(!catalog)return;
+  const season=catalog.seasons.find(s=>String(s.id)===$('season').value);
+  const ep=season&&season.episodes.find(e=>String(e.id)===$('episode').value);
+  let voices=catalog.voices||[];
+  if(ep&&ep.voices&&ep.voices.length){
+    const allowed=new Set(ep.voices.map(String));
+    voices=voices.filter(v=>allowed.has(String(v.id)));
+  }
+  options('voice',voices.map(v=>({id:v.id,name:v.name+(v.premium?' · premium':'')})),'По умолчанию');
+}
+$('season').onchange=updateEpisodes;$('episode').onchange=updateVoice;
+$('catalogBtn').onclick=async()=>{
+  const url=$('sourceUrl').value.trim();
+  $('catalogBtn').disabled=true;status('catalogStatus','Получаю сезоны и доступные озвучки...');
+  try{
+    const r=await fetch('/api/film/catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Не удалось загрузить каталог');
+    catalog=j;uploadedId='';
+    $('catalogPanel').hidden=false;
+    $('catalogTitle').textContent=j.title;
+    $('catalogType').textContent=j.type==='series'?'Сериал':'Фильм';
+    options('season',j.seasons||[],'Фильм');
+    updateEpisodes();
+    status('catalogStatus','Каталог загружен. Выбери серию и озвучку.');
+  }catch(e){catalog=null;$('catalogPanel').hidden=true;status('catalogStatus','Ошибка каталога: '+e.message+'\nМожно загрузить свой видеофайл ниже.')}
+  finally{$('catalogBtn').disabled=false}
+};
+$('uploadBtn').onclick=()=>{
+  const file=$('filmFile').files[0];
+  if(!file)return status('uploadStatus','Сначала выбери видеофайл.');
+  if(file.size>8*1024**3)return status('uploadStatus','Файл больше 8 ГБ.');
+  $('uploadBtn').disabled=true;
+  const xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/film/upload');
+  xhr.setRequestHeader('x-filename',encodeURIComponent(file.name));
+  $('uploadProgress').hidden=false;
+  xhr.upload.onprogress=e=>{
+    if(e.lengthComputable){const pct=Math.round(e.loaded/e.total*100);$('uploadProgress').value=pct;status('uploadStatus','Загружаю файл: '+pct+'%');}
+  };
+  xhr.onload=()=>{
+    $('uploadBtn').disabled=false;
+    let j={};try{j=JSON.parse(xhr.responseText)}catch{}
+    if(xhr.status===200&&j.ok){
+      uploadedId=j.input_id;
+      status('uploadStatus','Файл готов: '+j.filename+' ('+Math.round(j.bytes/1048576)+' МБ). Будет использован для нарезки.');
+    }else status('uploadStatus','Ошибка: '+(j.error||'Не удалось сохранить файл'));
+  };
+  xhr.onerror=()=>{$('uploadBtn').disabled=false;status('uploadStatus','Ошибка соединения при загрузке.')};
+  xhr.send(file);
+};
+function timestamp(text){
+  const parts=String(text).replace(',','.').split(':').map(Number);
+  if(!parts.length||parts.length>3||parts.some(x=>!Number.isFinite(x)||x<0))return NaN;
+  return parts.reduce((a,b)=>a*60+b,0);
+}
+function updateSize(){
+  const size=Number($('size').value), ratio=$('ratio').value;
+  const dims={'9:16':[1080,1920],'4:5':[1080,1350],'5:4':[1350,1080],'1:1':[1080,1080],
+    '3:4':[1080,1440],'2:3':[1080,1620],'4:3':[1440,1080],'16:9':[1920,1080],'21:9':[2520,1080]}[ratio];
+  $('preview').style.aspectRatio=dims[0]+' / '+dims[1];
+  $('outputMeta').textContent='Формат: '+ratio+' · '+Math.round(dims[0]*size/1080)+'×'+Math.round(dims[1]*size/1080)+' · '+($('fps').value==='source'?'FPS источника':$('fps').value+' FPS');
+}
+['size','ratio','fps'].forEach(id=>$(id).onchange=updateSize);
+['gamma','saturation'].forEach(id=>$(id).oninput=()=>{
+  $('gammaVal').textContent=Number($('gamma').value).toFixed(2);
+  $('satVal').textContent=Number($('saturation').value).toFixed(2);
+});
+updateSize();
+$('renderBtn').onclick=async()=>{
+  if(busy)return;
+  if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
+  const start=timestamp($('start').value),end=timestamp($('end').value);
+  if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>300)return status('renderStatus','Неверные таймкоды: продолжительность от 1 секунды до 5 минут.');
+  const payload={
+    input_id:uploadedId,url:uploadedId?'':$('sourceUrl').value.trim(),
+    season:uploadedId?'':$('season').value,episode:uploadedId?'':$('episode').value,
+    voice:uploadedId?'':$('voice').value,start,end,
+    ratio:$('ratio').value,size:Number($('size').value),fps:$('fps').value,
+    face_tracking:$('face').checked,captions:$('captions').checked,
+    optical_flow:$('optical').checked,enhance:$('enhance').checked,
+    gamma:Number($('gamma').value),saturation:Number($('saturation').value)
+  };
+  busy=true;$('renderBtn').disabled=true;$('renderProgress').hidden=false;
+  $('renderProgress').value=1;$('renderLog').hidden=false;
+  status('renderStatus','Запускаю рендер...');
+  try{
+    const r=await fetch('/api/film/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j=await r.json();if(!r.ok)throw new Error(j.error||'Ошибка запуска');
+    const timer=setInterval(async()=>{
+      try{
+        const s=await(await fetch('/api/film/render/status')).json();
+        $('renderLog').textContent=s.log||'';
+        if(s.progress!=null)$('renderProgress').value=s.progress;
+        if(s.running){status('renderStatus','Рендер... '+Math.round(s.progress||5)+'%');return}
+        clearInterval(timer);busy=false;$('renderBtn').disabled=false;
+        if(!s.result||!s.result.ok)throw new Error(s.result&&s.result.error||'Рендер завершился с ошибкой');
+        status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+s.result.fps+' FPS · '+s.result.captions+' субтитров');
+        $('resultVideo').src=s.result.video_url+'?v='+Date.now();$('resultVideo').hidden=false;
+        $('emptyPreview').hidden=true;
+        $('download').href=s.result.download_url;$('download').hidden=false;
+        $('renderProgress').value=100;
+      }catch(err){clearInterval(timer);busy=false;$('renderBtn').disabled=false;status('renderStatus','Ошибка: '+err.message)}
+    },1300);
+  }catch(err){busy=false;$('renderBtn').disabled=false;status('renderStatus','Ошибка: '+err.message)}
+};
+</script>
+</body>
+</html>
