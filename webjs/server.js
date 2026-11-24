@@ -1632,7 +1632,7 @@ except Exception as e:
     }
 
     // Real local 1-frame preview: source crop, face position and color.
-    // No remote catalog download and no GPU AI processing are triggered.
+    // GPU inference runs only when the user explicitly clicks Test AI on 1 frame.
     if (p === '/api/film/preview' && req.method === 'POST') {
       if (!isLocalRequest(req)) {
         return json(res, 403, { error: 'Предпросмотр доступен только на этом компьютере.' });
