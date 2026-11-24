@@ -1454,6 +1454,36 @@ except Exception as e:
       return;
     }
 
+    // Film Studio OpenAI key status: never return credentials or test with a billable call.
+    // Only local browser access is supported because the server has auth disabled.
+    if (p === '/api/film/openai/status' && req.method === 'GET') {
+      if (!isLocalRequest(req)) {
+        return json(res, 403, { error: 'Available only on this computer.' });
+      }
+      execFile(PY, [path.join(__dirname, 'film_openai.py')], {
+        timeout: 15000, maxBuffer: 4096,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      }, (err, stdout) => {
+        if (err) return json(res, 500, {
+          configured: false,
+          error: 'Cannot determine OpenAI key status; check Python environment.'
+        });
+        try {
+          const info = JSON.parse(String(stdout || '').trim());
+          // Allowlist only safe fields; never return a token or configuration.
+          return json(res, 200, {
+            configured: !!info.configured,
+            source: String(info.source || '').slice(0, 80),
+            model: 'whisper-1',
+            retirement_date: '2027-02-26'
+          });
+        } catch {
+          return json(res, 500, { configured: false, error: 'Invalid provider status.' });
+        }
+      });
+      return;
+    }
+
     // Film & Series Studio: catalog lookup is metadata-only; the provider might
     // refuse requests, in which case users can still upload their own MP4/MKV.
     if (p === '/api/film/catalog' && req.method === 'POST') {
