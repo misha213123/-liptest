@@ -245,6 +245,37 @@
           <div><label for="brightness">Яркость: <span id="brightVal">0.02</span></label><input type="range" id="brightness" min="-.05" max=".12" step=".005" value=".02"></div>
           <div><label for="contrast">Контраст: <span id="contrastVal">1.06</span></label><input type="range" id="contrast" min=".80" max="1.30" step=".01" value="1.06"></div>
         </div>
+        <div class="card" style="margin:18px 0 0;background:#111d20;border-color:#3e5d5a">
+          <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+            <div>
+              <strong style="font-size:16px">Улучшение изображения · ручная настройка</strong>
+              <p class="hint">По принципу панели Topaz: шум, артефакты, микродетали, резкость и зерно.</p>
+            </div>
+            <div style="min-width:160px;max-width:260px;flex:1">
+              <label for="restorePreset">Профиль обработки</label>
+              <select id="restorePreset">
+                <option value="balanced" selected>Сбалансированный</option>
+                <option value="clean">Убрать шум и сжатие</option>
+                <option value="detail">Чёткие детали</option>
+                <option value="film">Кино · немного зерна</option>
+                <option value="manual">Ручная настройка</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid2" style="margin-top:14px">
+            <div><label for="artifactReduction">Убрать артефакты сжатия <strong id="artifactReductionVal">8</strong></label>
+              <input id="artifactReduction" type="range" min="0" max="100" step="1" value="8"></div>
+            <div><label for="denoise">Шумоподавление <strong id="denoiseVal">12</strong></label>
+              <input id="denoise" type="range" min="0" max="100" step="1" value="12"></div>
+            <div><label for="microdetail">Микродетали (локальный контраст) <strong id="microdetailVal">12</strong></label>
+              <input id="microdetail" type="range" min="0" max="100" step="1" value="12"></div>
+            <div><label for="sharpen">Резкость <strong id="sharpenVal">36</strong></label>
+              <input id="sharpen" type="range" min="0" max="100" step="1" value="36"></div>
+            <div><label for="filmGrain">Зернистость плёнки <strong id="filmGrainVal">0</strong></label>
+              <input id="filmGrain" type="range" min="0" max="100" step="1" value="0"></div>
+          </div>
+          <p class="hint">Настройки применяются через FFmpeg и отображаются в миниатюре «До / После». Это не фирменные модели Proteus, Iris или Starlight от Topaz. Избыточная резкость может создать ореолы вокруг лиц.</p>
+        </div>
         <div class="card" style="margin:18px 0 0;background:#162524;border-color:#3d645a">
           <div style="display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap">
             <div>
@@ -534,6 +565,35 @@ function updateVideo2X(){
   updateSize();
 }
 $('video2xUpscale').onchange=updateVideo2X;
+const restorationPresets={
+  balanced:{artifactReduction:8,denoise:12,microdetail:12,sharpen:36,filmGrain:0},
+  clean:{artifactReduction:48,denoise:54,microdetail:8,sharpen:18,filmGrain:0},
+  detail:{artifactReduction:12,denoise:18,microdetail:58,sharpen:62,filmGrain:0},
+  film:{artifactReduction:16,denoise:18,microdetail:26,sharpen:36,filmGrain:24}
+};
+const restorationFields=['artifactReduction','denoise','microdetail','sharpen','filmGrain'];
+function refreshRestorationLabels(){
+  for(const id of restorationFields)$(id+'Val').textContent=$(id).value;
+}
+function applyRestorationPreset(mode){
+  const settings=restorationPresets[mode];
+  if(settings){
+    for(const id of restorationFields)$(id).value=settings[id];
+    $('enhance').checked=true;
+  }
+  refreshRestorationLabels();
+  scheduleFilmPreview();
+}
+$('restorePreset').onchange=()=>applyRestorationPreset($('restorePreset').value);
+for(const id of restorationFields){
+  $(id).oninput=()=>{
+    $('restorePreset').value='manual';
+    refreshRestorationLabels();
+    scheduleFilmPreview();
+  };
+}
+applyRestorationPreset('balanced');
+
 $('video2xRife').onchange=updateVideo2X;
 $('referencePresetBtn').onclick=()=>{
   $('ratio').value='1:1';
@@ -663,6 +723,11 @@ async function loadFilmPreview(){
     enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
+    artifact_reduction:Number($('artifactReduction').value),
+    denoise:Number($('denoise').value),
+    microdetail:Number($('microdetail').value),
+    sharpen:Number($('sharpen').value),
+    film_grain:Number($('filmGrain').value),
     color_tone:colorTone
   };
   previewWorking=true;
@@ -770,6 +835,11 @@ $('renderBtn').onclick=async()=>{
     optical_flow:$('optical').checked,enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
+    artifact_reduction:Number($('artifactReduction').value),
+    denoise:Number($('denoise').value),
+    microdetail:Number($('microdetail').value),
+    sharpen:Number($('sharpen').value),
+    film_grain:Number($('filmGrain').value),
     color_tone:colorTone,
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
