@@ -378,6 +378,49 @@ checks stalled work even if the CLI keeps printing unrelated logs;
 after an idle timeout the pipeline exports a usable FFmpeg MP4
 instead of waiting at 72% indefinitely.
 
+## Automatic best-moment search in an entire episode
+
+Film Studio now includes **AI-поиск лучших моментов серии**, immediately
+after the source importer and before the clip editor.
+
+1. Import a local MP4 (or download/import one episode through the existing
+   source workflow). Select **2–12** highlights and a clip length range
+   (e.g. **18–55 seconds**), then explicitly click
+   **Найти интересные моменты автоматически**.
+2. The background Python job uses ffprobe to validate the whole episode
+   (8 seconds to **2 hours**) and extracts only 16k mono audio chunks of
+   **7 minutes** (<24 MiB). It uses the user's configured OpenAI key,
+   transcribes audio with **whisper-1 word timestamps**, then uses
+   **gpt-4.1** to suggest and score emotionally strong scenes, jokes,
+   conflict, reveals, memorable dialogue, etc.
+3. Chat outputs undergo strict numerical validation: source-relative
+   start/end range, selected clip length, presence of actual speech and
+   overlap suppression. Ratings are editorial **AI estimates** out of
+   100, not objectively measured virality.
+4. Selected highlights appear as ranked cards with titles, summaries,
+   time range and one-click **Выбрать для рендера**, which fills the
+   existing start/end editor and generates a thumbnail. For an imported
+   episode there is also **Смотреть сцену** using browser-range playback
+   from the local source; MKV/container support depends on the browser.
+5. After selecting a highlight, continue using normal Film Studio
+   captions, face tracking, color grading, frame interpolation and MP4
+   export. This automatically transfers scene boundaries but does not
+   launch a GPU render until the user clicks Render.
+
+**Privacy, cost and reliability:** The service is opt-in and uploads
+episode **audio and transcript**, not full video, to OpenAI. This is
+paid API usage, separate from ChatGPT Plus; for a full TV episode there
+may be multiple transcription requests plus several ranking calls.
+The API key stays on the server, never in the HTML/JSON jobs. Transcripts
+and AI results are cached locally under `output/film_highlights`, with
+the source file size, mtime and language in the cache fingerprint, to
+avoid paying again on unchanged source material. Progress is visible
+in the UI; cancellation terminates the child process tree on Windows.
+The scene finder is **dialogue-based**: silent fights/action, cinematography,
+silent reaction shots and music-only moments are not visually assessed
+and might be missed. User should inspect proposed scenes before export.
+Do not analyze content without the right to do so.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
