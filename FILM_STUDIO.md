@@ -204,6 +204,37 @@ do not infer a GPU hang from the MP4's size alone. With Windows WDDM and Vulkan,
 first test a 3-5 second clip with Real-ESRGAN Plus at 1080p and RIFE disabled;
 if it completes, test RIFE separately.
 
+## Visual editor updates: thumbnails, real filters, styled captions, face motion
+
+- **Five caption templates** under Film Studio Step 2: Bold Reels, Word Karaoke,
+  Cinema, Minimal, and Boxed. Their appearance is rendered into the MP4 with
+  the ASS subtitles generator. Karaoke synchronizes highlighted words using
+  Faster-Whisper word timestamps. Caption vertical position is adjustable.
+- **Six real color grade presets** under Step 3: Natural, Vibrant, Bright,
+  Cinema, Warm and Cool. They control gamma, brightness, contrast, saturation
+  and optional FFmpeg colorbalance. The same filter module is used for JPEG
+  thumbnails and finished video.
+- **Show Scene Thumbnail** now reads one frame from a locally imported source
+  and applies actual crop, face-follow detection and color correction. The
+  example caption overlay demonstrates styling; actual timed text is only
+  known after speech recognition.
+- At the Video2X stage, the right preview can show `film_prepared.mp4` — the
+  completed FFmpeg intermediate with face crop, color and genuine subtitles.
+  It is *not yet the AI-upscaled result*. The final player switches to
+  `final.mp4` after successful processing.
+- Face tracking now detects twice per second, follows between detections using
+  Lucas-Kanade optical flow and resets tracking after scene cuts. This improves
+  continuity but does not yet identify the speaking character through audio
+  or guarantee robust face tracking in every film scene.
+- If Video2X has no reported progress and does not write output for a
+  configurable idle period (default **240 seconds**), Auto Clipper stops
+  the AI step and exports a **usable standard FFmpeg MP4** instead of leaving
+  the project at 72%. A warning makes clear that no AI upscaling / RIFE was
+  applied in this fallback. The idle threshold can be changed before
+  launching with `FILM_VIDEO2X_IDLE_TIMEOUT`.
+- GitHub CI tests syntax and formatting logic. A successful actual GPU
+  4K/60 FPS result still requires a Windows Vulkan test on the real hardware.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
