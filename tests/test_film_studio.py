@@ -303,7 +303,6 @@ class FilmFreeAIEnhancementPipelineTests(unittest.TestCase):
     def test_quality_models_use_supported_open_source_names(self):
         from film_ai_detail import MODELS, ai_source_dimensions
         self.assertIn("realesrgan-x4plus", MODELS)
-        self.assertIn("realesrnet-x4plus", MODELS)
         self.assertEqual(ai_source_dimensions(404, 720), (404, 720))
         self.assertEqual(ai_source_dimensions(900, 720), (900, 720))
 
@@ -378,11 +377,11 @@ class FilmNeuralDetailTests(unittest.TestCase):
                  patch("film_ai_detail.run_cmd",side_effect=fake_ffmpeg), \
                  patch("film_ai_detail.subprocess.run",side_effect=fake_ncnn):
                 restore_preview_frame(source,"ffmpeg",360,640,
-                                      model="realesrnet-x4plus",tile=32)
+                                      model="realesrgan-x4plus",tile=32)
             self.assertTrue(source.is_file())
             self.assertNotIn(b"original",source.read_bytes())
             ai_cmd=next(cmd for cmd in calls if "-n" in cmd)
-            self.assertEqual(ai_cmd[ai_cmd.index("-n")+1],"realesrnet-x4plus")
+            self.assertEqual(ai_cmd[ai_cmd.index("-n")+1],"realesrgan-x4plus")
             self.assertEqual(ai_cmd[ai_cmd.index("-t")+1],"32")
             self.assertTrue(any("-filter_complex" in row for row in calls))
             self.assertTrue(any("A*(1-1.0000)+B*1.0000" in str(row)
