@@ -35,6 +35,7 @@ from film_video2x import (
     intermediate_dimensions as video2x_intermediate_dimensions,
 )
 from film_runtime import face_detector, optional_profile_detector, transcribe_segments
+from film_openai import transcribe_openai, availability as openai_availability
 from film_captions import save_ass, validate as validate_caption_style
 from film_filters import color_filters
 
@@ -350,6 +351,7 @@ def _make_subtitles(
     source: Path, start: float, end: float, out: Path, w: int, h: int,
     style: str = "bold", position: int = 78,
     model: str = "medium", language: str = "ru", offset: float = 0.0,
+    engine: str = "local",
 ):
     validate_caption_style(style, position)
     audio = out / "speech.wav"
@@ -357,8 +359,15 @@ def _make_subtitles(
     run([FFMPEG, "-y", "-nostdin", "-loglevel", "error",
          "-ss", str(start), "-i", str(source), "-t", str(end - start),
          "-vn", "-ar", "16000", "-ac", "1", str(audio)], timeout=1200)
-    progress("Распознаю речь и точные таймкоды слов", 32)
-    segments = transcribe_segments(str(audio), model_name=model, language=language)
+    engine = str(engine or "local").lower()
+    if engine not in ("local", "openai"):
+        raise ValueError("Неизвестный движок распознавания речи.")
+    if engine == "openai":
+        progress("OpenAI: распознаю речь и таймкоды слов (облачный API)", 32)
+        segments = transcribe_openai(audio, language=language)
+    else:
+        progress("Локальный Whisper: распознаю речь", 32)
+        segments = transcribe_segments(str(audio), model_name=model, language=language)
     progress("Речь распознана; формирую субтитры", 47)
     ass = out / "subtitles.ass"
     count = save_ass(segments, ass, w, h, style, position, offset)
@@ -374,6 +383,15 @@ def _ass_filter(path: Path) -> str:
 
 
 def render(job: dict) -> dict:
+    if bool(job.get("captions", True)):
+        engine = str(job.get("speech_engine") or "local").lower()
+        if engine not in ("local", "openai"):
+            raise ValueError("Неизвестный движок субтитров.")
+        if engine == "openai" and not openai_availability()["configured"]:
+            raise RuntimeError(
+                "OpenAI не настроен. Добавь свой ключ через OPENAI_API_KEY "
+                "или настройки OpenAI и перезапусти Film Studio."
+            )
     ai_model, rife_multiplier = video2x_options(job)
     ai_enabled = ai_model != "off" or rife_multiplier > 1
     if ai_enabled:
@@ -468,6 +486,7 @@ def render(job: dict) -> dict:
             str(job.get("whisper_model") or "medium"),
             str(job.get("speech_language") or "ru"),
             float(job.get("caption_offset", 0)),
+            str(job.get("speech_engine") or "local"),
         )
         if caption_count:
             vf.append(_ass_filter(ass))
