@@ -14,6 +14,7 @@ from film_render import (
     INPUT_DIR, FFMPEG, ROOT, _track_centres, probe, run, sec,
 )
 from core.streamer_export import ASPECT_PRESETS
+from film_filters import color_filters
 
 
 def render_preview(job: dict, output: Path) -> dict:
@@ -54,18 +55,7 @@ def render_preview(job: dict, output: Path) -> dict:
     w = 360
     h = max(2, int(round(w * by / bx / 2) * 2))
     filters = [f"crop={crop_w}:{crop_h}:{x}:{y}", f"scale={w}:{h}:flags=lanczos"]
-    if bool(job.get("enhance", True)):
-        def clamp(key, fallback, lo, hi):
-            return min(hi, max(lo, float(job.get(key, fallback))))
-        gamma = clamp("gamma", 1.05, .85, 1.2)
-        saturation = clamp("saturation", 1.10, .75, 1.30)
-        brightness = clamp("brightness", .02, -.05, .12)
-        contrast = clamp("contrast", 1.06, .8, 1.3)
-        filters.append(
-            f"eq=brightness={brightness:.3f}:gamma={gamma:.3f}:"
-            f"contrast={contrast:.3f}:saturation={saturation:.3f}"
-        )
-        filters.append("unsharp=5:5:0.22")
+    filters.extend(color_filters(job, preview=True))
     output.parent.mkdir(parents=True, exist_ok=True)
     run([
         FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-nostdin",
