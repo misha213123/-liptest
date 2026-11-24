@@ -176,6 +176,29 @@ let STREAMER_HIGHLIGHT_PREVIEW_JOB = null;
 let STREAMER_ANALYZE_JOB = null;
 let STREAMER_RENDER_JOB = null;
 let FILM_RENDER_JOB = null;
+
+// Film Studio uses Python -> FFmpeg -> Video2X subprocesses. Killing only
+// Python on Windows leaves the heavy Vulkan child running after Ctrl+C.
+function stopFilmProcessTree(job) {
+  if (!job || job.code !== undefined || !job.proc || !job.proc.pid) return false;
+  job.cancelled = true;
+  const pid = String(job.proc.pid);
+  try {
+    if (isWin) {
+      // /T: include descendants, /F: terminate the entire render process tree
+      // and release GPU memory (unlike job.proc.kill() alone).
+      execFileSync('taskkill', ['/PID', pid, '/T', '/F'], {
+        timeout: 15000, stdio: 'ignore', windowsHide: true
+      });
+    } else {
+      try { process.kill(-job.proc.pid, 'SIGTERM'); }
+      catch { job.proc.kill('SIGTERM'); }
+    }
+  } catch (error) {
+    try { job.proc.kill('SIGKILL'); } catch {}
+  }
+  return true;
+}
 // job story clip & facebook upload
 let STORY_JOBS = new Map(); // key "run" -> job (biar /api/tasks legible)
 const FB_JOBS = new Map();  // key "run" -> job
@@ -1557,12 +1580,35 @@ except Exception as e:
         proc.on('close', code => {
           FILM_RENDER_JOB.code = code;
           FILM_RENDER_JOB.finishedAt = Date.now();
+          if (FILM_RENDER_JOB.cancelled) {
+            fs.appendFileSync(logPath, '\n[film] Job cancelled; render process tree terminated.\n');
+          }
           out.end();
           try { fs.unlinkSync(jobFile); } catch {}
         });
         return json(res, 200, { ok: true, started: true, id });
       });
       return;
+    }
+
+    if (p === '/api/film/render/cancel' && req.method === 'POST') {
+      if (!isLocalRequest(req)) {
+        return json(res, 403, { error: 'Cancel is local-only.' });
+      }
+      // Do not accept forged requests from another browser origin.
+      const origin = String(req.headers.origin || '');
+      if (origin) {
+        let allowed = false;
+        try { const parsed = new URL(origin); allowed = parsed.host === req.headers.host &&
+          ['http:', 'https:'].includes(parsed.protocol); } catch {}
+        if (!allowed) return json(res, 403, { error: 'Bad origin.' });
+      }
+      const job = FILM_RENDER_JOB;
+      if (!job || job.code !== undefined) return json(res, 409, { error: 'Нет активного рендера.' });
+      const stopped = stopFilmProcessTree(job);
+      return json(res, stopped ? 200 : 500, {
+        ok: stopped, cancelled: stopped, message: 'Рендер остановлен, включая Video2X и FFmpeg.'
+      });
     }
 
     if (p === '/api/film/render/status' && req.method === 'GET') {
@@ -1583,8 +1629,10 @@ except Exception as e:
         code: job ? job.code : null,
         progress: parseOverall(log),
         log,
-        result: result || (job && job.code !== undefined
-          ? { ok: false, error: 'Рендер не завершён. Посмотри журнал ниже.' } : null)
+        result: job && job.cancelled
+          ? { ok: false, error: 'Рендер остановлен пользователем.' }
+          : (result || (job && job.code !== undefined
+            ? { ok: false, error: 'Рендер не завершён. Посмотри журнал ниже.' } : null))
       });
     }
 
@@ -2592,6 +2640,20 @@ except Exception as e:
   } catch (e) {
     json(res, e.message === 'bad path' ? 400 : 500, { error: e.message });
   }
+});
+
+// Prevent orphaned Video2X processes on Ctrl+C or server shutdown.
+// Other unrelated Auto Clipper jobs keep their existing lifecycle rules.
+process.once('SIGINT', () => {
+  stopFilmProcessTree(FILM_RENDER_JOB);
+  process.exit(130);
+});
+process.once('SIGTERM', () => {
+  stopFilmProcessTree(FILM_RENDER_JOB);
+  process.exit(0);
+});
+process.on('exit', () => {
+  stopFilmProcessTree(FILM_RENDER_JOB);
 });
 
 server.listen(PORT, () => console.log(`http://localhost:${PORT}  (auth: disabled)`));
