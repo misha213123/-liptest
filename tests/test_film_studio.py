@@ -384,11 +384,21 @@ class FilmNeuralDetailTests(unittest.TestCase):
             ai_cmd=next(cmd for cmd in calls if "-n" in cmd)
             self.assertEqual(ai_cmd[ai_cmd.index("-n")+1],"realesrnet-x4plus")
             self.assertEqual(ai_cmd[ai_cmd.index("-t")+1],"32")
-            self.assertTrue(any("scale=360:640:flags=lanczos" in
-                                cmd for row in calls for cmd in row))
+            self.assertTrue(any("-filter_complex" in row for row in calls))
+            self.assertTrue(any("A*(1-1.0000)+B*1.0000" in str(row)
+                                for row in calls))
             with self.assertRaises(ValueError):
                 restore_preview_frame(source,"ffmpeg",360,640,
                                       model="unknown")
+
+    def test_ai_strength_is_bounded_and_converted_to_blend_alpha(self):
+        from film_ai_detail import _strength
+        self.assertEqual(_strength(0), 0.0)
+        self.assertEqual(_strength(50), 0.5)
+        self.assertEqual(_strength(100), 1.0)
+        for invalid in (-1, 101, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                _strength(invalid)
 
     def test_native_resolution_kept_for_720p_source_crops(self):
         from film_ai_detail import ai_source_dimensions
@@ -473,8 +483,11 @@ class FilmNeuralDetailTests(unittest.TestCase):
             self.assertEqual(model_command[model_command.index("-s")+1],"2")
             self.assertTrue(any("-map" in row and "1:a:0?" in row for row in commands))
             self.assertTrue(any(
-                "-vf" in row and "scale=1920:1080:flags=lanczos" in row
+                "-filter_complex" in row and "scale=1920:1080:flags=lanczos" in str(row)
                 for row in commands
+            ))
+            self.assertTrue(any(
+                "A*(1-1.0000)+B*1.0000" in str(row) for row in commands
             ))
             self.assertFalse((root/"ai_detail_in").exists())
             self.assertFalse((root/"ai_detail_out").exists())
