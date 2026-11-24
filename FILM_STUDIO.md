@@ -487,9 +487,12 @@ installation in the UI. Keep GPU drivers up to date.
 
 - Render a short **5-second test** before larger scenes. AI mode supports
   **1080p and clips up to 30 seconds** and keeps actual 60fps interpolation.
-- Prepared graded/captioned video is temporarily resized to half dimensions,
-  processed by the neural image model at native 2x output, then restored to the
-  target MP4 dimensions with audio copied from the prepared clip.
+- Prepared graded/captioned video is resized to the **actual source crop**
+  (e.g. 404x720 or 900x720 from a 720p episode), not blindly halved,
+  to avoid discarding existing detail. Very large source crops are bounded to
+  about 720p for 4GB GPU compatibility. The model runs at 2x output, and
+  FFmpeg then resamples the result to the requested 1080p dimensions with
+  original audio copied from the prepared clip.
 - Neural inference can introduce **artificial texture, flickering between
   frames or distort already rendered subtitles**: it is not video-temporal
   restoration, does not guarantee preserving the original true detail and
