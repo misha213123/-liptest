@@ -46,6 +46,7 @@ from film_beauty import (
 )
 from film_ai_detail import restore_clip as run_neural_detail_restore
 from film_ai_detail import require_binary as require_neural_detail_restore
+from film_ai_detail import MODELS as AI_DETAIL_MODELS
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -429,6 +430,23 @@ def optical_motion_filter(source_fps: float, requested_fps: float, enabled: bool
     )
 
 
+def ai_detail_finish_filters(source_fps: float, requested_fps: float | None,
+                             optical: bool, subtitles: Path | None = None) -> list[str]:
+    """The order is essential: motion interpolation BEFORE caption burn-in.
+
+    Neural enhancement has already happened at source fps; returning
+    subtitles last protects their fine edge details from the AI model.
+    """
+    filters = []
+    if requested_fps is not None and abs(source_fps - requested_fps) > .4:
+        interpolator = optical_motion_filter(source_fps, requested_fps, optical)
+        filters.append(interpolator or f"fps={int(requested_fps)}")
+    if subtitles is not None:
+        filters.append(_ass_filter(subtitles))
+    filters.append("format=yuv420p")
+    return filters
+
+
 def render(job: dict) -> dict:
     if bool(job.get("captions", True)):
         engine = str(job.get("speech_engine") or "local").lower()
@@ -447,6 +465,15 @@ def render(job: dict) -> dict:
             raise ValueError("Выбери либо AI Detail Restore, либо Video2X, не оба режима одновременно.")
         if str(job.get("size") or 1080) != "1080":
             raise ValueError("Для AI Detail Restore выбери 1080p. Режим 2K/4K доступен через обычный FFmpeg.")
+        model = str(job.get("ai_detail_model") or "realesrgan-x4plus")
+        if model not in AI_DETAIL_MODELS:
+            raise ValueError("AI Detail Restore: неизвестная модель улучшения.")
+        try:
+            tile = int(job.get("ai_detail_tile", 64))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("AI Detail Restore: неверный размер GPU-блока.") from exc
+        if tile not in (32, 64, 96, 128):
+            raise ValueError("AI Detail Restore: блоки GPU должны быть 32, 64, 96 или 128 px.")
         require_neural_detail_restore()
     if ai_enabled:
         # Fail before downloading a long film if the external CLI is unavailable.
@@ -694,21 +721,18 @@ def render(job: dict) -> dict:
             progress("Нейросеть недоступна — завершаю экспорт через FFmpeg", 89)
 
         processed_info = probe(processed)
-        finish_filters = []
-        if fps_choice != "source" and abs(processed_info["fps"] - float(fps)) > .4:
-            interpolator = optical_motion_filter(
-                processed_info["fps"], fps, optical
+        finish_filters = ai_detail_finish_filters(
+            processed_info["fps"],
+            None if fps_choice == "source" else float(fps),
+            optical,
+            ass if caption_count else None,
+        )
+        if finish_filters and finish_filters[0].startswith("minterpolate"):
+            print(
+                f"[motion] Post-AI motion-compensated interpolation "
+                f"{processed_info['fps']:.2f} -> {fps} FPS.",
+                flush=True,
             )
-            finish_filters.append(interpolator or f"fps={int(fps)}")
-            if interpolator:
-                print(
-                    f"[motion] Post-AI motion-compensated interpolation "
-                    f"{processed_info['fps']:.2f} -> {fps} FPS.",
-                    flush=True,
-                )
-        if caption_count:
-            finish_filters.append(_ass_filter(ass))
-        finish_filters.append("format=yuv420p")
 
         progress("Собираю финальный MP4: плавность, звук, чёткие субтитры", 90)
         finish_command = [
