@@ -42,8 +42,13 @@ def validate(style: str, position: int = 78) -> tuple[str, int]:
 
 
 def stamp(t: float) -> str:
-    t = max(0, float(t))
-    return f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{int(t % 60):02d}.{int((t % 1) * 100):02d}"
+    # Round to integer centiseconds first; floating-point truncation
+    # incorrectly turns 1.20 into 1.19 in some ASR timestamp combinations.
+    cs = max(0, int(round(float(t) * 100)))
+    hours, remainder = divmod(cs, 360000)
+    minutes, remainder = divmod(remainder, 6000)
+    seconds, centis = divmod(remainder, 100)
+    return f"{hours}:{minutes:02d}:{seconds:02d}.{centis:02d}"
 
 
 def clean_text(s: str) -> str:
