@@ -1681,9 +1681,9 @@ except Exception as e:
           try { details = JSON.parse(String(stdout || '').trim().split(/\r?\n/).pop()); } catch {}
           try {
             const bytes = fs.readFileSync(outputFile);
-            // Return the JPEG inline: avoids a second request which could
+            // Return the native-resolution JPEG inline (up to 8 MB): avoids a second request which could
             // otherwise fail and leave the preview as a blank rectangle.
-            if (bytes.length < 500 || bytes.length > 2 * 1024 * 1024 ||
+            if (bytes.length < 500 || bytes.length > 8 * 1024 * 1024 ||
                 bytes[0] !== 0xff || bytes[1] !== 0xd8) {
               throw new Error('FFmpeg generated an invalid JPEG preview.');
             }
@@ -1697,7 +1697,7 @@ except Exception as e:
                 const before = path.join(directory, id + '_before.jpg');
                 if (!fs.existsSync(before)) return null;
                 const original = fs.readFileSync(before);
-                if (original.length < 500 || original.length > 2*1024*1024 ||
+                if (original.length < 500 || original.length > 8*1024*1024 ||
                     original[0] !== 0xff || original[1] !== 0xd8) return null;
                 return 'data:image/jpeg;base64,' + original.toString('base64');
               })(),
