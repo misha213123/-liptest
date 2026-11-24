@@ -7,6 +7,7 @@ until speech recognition produces the real timed words.
 from __future__ import annotations
 
 import math
+import unicodedata
 from pathlib import Path
 
 STYLES = {
@@ -54,63 +55,145 @@ def stamp(t: float) -> str:
 def clean_text(s: str) -> str:
     return (str(s or "").replace("\\", "").replace("{", "")
             .replace("}", "").replace("\n", " ").replace("\r", " ")
-            .replace(",", ",").strip())
+            .strip())
+
+
+
+def caption_words_count(value: int) -> int:
+    """Validate visible words per cue; output 1..8 actual recognized words."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Количество слов должно быть числом от 1 до 8.") from exc
+    if count not in range(1, 9):
+        raise ValueError("Выбери от 1 до 8 слов в субтитрах.")
+    return count
+
+
+def caption_text(value: str, remove_punctuation: bool = False) -> str:
+    """Sanitize ASS markup and optionally remove punctuation from speech.
+
+    Preserve lexical hyphens/apostrophes inside words such as «кто-то»,
+    remove external periods, commas, quotes, emojis' punctuation etc.
+    """
+    text = clean_text(value)
+    if not remove_punctuation:
+        return text
+    result = []
+    for i, char in enumerate(text):
+        if not unicodedata.category(char).startswith("P"):
+            result.append(char)
+            continue
+        if char in ("-", "‐", "‑", "'", "’") and i and i + 1 < len(text):
+            if text[i - 1].isalnum() and text[i + 1].isalnum():
+                result.append(char)
+    return "".join(result).strip()
+
+
+def _group_words(segments, word_limit: int) -> list[tuple[str, object]]:
+    """Merge consecutive word-timed chunks independently from Whisper segments.
+
+    Cloud responses currently arrive in 3-word segments, so grouping only
+    inside each segment breaks selections of 4–8 words. Use the flattened
+    original word timeline, but split at significant speech pauses (0.9s)
+    and avoid displaying a cue for longer than ~4 seconds.
+    """
+    timeline = []
+    buffer = []
+    previous_end = None
+
+    def flush():
+        nonlocal buffer, previous_end
+        if buffer:
+            timeline.append(("words", buffer))
+        buffer = []
+        previous_end = None
+
+    for segment in segments:
+        recognized = list(getattr(segment, "words", None) or [])
+        if not recognized:
+            flush()
+            timeline.append(("plain", segment))
+            continue
+        for word in recognized:
+            text = clean_text(getattr(word, "word", ""))
+            if not text:
+                continue
+            try:
+                start = float(word.start)
+                end = float(word.end)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+                continue
+            if buffer and (
+                len(buffer) >= word_limit
+                or (previous_end is not None and start - previous_end >= 0.9)
+                or end - float(buffer[0].start) > 4.0
+            ):
+                flush()
+            buffer.append(word)
+            previous_end = end
+    flush()
+    return timeline
 
 
 def subtitle_ass(
     segments, width: int, height: int, style: str = "bold", position: int = 78,
-    offset: float = 0.0,
+    offset: float = 0.0, words_per_caption: int = 3,
+    remove_punctuation: bool = False,
 ) -> tuple[str, int]:
-    """Create an ASS document from Faster-Whisper segments (or equivalents)."""
+    """Create ASS cues with configurable words, no invented word timestamps."""
     style, position = validate(style, position)
+    words_per_caption = caption_words_count(words_per_caption)
     offset = float(offset)
     if not math.isfinite(offset) or abs(offset) > 5:
         raise ValueError("Сдвиг субтитров должен быть от -5 до +5 секунд.")
+    if not isinstance(remove_punctuation, bool):
+        raise ValueError("Настройка пунктуации должна быть true/false.")
     data = STYLES[style]
     font_size = max(14, round(width * data["factor"]))
     margin_v = max(1, round(height * (100 - position) / 100))
     margin_x = max(18, round(width * .04))
     events = []
-    for segment in segments:
-        words = list(getattr(segment, "words", None) or [])
-        if words:
-            for index in range(0, len(words), 3):
-                group = words[index:index + 3]
-                text_parts = [clean_text(getattr(word, "word", "")) for word in group]
-                if not any(text_parts):
-                    continue
-                begin = max(0.0, float(group[0].start) + offset)
-                end = max(begin + 0.04, float(group[-1].end) + offset)
-                if style == "karaoke":
-                    # ASS karaoke highlights each word at the actual speech time.
-                    # \kf takes centiseconds; gaps are folded into the next word.
-                    chunks = []
-                    previous = begin
-                    for word, text in zip(group, text_parts):
-                        if not text:
-                            continue
-                        stop = max(previous + 0.03, float(word.end) + offset)
-                        dur = max(1, int(round((stop - previous) * 100)))
-                        chunks.append(r"{\kf" + str(dur) + "}" + text)
-                        previous = stop
-                    value = " ".join(chunks)
-                else:
-                    value = " ".join(text_parts)
-                    if data["uppercase"]:
-                        value = value.upper()
-                    value = r"{\fad(50,80)}" + value
-                events.append(
-                    f"Dialogue: 0,{stamp(begin)},{stamp(end)},Default,,0,0,0,,{value}"
-                )
+
+    for kind, payload in _group_words(segments, words_per_caption):
+        if kind == "words":
+            group = payload
+            parts = [caption_text(getattr(word, "word", ""), remove_punctuation)
+                     for word in group]
+            nonempty = [(word, part) for word, part in zip(group, parts) if part]
+            if not nonempty:
+                continue
+            begin = max(0.0, float(nonempty[0][0].start) + offset)
+            end = max(begin + 0.04, float(nonempty[-1][0].end) + offset)
+            if style == "karaoke":
+                chunks = []
+                previous = begin
+                for word, word_text in nonempty:
+                    # Highlight the exact original word's timestamp.
+                    stop = max(previous + 0.03, float(word.end) + offset)
+                    dur = max(1, int(round((stop - previous) * 100)))
+                    chunks.append(r"{\kf" + str(dur) + "}" + word_text)
+                    previous = stop
+                value = " ".join(chunks)
+            else:
+                value = " ".join(part for _, part in nonempty)
+                if data["uppercase"]:
+                    value = value.upper()
+                value = r"{\fad(50,80)}" + value
         else:
-            text = clean_text(getattr(segment, "text", ""))
-            if not text:
+            segment = payload
+            value = caption_text(getattr(segment, "text", ""), remove_punctuation)
+            if not value:
                 continue
             if data["uppercase"]:
-                text = text.upper()
+                value = value.upper()
             begin = max(0.0, float(segment.start) + offset)
             end = max(begin + 0.04, float(segment.end) + offset)
-            events.append(f"Dialogue: 0,{stamp(begin)},{stamp(end)},Default,,0,0,0,,{text}")
+        events.append(
+            f"Dialogue: 0,{stamp(begin)},{stamp(end)},Default,,0,0,0,,{value}"
+        )
     fmt = (
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
@@ -137,8 +220,12 @@ def subtitle_ass(
 
 def save_ass(
     segments, path: Path, width: int, height: int, style: str,
-    position: int, offset: float = 0.0,
+    position: int, offset: float = 0.0, words_per_caption: int = 3,
+    remove_punctuation: bool = False,
 ) -> int:
-    content, count = subtitle_ass(segments, width, height, style, position, offset)
+    content, count = subtitle_ass(
+        segments, width, height, style, position, offset,
+        words_per_caption, remove_punctuation,
+    )
     Path(path).write_text(content, encoding="utf-8")
     return count
