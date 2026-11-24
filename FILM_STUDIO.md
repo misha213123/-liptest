@@ -564,6 +564,63 @@ video-only MP4, then Film Studio muxes the **original scene audio** and
 applies face tracking, FFmpeg 60fps interpolation and subtitles as before.
 Intermediate video is removed after export.
 
+## Free Topaz-style neural enhancement (GTX 1650 friendly)
+
+The integrated **AI Detail Restore** engine is the official
+[Real-ESRGAN NCNN Vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan)
+(MIT-licensed implementation), not paid Topaz or an OpenAI API call.
+It is run as a local executable with optional installation from the
+official Real-ESRGAN Windows release. Installation requires explicit
+user action, and no binaries or model weights are committed to this repo.
+
+### Quality mode, actual order and choices
+
+- Choose **Real-ESRGAN x4plus** (more apparent detail, greater risk of
+  invented texture) or **RealESRNet x4plus** (more restrained detail).
+  Both models are bundled with the original official portable release.
+- For a 4 GB NVIDIA GTX 1650, start with GPU tile **64 px**; if the GPU
+  fails or runs out of memory, try **32 px**. Larger tile 96 px may speed
+  processing on hardware that can support it.
+- For an AI clip, the renderer now keeps the **original source FPS**
+  during neural processing. The actual full pipeline is:
+
+  `source → face-follow crop + beauty + Smart Colors → prepared 30fps →
+  Real-ESRGAN tiled Vulkan x2 → FFmpeg optical-flow 60fps →
+  ASS subtitles → final MP4 with original scene audio`
+
+  This avoids paying the neural workload for interpolated frames and
+  ensures **subtitles never pass through neural upscaling** (letter edges
+  stay clean). When Real-ESRGAN fails, the prepared clip still receives
+  the requested motion interpolation and subtitles and is exported with
+  a clear warning, instead of freezing indefinitely.
+
+### Preview without full render
+
+1. Install the neural engine with **Установить нейросеть на компьютер**.
+2. Import a local episode and choose the current preview frame.
+3. Select model and tile size; click **Проверить AI на 1 кадре**.
+4. Use the right-hand **До / После** controls to compare the exact
+   processed JPEG against the original thumbnail.
+
+Routine color/beauty sliders still show fast previews: **AI processing
+runs ONLY on the explicitly requested single-frame test** or when the
+user enables the neural engine for a full clip.
+
+### Practical limits
+
+Real-ESRGAN is an *image* restoration model; it is not Topaz Proteus/Iris.
+It may create artificial texture or occasional temporal flicker in motion.
+The app defaults to **1080p clips up to 30 seconds** for the GPU workflow,
+while the previously working FFmpeg 60fps mode remains available for long
+clips. No free solution can guarantee restoring physically accurate
+information absent from the original. Local runtime on the user's
+actual GTX 1650 and Vulkan driver still needs a five-second smoke test.
+
+Other open-source applications such as
+[REAL Video Enhancer](https://github.com/TNTwise/REAL-Video-Enhancer)
+support NCNN Vulkan and additional temporal models, but are not bundled
+or falsely labelled as integrated into Film Studio.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
