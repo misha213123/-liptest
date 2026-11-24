@@ -37,8 +37,8 @@ def validate(style: str, position: int = 78) -> tuple[str, int]:
         position = int(position)
     except (ValueError, TypeError):
         raise ValueError("Положение субтитров должно быть числом.") from None
-    if not 50 <= position <= 90:
-        raise ValueError("Положение субтитров должно быть от 50 до 90%.")
+    if not 10 <= position <= 95:
+        raise ValueError("Положение субтитров должно быть от 10 до 95%.")
     return style, position
 
 
@@ -57,6 +57,31 @@ def clean_text(s: str) -> str:
             .replace("}", "").replace("\n", " ").replace("\r", " ")
             .strip())
 
+
+
+def caption_size(value: int) -> int:
+    try:
+        size = int(value)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Размер субтитров должен быть от 30 до 180%.") from exc
+    if not 30 <= size <= 180:
+        raise ValueError("Размер субтитров должен быть от 30 до 180%.")
+    return size
+
+
+def caption_letter_case(value: str) -> str:
+    case = str(value or "source").lower()
+    if case not in ("source", "lower", "upper"):
+        raise ValueError("Регистр субтитров должен быть source/lower/upper.")
+    return case
+
+
+def apply_caption_case(value: str, case: str, default_upper: bool = False) -> str:
+    if case == "lower":
+        return value.lower()
+    if case == "upper" or (case == "source" and default_upper):
+        return value.upper()
+    return value
 
 
 def caption_words_count(value: int) -> int:
@@ -142,17 +167,20 @@ def subtitle_ass(
     segments, width: int, height: int, style: str = "bold", position: int = 78,
     offset: float = 0.0, words_per_caption: int = 3,
     remove_punctuation: bool = False,
+    size_percent: int = 100, letter_case: str = "source",
 ) -> tuple[str, int]:
     """Create ASS cues with configurable words, no invented word timestamps."""
     style, position = validate(style, position)
     words_per_caption = caption_words_count(words_per_caption)
+    size_percent = caption_size(size_percent)
+    letter_case = caption_letter_case(letter_case)
     offset = float(offset)
     if not math.isfinite(offset) or abs(offset) > 5:
         raise ValueError("Сдвиг субтитров должен быть от -5 до +5 секунд.")
     if not isinstance(remove_punctuation, bool):
         raise ValueError("Настройка пунктуации должна быть true/false.")
     data = STYLES[style]
-    font_size = max(14, round(width * data["factor"]))
+    font_size = max(8, round(width * data["factor"] * size_percent / 100))
     margin_v = max(1, round(height * (100 - position) / 100))
     margin_x = max(18, round(width * .04))
     events = []
@@ -160,8 +188,10 @@ def subtitle_ass(
     for kind, payload in _group_words(segments, words_per_caption):
         if kind == "words":
             group = payload
-            parts = [caption_text(getattr(word, "word", ""), remove_punctuation)
-                     for word in group]
+            parts = [apply_caption_case(
+                caption_text(getattr(word, "word", ""), remove_punctuation),
+                letter_case, data["uppercase"],
+            ) for word in group]
             nonempty = [(word, part) for word, part in zip(group, parts) if part]
             if not nonempty:
                 continue
@@ -179,16 +209,15 @@ def subtitle_ass(
                 value = " ".join(chunks)
             else:
                 value = " ".join(part for _, part in nonempty)
-                if data["uppercase"]:
-                    value = value.upper()
                 value = r"{\fad(50,80)}" + value
         else:
             segment = payload
-            value = caption_text(getattr(segment, "text", ""), remove_punctuation)
+            value = apply_caption_case(
+                caption_text(getattr(segment, "text", ""), remove_punctuation),
+                letter_case, data["uppercase"],
+            )
             if not value:
                 continue
-            if data["uppercase"]:
-                value = value.upper()
             begin = max(0.0, float(segment.start) + offset)
             end = max(begin + 0.04, float(segment.end) + offset)
         events.append(
@@ -209,7 +238,8 @@ def subtitle_ass(
             data["font"], str(font_size), data["color"], data["secondary"],
             data["outline"], "&H88000000", str(data["bold"]), "0", "0", "0",
             "100", "100", "0", "0", str(data["border"]),
-            str(data["thickness"]), str(data["shadow"]), "2",
+            str(max(1, round(data["thickness"] * size_percent / 100))),
+            str(max(0, round(data["shadow"] * size_percent / 100))), "2",
             str(margin_x), str(margin_x), str(margin_v), "1",
         ])
         + "\n\n[Events]\n"
@@ -222,10 +252,12 @@ def save_ass(
     segments, path: Path, width: int, height: int, style: str,
     position: int, offset: float = 0.0, words_per_caption: int = 3,
     remove_punctuation: bool = False,
+    size_percent: int = 100, letter_case: str = "source",
 ) -> int:
     content, count = subtitle_ass(
         segments, width, height, style, position, offset,
         words_per_caption, remove_punctuation,
+        size_percent, letter_case,
     )
     Path(path).write_text(content, encoding="utf-8")
     return count
