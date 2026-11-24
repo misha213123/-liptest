@@ -981,14 +981,15 @@ def main():
         batch_index = -1
 
     if batch_id and batch_sections and 0 <= batch_index < len(batch_sections):
-        chosen = dict(batch_sections[batch_index])
+        batch_spec = dict(batch_sections[batch_index])
         if (
-            abs(parse_time(chosen.get("start_time", 0)) - start_sec) > 0.1
-            or abs(parse_time(chosen.get("end_time", 0)) - end_sec) > 0.1
+            abs(parse_time(batch_spec.get("start_time", 0)) - start_sec) > 0.1
+            or abs(parse_time(batch_spec.get("end_time", 0)) - end_sec) > 0.1
         ):
             raise ValueError("Таймкоды batch-секции не совпадают с клипом")
-    else:
-        chosen = {"start_time": fmt_time(start_sec), "end_time": fmt_time(end_sec)}
+
+    # Normalize timestamps so batch and single-clip renders share the same cache.
+    chosen = {"start_time": fmt_time(start_sec), "end_time": fmt_time(end_sec)}
 
     # Stable cross-session cache: rendering the same time range must not hit
     # YouTube again. A job-specific batch_id would defeat this cache.
