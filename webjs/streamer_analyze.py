@@ -6,6 +6,7 @@ import hashlib
 import math
 import os
 import re
+import subprocess
 import sys
 import traceback
 import uuid
@@ -126,46 +127,61 @@ def fetch_info(url: str) -> dict:
 
 
 def download_audio(url: str, out_dir: Path) -> Path:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    last_pct = {"v": -10}
+    """Download/cache the source audio stream once; never download video for AI analysis."""
+    cache_key = hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:24]
+    cache_dir = APP_DIR / "output" / "streamer_source_audio" / cache_key
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def hook(d):
-        if d.get("status") != "downloading":
+    def completed_audio() -> Path | None:
+        for candidate in sorted(cache_dir.glob("source_audio.*")):
+            if candidate.suffix.lower() in (".m4a", ".mp3", ".webm", ".opus", ".ogg", ".mp4", ".aac", ".mka") and candidate.stat().st_size > 10_000:
+                return candidate
+        return None
+
+    existing = completed_audio()
+    if existing:
+        debug_log(f"[streamer-ai] ♻ Повторно использую аудио VOD: {existing.name}", flush=True)
+        return existing
+
+    last_pct = {"value": -10}
+
+    def hook(status):
+        if status.get("status") != "downloading":
             return
-        raw = str(d.get("_percent_str") or "").replace("%", "").strip()
-        try:
-            cleaned = re.sub(r"[^0-9.]", "", raw)
-            pct = int(float(cleaned))
-        except Exception:
+        total = status.get("total_bytes") or status.get("total_bytes_estimate") or 0
+        done = status.get("downloaded_bytes") or 0
+        if not total:
             return
-        if pct >= last_pct["v"] + 10:
-            last_pct["v"] = pct
+        pct = min(100, int(done * 100 / total))
+        if pct >= last_pct["value"] + 10:
+            last_pct["value"] = pct
             debug_log(
-                f"[progress] Загружаю аудио {pct}% (overall: {5 + pct * 0.20:.1f}%)",
+                f"[progress] Скачиваю аудио VOD: {pct}% (overall: {5 + pct * 0.20:.1f}%)",
                 flush=True,
             )
 
     opts = ytdlp_base_opts()
+    is_youtube = "youtube.com" in url or "youtu.be" in url
     opts.update({
-        "format": "bestaudio/best",
-        "outtmpl": str(out_dir / "source_audio.%(ext)s"),
+        "format": "bestaudio" if is_youtube else "bestaudio/best",
+        "outtmpl": str(cache_dir / "source_audio.%(ext)s"),
         "progress_hooks": [hook],
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
-        "ffmpeg_location": str(Path(get_ffmpeg_path()).parent),
+        "continuedl": True,
+        "concurrent_fragment_downloads": 4,
+        "socket_timeout": 30,
+        "retries": 5,
+        "fragment_retries": 5,
+        "skip_unavailable_fragments": False,
     })
     add_youtube_runtime(opts, url)
-
+    debug_log("[streamer-ai] Скачиваю только аудиопоток, без видео; фрагменты сохраняются для возобновления.", flush=True)
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
 
-    wav = out_dir / "source_audio.wav"
-    if wav.exists():
-        return wav
-    candidates = list(out_dir.glob("source_audio.*"))
-    if not candidates:
-        raise RuntimeError("Не удалось скачать аудио из источника.")
-    return candidates[0]
-
+    result = completed_audio()
+    if result is None:
+        raise RuntimeError("yt-dlp не создал завершённый аудиофайл VOD.")
+    return result
 
 def parse_time(value) -> float:
     raw = str(value or "0").strip().replace(",", ".")
@@ -223,26 +239,33 @@ def download_analysis_range(
     start_sec: float,
     end_sec: float,
 ) -> Path:
-    """Download only the selected Twitch/Kick/YouTube range for transcription."""
+    """Cut the selected timeline from cached audio; preserve original VOD timestamps."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / "analysis_range.mp4"
+    target = out_dir / "analysis_range.mp3"
+    if target.is_file() and target.stat().st_size > 10_000:
+        debug_log("[streamer-ai] ♻ Повторно использую аудио выбранного диапазона.", flush=True)
+        return target
+
     debug_log(
-        f"[progress] Скачиваю выбранный отрезок {fmt_time(start_sec)} → "
+        f"[progress] Готовлю аудио {fmt_time(start_sec)} → "
         f"{fmt_time(end_sec)}... (overall: 7.0%)",
         flush=True,
     )
-    downloaded = core.download_video_section(
-        url,
-        fmt_time(start_sec),
-        fmt_time(end_sec),
-        str(target),
-        resolution="360p",
-    )
-    path = Path(downloaded)
-    if not path.exists() or path.stat().st_size < 10_000:
-        raise RuntimeError("Не удалось скачать выбранный отрезок VOD.")
-    return path
-
+    source = download_audio(url, out_dir)
+    duration = end_sec - start_sec
+    if duration <= 0:
+        raise ValueError("Неверная длительность выбранного диапазона.")
+    cmd = [
+        get_ffmpeg_path(), "-y", "-nostdin", "-loglevel", "error",
+        "-ss", str(start_sec), "-i", str(source), "-t", str(duration),
+        "-map", "0:a:0", "-vn", "-acodec", "libmp3lame",
+        "-ar", "16000", "-ac", "1", "-b:a", "64k", str(target),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    if proc.returncode != 0 or not target.is_file() or target.stat().st_size < 10_000:
+        target.unlink(missing_ok=True)
+        raise RuntimeError("FFmpeg не смог выделить аудио диапазона: " + (proc.stderr or "")[-1500:])
+    return target
 
 def split_transcript(transcript: str, max_chars: int = 24000) -> list[str]:
     lines = [line for line in (transcript or "").splitlines() if line.strip()]
