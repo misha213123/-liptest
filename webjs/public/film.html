@@ -43,6 +43,16 @@
     .caption-sample[data-style="boxed"]{font-size:clamp(13px,2.1vw,20px);text-shadow:none;background:rgba(0,0,0,.78);padding:7px 10px;border-radius:5px;width:auto;max-width:90%;left:50%;transform:translate(-50%,50%)}
     .caption-sample[data-style="karaoke"] span{color:#ffeb55}
     .caption-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:12px}
+    .color-gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 15px}
+    .color-option{background:#1a2527;border:1px solid #3a4d49;border-radius:9px;min-height:62px;padding:8px 4px;display:grid;place-items:center;gap:4px;font-weight:700}
+    .color-option .swatch{display:block;width:45px;height:19px;border-radius:4px;background:linear-gradient(90deg,#242c39,#c2a78e,#eedbbb)}
+    .color-option[data-look="vibrant"] .swatch{filter:saturate(1.55) contrast(1.18)}
+    .color-option[data-look="bright"] .swatch{filter:brightness(1.35)}
+    .color-option[data-look="cinema"] .swatch{filter:contrast(1.25) sepia(.20)}
+    .color-option[data-look="warm"] .swatch{filter:sepia(.55) saturate(1.25)}
+    .color-option[data-look="cool"] .swatch{filter:hue-rotate(170deg) saturate(.95)}
+    .color-option.active{border-color:#9bdbbf;background:#27463e}
+    @media(max-width:560px){.color-gallery{grid-template-columns:repeat(2,1fr)}}
     .caption-option{background:#111b1d;border:1px solid #344a47;border-radius:11px;min-height:82px;padding:9px;text-align:center;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px}
     .caption-option.active{border-color:#9bdbbf;background:#27463e;box-shadow:0 0 0 1px #83c3a9}
     .caption-option strong{font-size:12px}.caption-option small{font-size:11px;color:#d2e3dd}
@@ -156,6 +166,15 @@
 
       <section class="card">
         <h2>3. Качество и экспорт</h2>
+        <label>Цветовые фильтры — работают в MP4 и на миниатюре</label>
+        <div class="color-gallery" id="colorGallery">
+          <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
+          <button class="color-option" data-look="vibrant" type="button"><span class="swatch"></span>Насыщенный</button>
+          <button class="color-option" data-look="bright" type="button"><span class="swatch"></span>Яркий</button>
+          <button class="color-option" data-look="cinema" type="button"><span class="swatch"></span>Кино</button>
+          <button class="color-option" data-look="warm" type="button"><span class="swatch"></span>Тёплый</button>
+          <button class="color-option" data-look="cool" type="button"><span class="swatch"></span>Холодный</button>
+        </div>
         <div class="grid3">
           <div><label for="ratio">Соотношение</label><select id="ratio">
             <option value="9:16">9:16 · Reels / Shorts</option><option value="4:5">4:5 · Instagram</option>
@@ -248,6 +267,7 @@
 const $=id=>document.getElementById(id);
 let catalog=null,uploadedId='',busy=false;
 let captionStyle='bold',previewTimer=null,previewWorking=false,previewQueued=false,previewLoaded=false,preparedPreviewShown=false;
+let colorTone='neutral',activeColorLook='natural';
 let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
 const numberMB=bytes=>(Number(bytes)/1048576).toFixed(1)+' МБ';
 async function scanBrowserDownloads(){
@@ -432,6 +452,7 @@ $('ultraPresetBtn').onclick=()=>{
 };
 updateVideo2X();
 ['gamma','saturation','brightness','contrast'].forEach(id=>$(id).oninput=()=>{
+  activeColorLook='custom';refreshColorOptions();
   scheduleFilmPreview();
   $('gammaVal').textContent=Number($('gamma').value).toFixed(2);
   $('satVal').textContent=Number($('saturation').value).toFixed(2);
@@ -455,6 +476,33 @@ $('cancelFilmBtn').onclick=async()=>{
     $('cancelFilmBtn').disabled=false;
   }
 };
+const colorLooks={
+  natural:{gamma:1.02,brightness:0,contrast:1.04,saturation:1.06,tone:'neutral'},
+  vibrant:{gamma:1.07,brightness:.025,contrast:1.11,saturation:1.23,tone:'neutral'},
+  bright:{gamma:1.12,brightness:.052,contrast:1.06,saturation:1.10,tone:'neutral'},
+  cinema:{gamma:1.04,brightness:.003,contrast:1.15,saturation:1.09,tone:'warm'},
+  warm:{gamma:1.05,brightness:.018,contrast:1.08,saturation:1.15,tone:'warm'},
+  cool:{gamma:1.03,brightness:.015,contrast:1.10,saturation:1.13,tone:'cool'}
+};
+function refreshColorOptions(){
+  document.querySelectorAll('.color-option').forEach(button=>{
+    button.classList.toggle('active',button.dataset.look===activeColorLook);
+  });
+}
+function selectColorLook(name){
+  const look=colorLooks[name];if(!look)return;
+  activeColorLook=name;colorTone=look.tone;
+  for(const key of ['gamma','brightness','contrast','saturation'])$(key).value=look[key];
+  $('gammaVal').textContent=look.gamma.toFixed(2);
+  $('brightVal').textContent=look.brightness.toFixed(3);
+  $('contrastVal').textContent=look.contrast.toFixed(2);
+  $('satVal').textContent=look.saturation.toFixed(2);
+  $('enhance').checked=true;refreshColorOptions();scheduleFilmPreview();
+}
+document.querySelectorAll('.color-option').forEach(button=>{
+  button.onclick=()=>selectColorLook(button.dataset.look);
+});
+refreshColorOptions();
 function refreshCaptionDemo(){
   const demo=$('captionSample');
   demo.dataset.style=captionStyle;
@@ -496,7 +544,8 @@ async function loadFilmPreview(){
     input_id:uploadedId,start,end,ratio:$('ratio').value,
     face_tracking:$('face').checked,enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
-    brightness:Number($('brightness').value),contrast:Number($('contrast').value)
+    brightness:Number($('brightness').value),contrast:Number($('contrast').value),
+    color_tone:colorTone
   };
   previewWorking=true;
   $('previewBtn').disabled=true;
@@ -546,6 +595,7 @@ $('renderBtn').onclick=async()=>{
     optical_flow:$('optical').checked,enhance:$('enhance').checked,
     gamma:Number($('gamma').value),saturation:Number($('saturation').value),
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
+    color_tone:colorTone,
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
     caption_style:captionStyle,caption_position:Number($('captionPosition').value)
