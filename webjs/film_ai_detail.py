@@ -196,3 +196,14 @@ def restore_clip(
         # Frame stacks may consume multiple GB. Never delete the original MP4.
         shutil.rmtree(frames, ignore_errors=True)
         shutil.rmtree(enhanced, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    import json
+    exe, _ = find_binary()
+    print(json.dumps({
+        "installed": bool(exe),
+        "engine": "Real-ESRGAN NCNN Vulkan",
+        "max_clip_seconds": 30,
+        "tile": 64,
+    }))
