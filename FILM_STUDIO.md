@@ -462,6 +462,46 @@ where enabled. If heavy AI is required, diagnose Video2X separately
 after a short 3–5 second sample; avoid re-running a full movie scene
 until it completes.
 
+## Drag-and-resize subtitles and advanced color grading
+
+- **Caption size** is now an actual ASS export scale from **30–180%**, controlled by a slider (100% default). Stroke and shadow scale with it.
+- **Move subtitles on the preview** by dragging the sample text up or down on the thumbnail. The label/position slider updates immediately (10–95% from top), and the resulting bottom ASS alignment/margin uses that value. This works on a loaded thumbnail; while showing an already burned MP4, click **Обновить кадр с фильтрами** to switch back to the editable thumbnail. Use Arrow Up/Down with keyboard focus for accessible fine tuning.
+- **Caption letter case:** lowercase by default for every template, including Karaoke (no random sentence-initial caps), with options to preserve original ASR spelling or force uppercase. Letter case, font size, punctuation and word grouping are all applied to the **real exported MP4**, not only the sample overlay.
+- **Pro color controls** increase the limits: gamma 0.60–1.60, saturation 0.50–2.50, contrast 0.50–1.80, brightness -0.20–0.25. **Выкрутить фильтры на MAX** applies intentionally very aggressive values; compare before/after because strong settings can clip highlights and make actors' skin tones unnatural. **Вернуть плавный пресет** restores the stable 60fps option.
+
+## Optional AI Detail Restore (true neural inference, not Topaz)
+
+Film Studio now has an **AI Detail Restore** checkbox, separate from the
+existing (sometimes-stalling) Video2X 6.x mode. It uses the official
+**Real-ESRGAN NCNN-Vulkan** portable application with 64-pixel tiles and
+single worker threads for compatibility with GTX 1650 4GB. Click the
+**Установить нейросеть на компьютер** button once; the installer downloads
+the official pinned portable Windows package from:
+https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip
+
+Installation also has a manual local script:
+`powershell -ExecutionPolicy Bypass -File .\scripts\install-ai-detail-restore.ps1`.
+No model executables are committed to your GitHub repository. The installer
+downloads third-party program files only after the user explicitly requests
+installation in the UI. Keep GPU drivers up to date.
+
+- Render a short **5-second test** before larger scenes. AI mode supports
+  **1080p and clips up to 30 seconds** and keeps actual 60fps interpolation.
+- Prepared graded/captioned video is temporarily resized to half dimensions,
+  processed by the neural image model at native 2x output, then restored to the
+  target MP4 dimensions with audio copied from the prepared clip.
+- Neural inference can introduce **artificial texture, flickering between
+  frames or distort already rendered subtitles**: it is not video-temporal
+  restoration, does not guarantee preserving the original true detail and
+  cannot promise the quality of Topaz Proteus/Iris.
+- If the process crashes, fails to produce frames or stalls for 180 seconds,
+  Film Studio stops the subprocess tree, cleans up the large PNG frame files
+  and exports the original prepared MP4. An explicit warning identifies that
+  the neural pass did **not** complete.
+- **Video2X and AI Detail Restore cannot both be selected** in one render.
+  The default smooth/vivid color preset does *not* enable neural inference;
+  it continues working as before.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
