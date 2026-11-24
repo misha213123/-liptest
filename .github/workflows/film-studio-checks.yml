@@ -18,3 +18,5 @@ jobs:
         run: python -m py_compile webjs/film_catalog.py webjs/film_catalog_api.py webjs/film_render.py
       - name: Node syntax
         run: node --check webjs/server.js
+      - name: Film Studio offline unit tests
+        run: python -m unittest discover -s tests -p test_film_studio.py -v
