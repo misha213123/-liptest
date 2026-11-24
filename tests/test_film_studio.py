@@ -281,6 +281,48 @@ class FilmVideo2XWatchdogTests(unittest.TestCase):
         self.assertIn("не продвигает",stall_reason(390,started,140,2048,180,240))
 
 
+class FilmTranscriptCachingTests(unittest.TestCase):
+    def test_formatting_rerenders_reuse_api_transcript(self):
+        import tempfile
+        from types import SimpleNamespace as NS
+        from film_transcript_cache import transcribe_cached
+        from film_captions import subtitle_ass
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)/"episode.mp4"
+            source.write_bytes(b"movie-data")
+            count={"calls":0}
+            def producer():
+                count["calls"]+=1
+                return [
+                    NS(start=.1,end=.8,text="Привет, мир!",words=[
+                        NS(start=.1,end=.4,word="Привет,"),
+                        NS(start=.41,end=.8,word="мир!"),
+                    ]),
+                ]
+            call=lambda:transcribe_cached(
+                source, 5.0, 10.0, "openai_max", "medium", "ru",
+                producer, cache_dir=Path(tmp)/"cache",
+            )
+            raw=call()
+            self.assertEqual(count["calls"],1)
+            clean=call()
+            self.assertEqual(count["calls"],1)
+            self.assertEqual(clean[0].words[0].word,"Привет,")
+            a,n=subtitle_ass(raw,360,640,"bold",78,0,1,False)
+            b,m=subtitle_ass(clean,360,640,"minimal",78,0,8,True)
+            self.assertEqual(n,2)
+            self.assertEqual(m,1)
+            self.assertIn("Привет мир",b)
+            self.assertNotIn("Привет,",b)
+            self.assertIn("ПРИВЕТ,",a)
+            # A different audio excerpt requires a different cache key.
+            transcribe_cached(
+                source, 6, 10, "openai_max", "medium", "ru",
+                producer, cache_dir=Path(tmp)/"cache",
+            )
+            self.assertEqual(count["calls"],2)
+
+
 class FilmCaptionAndGradeTests(unittest.TestCase):
     def test_five_styles_use_real_ass_formatting(self):
         from types import SimpleNamespace as NS
