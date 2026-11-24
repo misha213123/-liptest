@@ -133,6 +133,30 @@ or add the folder containing video2x.exe to PATH. The adapter also searches
 - Initial feature scope is one manually selected scene per render. Automatic semantic highlights, queues and speaker identification are not yet implemented.
 - Only process content you have rights to download and edit. The tool does not circumvent DRM, authentication or paywalls.
 
+## Face tracking and transcription error recovery
+
+- When OpenCV lacks its standard haarcascade_frontalface_default.xml, Film Studio
+  automatically fetches the *exact* official OpenCV 4.10.0 XML from
+  `opencv/opencv/data/haarcascades` and verifies its pinned Git blob hash
+  before caching it under output/film_models/.
+- If the download fails (offline/network blocked), the console explains why and
+  the current render uses center crop, not misleadingly claiming face tracking.
+  For an offline install, restore the official cascade by reinstalling a compatible
+  `opencv-python` package into the project's .venv.
+- If CUDA runtime reports cublas64_12.dll missing during Whisper initialization,
+  transcription or lazy segment processing, the AI tries CPU int8 and continues
+  with spoken subtitles. It doesn't require reinstalling NVIDIA drivers to proceed.
+- To force reliable CPU speech transcription on Windows, launch from PowerShell:
+
+```powershell
+$env:FILM_WHISPER_DEVICE = "cpu"
+.\start-web.bat
+```
+
+- CPU speech recognition may be slower than a properly configured NVIDIA CUDA
+  environment. This setting only affects speech recognition; Video2X can still
+  use the Vulkan GPU for upscaling and RIFE.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
