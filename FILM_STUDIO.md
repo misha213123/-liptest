@@ -421,6 +421,47 @@ silent reaction shots and music-only moments are not visually assessed
 and might be missed. User should inspect proposed scenes before export.
 Do not analyze content without the right to do so.
 
+## Adjustable clean subtitles and Video2X first-byte watchdog
+
+Film Studio now has two subtitle controls in the styles section:
+
+- **Words per caption:** 1 through 8, default 3. Unlike the old
+  implementation which grouped inside each 3-word Whisper segment,
+  the generator now merges consecutive word timestamps *across* segment
+  boundaries to honor larger limits. Natural pauses >= 0.9 seconds
+  and groups longer than ~4 seconds split automatically to avoid long
+  static captions; word timing remains grounded to the source audio.
+- **Без знаков препинания** (checked by default): removes commas,
+  full stops, exclamation/question marks, quotes and other surrounding
+  punctuation, while preserving internal lexical hyphens in words
+  like `кто-то`. This changes the real ASS file burned into MP4,
+  not just the demo screenshot. Disabling restores punctuation.
+- **Cloud speech transcript cache:** recognized word timings and words
+  are cached at `output/film_transcripts` by source file fingerprint,
+  selected start/end, engine/model and audio language. Re-rendering the
+  same source and times with different ASS styles, punctuation or word
+  grouping reuses the transcript *without paying for OpenAI speech
+  transcription again*. Changing selected excerpt, language or engine
+  triggers a new recognition request. Stored transcriptions contain
+  dialogue text locally and can be deleted by the user.
+
+**Stuck Video2X:** Continuous CLI percentages or heartbeats cannot
+demonstrate that the encoder produced any frames. The previous
+idle watchdog could remain active indefinitely because text containing
+a percentage reset the timer. The new default behavior has:
+- `FILM_VIDEO2X_FIRST_BYTE_TIMEOUT=180`: if no output MP4 bytes are
+  written by then, terminate Video2X and descendants and save the
+  prepared FFmpeg clip without AI upscaling.
+- `FILM_VIDEO2X_IDLE_TIMEOUT=240`: terminate if neither output size
+  nor genuinely higher reported progress advances for this long.
+
+These checks are safety fallbacks, not a guarantee that Real-ESRGAN
+works on GTX 1650 4GB. The MP4 produced without Video2X still contains
+selected crop, real captions, color, sound and FFmpeg motion interpolation
+where enabled. If heavy AI is required, diagnose Video2X separately
+after a short 3–5 second sample; avoid re-running a full movie scene
+until it completes.
+
 ## Troubleshooting
 
 Ensure yt-dlp, HdRezkaApi, faster-whisper and OpenCV are installed in the same Python .venv used by the Node server.
