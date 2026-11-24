@@ -304,6 +304,44 @@
 
       <section class="card">
         <h2>4. Качество и экспорт</h2>
+        <div class="card" style="background:#142322;border:1px solid #456c61;margin-bottom:18px">
+          <h3 style="font-size:16px;margin:0 0 8px">Face Beauty + Smart Colors · как в редакторах Ultra HD</h3>
+          <p class="hint" style="margin:0 0 12px">Локальная ретушь кожи на найденных лицах и адаптивное усиление цвета. Настройки реально работают в MP4 и на миниатюре «До / После», до создания плавных 60 FPS.</p>
+          <div class="fieldset" style="margin:12px 0">
+            <label class="toggle" style="cursor:pointer">
+              <input id="faceBeauty" type="checkbox" checked>
+              Сглаживание кожи на лицах
+            </label>
+            <label class="toggle" style="cursor:pointer">
+              <input id="smartColors" type="checkbox" checked>
+              Smart Colors · живой цвет и контраст
+            </label>
+          </div>
+          <div class="grid2" style="margin-top:12px">
+            <div>
+              <label for="beautySkin">Гладкость кожи: <strong id="beautySkinVal">42%</strong></label>
+              <input id="beautySkin" type="range" min="0" max="100" step="1" value="42">
+            </div>
+            <div>
+              <label for="beautyTone">Выравнивание тона лица: <strong id="beautyToneVal">38%</strong></label>
+              <input id="beautyTone" type="range" min="0" max="100" step="1" value="38">
+            </div>
+            <div>
+              <label for="smartColorStrength">Smart Colors: <strong id="smartColorStrengthVal">55%</strong></label>
+              <input id="smartColorStrength" type="range" min="0" max="100" step="1" value="55">
+            </div>
+            <div>
+              <label for="smartClarity">AI-подобная чёткость краёв: <strong id="smartClarityVal">27%</strong></label>
+              <input id="smartClarity" type="range" min="0" max="100" step="1" value="27">
+            </div>
+          </div>
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:13px">
+            <button id="beautyNaturalBtn" type="button" class="secondary">Натурально</button>
+            <button id="beautyUltraBtn" type="button">Красивый Ultra HD</button>
+            <button id="beautyMaxBtn" type="button" class="secondary">Сильная ретушь · MAX</button>
+          </div>
+          <p class="hint">Сглаживание работает только внутри мягкой маски лица; область глаз, губ и контуров защищена. OpenCV обнаруживает лица локально, а не передаёт их в облако. Это не фирменный CapCut Beauty и не нейросетевое восстановление потерянных деталей. Слишком большая ретушь может сделать кожу неестественной.</p>
+        </div>
         <label>Цветовые фильтры — работают в MP4 и на миниатюре</label>
         <div class="color-gallery" id="colorGallery">
           <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
@@ -682,6 +720,41 @@ function updateVideo2X(){
   updateSize();
 }
 $('video2xUpscale').onchange=updateVideo2X;
+
+const beautyInputs=['beautySkin','beautyTone','smartColorStrength','smartClarity'];
+function refreshBeautyControls(){
+  for(const id of beautyInputs)$(id+'Val').textContent=$(id).value+'%';
+  $('beautySkin').disabled=!$('faceBeauty').checked;
+  $('beautyTone').disabled=!$('faceBeauty').checked;
+  $('smartColorStrength').disabled=!$('smartColors').checked;
+  $('smartClarity').disabled=!$('smartColors').checked;
+}
+function applyBeautyPreset(skin,tone,color,clarity){
+  $('faceBeauty').checked=true;
+  $('smartColors').checked=true;
+  for(const [id,value] of Object.entries({
+    beautySkin:skin,beautyTone:tone,smartColorStrength:color,smartClarity:clarity,
+  }))$(id).value=value;
+  refreshBeautyControls();
+  scheduleFilmPreview();
+}
+$('beautyNaturalBtn').onclick=()=>applyBeautyPreset(25,18,30,12);
+$('beautyUltraBtn').onclick=()=>applyBeautyPreset(42,38,55,27);
+$('beautyMaxBtn').onclick=()=>applyBeautyPreset(88,78,95,78);
+for(const id of beautyInputs){
+  $(id).addEventListener('input',()=>{
+    refreshBeautyControls();
+    scheduleFilmPreview();
+  });
+}
+for(const id of ['faceBeauty','smartColors']){
+  $(id).addEventListener('change',()=>{
+    refreshBeautyControls();
+    scheduleFilmPreview();
+  });
+}
+refreshBeautyControls();
+
 let detailRestoreInstalled=false;
 async function checkDetailRestore(){
   try{
@@ -717,7 +790,6 @@ $('aiDetailRestore').onchange=()=>{
   $('fps').value='60';
   $('video2xUpscale').value='off';
   $('video2xRife').value='1';
-  $('aiDetailRestore').checked=false;
   $('optical').disabled=false;
   $('optical').checked=true;
   updateVideo2X();
@@ -994,7 +1066,13 @@ async function loadFilmPreview(){
     microdetail:Number($('microdetail').value),
     sharpen:Number($('sharpen').value),
     film_grain:Number($('filmGrain').value),
-    color_tone:colorTone
+    color_tone:colorTone,
+    face_beauty:$('faceBeauty').checked,
+    beauty_skin:Number($('beautySkin').value),
+    beauty_tone:Number($('beautyTone').value),
+    smart_colors:$('smartColors').checked,
+    smart_color_strength:Number($('smartColorStrength').value),
+    smart_clarity:Number($('smartClarity').value)
   };
   previewWorking=true;
   $('previewBtn').disabled=true;
@@ -1300,6 +1378,12 @@ $('renderBtn').onclick=async()=>{
     sharpen:Number($('sharpen').value),
     film_grain:Number($('filmGrain').value),
     color_tone:colorTone,
+    face_beauty:$('faceBeauty').checked,
+    beauty_skin:Number($('beautySkin').value),
+    beauty_tone:Number($('beautyTone').value),
+    smart_colors:$('smartColors').checked,
+    smart_color_strength:Number($('smartColorStrength').value),
+    smart_clarity:Number($('smartClarity').value),
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
     ai_detail_restore:$('aiDetailRestore').checked,
