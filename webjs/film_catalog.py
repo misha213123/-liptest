@@ -86,13 +86,13 @@ def catalog(url: str) -> dict:
                 for season_id, episodes in (voice_data.get("episodes") or {}).items():
                     sid = str(season_id)
                     combined.setdefault(sid, set()).update(str(n) for n in episodes)
-        for sid in sorted(combined, key=lambda s: int(s) if s.isdigit() else s):
+        for sid in sorted(combined, key=lambda s: (0, int(s)) if s.isdigit() else (1, s)):
             seasons.append({
                 "id": sid,
                 "name": "Сезон " + sid,
                 "episodes": [
                     {"id": episode_id, "name": "Серия " + episode_id, "voices": []}
-                    for episode_id in sorted(combined[sid], key=lambda s: int(s) if s.isdigit() else s)
+                    for episode_id in sorted(combined[sid], key=lambda s: (0, int(s)) if s.isdigit() else (1, s))
                 ],
             })
 
@@ -123,8 +123,17 @@ def stream_url(url: str, season: str = "", episode: str = "", voice: str = "") -
     if not isinstance(videos, dict) or not videos:
         raise RuntimeError("Для выбранной серии сайт не предоставил доступный видеопоток.")
     def height(label):
-        match = re.search(r"(\d{3,4})", str(label))
-        return int(match.group(1)) if match else 0
+        label = str(label).lower()
+        match = re.search(r"(\d{3,4})", label)
+        if match:
+            return int(match.group(1))
+        if "8k" in label:
+            return 4320
+        if "4k" in label or "uhd" in label:
+            return 2160
+        if "2k" in label:
+            return 1440
+        return 0
     for res in sorted(videos.keys(), key=height, reverse=True):
         candidates = videos[res]
         for video_url in candidates if isinstance(candidates, (list, tuple)) else [candidates]:
