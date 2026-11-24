@@ -435,11 +435,28 @@
               <span><strong>AI Detail Restore · реальная нейросеть</strong>
                 <small style="display:block;color:#abc4be">Восстановление деталей через Real-ESRGAN NCNN Vulkan, отдельно от Video2X</small></span>
             </label>
+            <div class="grid2" style="margin-top:12px">
+              <div>
+                <label for="aiDetailModel">Бесплатная модель улучшения качества</label>
+                <select id="aiDetailModel">
+                  <option value="realesrgan-x4plus" selected>Real-ESRGAN x4plus · восстановление деталей</option>
+                  <option value="realesrnet-x4plus">RealESRNet x4plus · более естественные текстуры</option>
+                </select>
+              </div>
+              <div>
+                <label for="aiDetailTile">Блоки GPU · для GTX 1650 4 ГБ</label>
+                <select id="aiDetailTile">
+                  <option value="32">32 px · меньше видеопамяти</option>
+                  <option value="64" selected>64 px · сбалансировано</option>
+                  <option value="96">96 px · быстрее, если памяти хватит</option>
+                </select>
+              </div>
+            </div>
             <div class="row" style="align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px">
               <button id="installDetailRestoreBtn" type="button" class="secondary">Установить нейросеть на компьютер</button>
               <span id="detailRestoreStatus" class="hint" role="status">Проверяю нейросетевой движок…</span>
             </div>
-            <p class="hint">Дополнительный тяжёлый режим для сцен до 30 секунд, только 1080p. Обработка выполняется GPU-блоками 64 px, 60 FPS сохраняются. При сбое будет готов обычный MP4. AI может создавать искусственные детали; качество Topaz не гарантируется. Установка начинается только по кнопке.</p>
+            <p class="hint">Бесплатный Real-ESRGAN с лицензией MIT; без подписки, без загрузки видео в облако. Для GTX 1650: сначала 5 секунд, 1080p, блоки 32–64 px. Нейросеть обрабатывает исходные 30 FPS, затем создаются плавные 60 FPS и накладываются чёткие субтитры. Максимум 30 секунд. Может создавать искусственные детали; это не модели Topaz. Установка начинается только по кнопке.</p>
           </div>
           <div class="grid2" style="margin-top:14px">
             <div>
@@ -1387,6 +1404,8 @@ $('renderBtn').onclick=async()=>{
     video2x_upscale:$('video2xUpscale').value,
     video2x_rife:Number($('video2xRife').value),
     ai_detail_restore:$('aiDetailRestore').checked,
+    ai_detail_model:$('aiDetailModel').value,
+    ai_detail_tile:Number($('aiDetailTile').value),
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
     speech_engine:$('speechEngine').value,
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
