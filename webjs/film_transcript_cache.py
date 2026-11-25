@@ -81,6 +81,44 @@ def _deserialize(items) -> list[SimpleNamespace]:
     return result
 
 
+def episode_cache_directory(source: Path, language: str, root: Path) -> Path:
+    """Compatible with existing film_highlights Whisper-1 cache keys."""
+    source = Path(source)
+    stat = source.stat()
+    key = hashlib.sha256((
+        str(source.resolve()) + "|" + str(stat.st_size) +
+        "|" + str(stat.st_mtime_ns) + "|" + language + "|whisper1-v1"
+    ).encode("utf-8")).hexdigest()[:24]
+    return Path(root) / key
+
+
+def cached_episode_excerpt(source: Path, start: float, end: float,
+                           language: str, *, root: Path):
+    """Reuse a completed episode transcript; rebase word times to clip start."""
+    try:
+        path = episode_cache_directory(source, language, root) / "transcript.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            return None
+        selected = []
+        for row in raw:
+            a, b = _safe_float(row["start"]), _safe_float(row["end"])
+            if a >= end or b <= start:
+                continue
+            a, b = max(0.0, a-start), min(end-start, b-start)
+            if b > a:
+                selected.append(SimpleNamespace(word=str(row["word"]), start=a, end=b))
+        selected.sort(key=lambda w: w.start)
+        return [
+            SimpleNamespace(start=group[0].start, end=group[-1].end,
+                            words=group, text=" ".join(w.word for w in group))
+            for i in range(0, len(selected), 3)
+            if (group := selected[i:i+3])
+        ]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
 def transcribe_cached(
     source: Path, start: float, end: float, engine: str,
     model: str, language: str, producer, *, cache_dir: Path,
