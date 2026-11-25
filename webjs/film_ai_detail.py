@@ -147,7 +147,7 @@ def restore_preview_frame(
         result = subprocess.run([
             str(exe), "-i", str(source_png), "-o", str(neural_png),
             "-m", str(models), "-n", model,
-            "-s", "2", "-t", str(tile), "-g", "0", "-j", "1:1:1",
+            "-s", "4", "-t", str(tile), "-g", "0", "-j", "1:1:1",
             "-f", "png",
         ], cwd=str(exe.parent), capture_output=True,
            timeout=150, creationflags=FLAGS)
@@ -224,7 +224,7 @@ def restore_clip(
             str(exe),
             "-i", str(frames), "-o", str(enhanced),
             "-m", str(models), "-n", model,
-            "-s", "2", "-t", str(tile), "-g", "0",
+            "-s", "4", "-t", str(tile), "-g", "0",
             "-j", "1:1:1", "-f", "png",
         ]
         started = time.monotonic()
