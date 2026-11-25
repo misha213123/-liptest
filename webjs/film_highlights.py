@@ -24,6 +24,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from film_render import ROOT, FFMPEG, authorized_input, probe, run
 from film_openai import find_api_key, normalise_words
+from film_transcript_cache import episode_cache_directory
 
 OUT = ROOT / "output" / "film_highlights"
 AUDIO_CHUNK_SECONDS = 420  # 16kHz 16-bit mono WAV < 14 MiB, under 25 MB API limit
@@ -55,12 +56,7 @@ def validate_settings(job: dict) -> dict:
 
 
 def media_cache_directory(source: Path, language: str) -> Path:
-    s = source.stat()
-    key = hashlib.sha256((
-        str(source.resolve()) + "|" + str(s.st_size) +
-        "|" + str(s.st_mtime_ns) + "|" + language + "|whisper1-v1"
-    ).encode("utf-8")).hexdigest()[:24]
-    return OUT / key
+    return episode_cache_directory(source, language, OUT)
 
 
 def read_json_cache(path: Path, kind):
