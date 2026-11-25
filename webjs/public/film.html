@@ -404,6 +404,15 @@
             </div>
           </div>
           <div class="grid2" style="margin-top:14px">
+            <div style="grid-column:1/-1;padding:12px;border:1px solid #577b76;border-radius:10px">
+              <strong>Очистка изображения без AI</strong>
+              <div><label for="removeGrain">Удаление зернистости <strong id="removeGrainVal">0%</strong></label>
+                <input id="removeGrain" type="range" min="0" max="100" step="1" value="0" style="width:100%"></div>
+              <div><label for="removeBlur">Удаление мыла <strong id="removeBlurVal">0%</strong></label>
+                <input id="removeBlur" type="range" min="0" max="100" step="1" value="0" style="width:100%"></div>
+              <button id="maxCleanupBtn" class="secondary" type="button">Максимальная очистка без AI</button>
+              <p class="hint">Работает независимо от AI и цветокоррекции. При высоких значениях возможны потеря текстур и ореолы.</p>
+            </div>
             <div><label for="artifactReduction">Убрать артефакты сжатия <strong id="artifactReductionVal">8</strong></label>
               <input id="artifactReduction" type="range" min="0" max="100" step="1" value="8"></div>
             <div><label for="denoise">Шумоподавление <strong id="denoiseVal">12</strong></label>
@@ -856,6 +865,24 @@ for(const id of restorationFields){
     scheduleFilmPreview();
   };
 }
+for(const id of ['removeGrain','removeBlur']){
+  $(id).oninput=()=>{$(id+'Val').textContent=$(id).value+'%';};
+  $(id).onchange=scheduleFilmPreview;
+}
+$('maxCleanupBtn').onclick=()=>{
+  for(const id of ['removeGrain','removeBlur']){
+    $(id).value=100;
+    $(id+'Val').textContent='100%';
+  }
+  $('aiDetailRestore').checked=false;
+  $('video2xUpscale').value='off';
+  $('video2xRife').value='1';
+  $('faceBeauty').checked=false;
+  $('filmGrain').value=0;
+  refreshRestorationLabels();
+  updateVideo2X();
+  scheduleFilmPreview();
+};
 applyRestorationPreset('balanced');
 
 $('video2xRife').onchange=updateVideo2X;
@@ -1101,6 +1128,8 @@ async function loadFilmPreview(){
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
     artifact_reduction:Number($('artifactReduction').value),
     denoise:Number($('denoise').value),
+    remove_grain:Number($('removeGrain').value),
+    remove_blur:Number($('removeBlur').value),
     microdetail:Number($('microdetail').value),
     sharpen:Number($('sharpen').value),
     film_grain:Number($('filmGrain').value),
@@ -1425,6 +1454,8 @@ $('renderBtn').onclick=async()=>{
     brightness:Number($('brightness').value),contrast:Number($('contrast').value),
     artifact_reduction:Number($('artifactReduction').value),
     denoise:Number($('denoise').value),
+    remove_grain:Number($('removeGrain').value),
+    remove_blur:Number($('removeBlur').value),
     microdetail:Number($('microdetail').value),
     sharpen:Number($('sharpen').value),
     film_grain:Number($('filmGrain').value),
