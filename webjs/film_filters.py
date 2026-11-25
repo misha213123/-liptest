@@ -91,9 +91,25 @@ def restoration_filters(job: dict, preview: bool = False) -> tuple[list[str], li
     return pre, post
 
 
+def manual_cleanup_filters(job: dict) -> tuple[list[str], list[str]]:
+    """Independent non-neural cleanup, zero disables each control."""
+    grain = _percent(job, "remove_grain") / 100
+    blur = _percent(job, "remove_blur") / 100
+    pre, post = [], []
+    if grain:
+        # Strong spatial cleanup with edge-preserving non-local means.
+        pre.append(f"nlmeans=s={1 + 9 * grain:.2f}:p=7:r=11")
+    if blur:
+        # Two bounded spatial scales; no claim of recovering lost detail.
+        post.append(f"unsharp=5:5:{1.8 * blur:.3f}:5:5:0")
+        post.append(f"unsharp=3:3:{.65 * blur:.3f}:3:3:0")
+    return pre, post
+
+
 def color_filters(job: dict, ai_enabled: bool = False, preview: bool = False) -> list[str]:
+    cleanup_pre, cleanup_post = manual_cleanup_filters(job)
     if not bool(job.get("enhance", True)):
-        return []
+        return cleanup_pre + cleanup_post
     def bounded(key, default, minimum, maximum):
         import math
         try:
@@ -113,10 +129,16 @@ def color_filters(job: dict, ai_enabled: bool = False, preview: bool = False) ->
     if tone not in TONES:
         raise ValueError("Unknown color tone: " + tone)
     before, after = restoration_filters(job, preview=preview)
-    filters = before + [(
+    if cleanup_pre:
+        before = [f for f in before if not f.startswith("hqdn3d=")]
+    if cleanup_post:
+        after = [f for f in after if not f.startswith("unsharp=")]
+    if cleanup_pre:
+        after = [f for f in after if not f.startswith("noise=")]
+    filters = cleanup_pre + before + [(
         f"eq=brightness={brightness:.3f}:gamma={gamma:.3f}:"
         f"contrast={contrast:.3f}:saturation={saturation:.3f}"
     )]
     filters += TONES[tone]
-    filters += after
+    filters += cleanup_post + after
     return filters
