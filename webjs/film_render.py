@@ -46,7 +46,7 @@ from film_beauty import (
 )
 from film_ai_detail import restore_clip as run_neural_detail_restore
 from film_ai_detail import require_binary as require_neural_detail_restore
-from film_ai_detail import MODELS as AI_DETAIL_MODELS, ai_source_dimensions
+from film_ai_detail import MODELS as AI_DETAIL_MODELS, ai_source_dimensions, speed_jobs
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -481,6 +481,8 @@ def render(job: dict) -> dict:
             raise ValueError("AI Detail Restore: неверный размер GPU-блока.") from exc
         if tile not in (32, 64, 96, 128):
             raise ValueError("AI Detail Restore: блоки GPU должны быть 32, 64, 96 или 128 px.")
+        detail_speed = str(job.get("ai_detail_speed") or "balanced")
+        speed_jobs(detail_speed)
         require_neural_detail_restore()
     if ai_enabled:
         # Fail before downloading a long film if the external CLI is unavailable.
@@ -709,7 +711,7 @@ def render(job: dict) -> dict:
         detail_model = str(job.get("ai_detail_model") or "realesrgan-x4plus")
         detail_tile = int(job.get("ai_detail_tile", 64))
         print(
-            f"[detail] Model={detail_model}, tile={detail_tile}, strength={detail_strength:.0f}%, "
+            f"[detail] Model={detail_model}, tile={detail_tile}, jobs={speed_jobs(detail_speed)}, strength={detail_strength:.0f}%, "
             f"source FPS={metadata['fps']:.3f}; "
             "AI -> motion interpolation -> subtitles.",
             flush=True,
@@ -722,7 +724,7 @@ def render(job: dict) -> dict:
                 report=progress, crop_width=cw, crop_height=ch,
                 target_width=target_w, target_height=target_h,
                 tile=detail_tile, model=detail_model,
-                strength=detail_strength,
+                strength=detail_strength, speed=detail_speed,
             )
             detail_succeeded = True
             print("[detail] Neural frame restoration completed.", flush=True)
