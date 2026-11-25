@@ -103,6 +103,7 @@ def render_preview(job: dict, output: Path) -> dict:
             model=str(job.get("ai_detail_model") or "realesrgan-x4plus"),
             tile=int(job.get("ai_detail_tile", 64)),
             strength=float(job.get("ai_detail_strength", 100)),
+            speed=str(job.get("ai_detail_speed") or "balanced"),
         )
     return {"ok": True, "width": w, "height": h,
             "beauty": beauty, "ai_preview": neural_preview,
