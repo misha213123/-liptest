@@ -17,6 +17,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ("realesrgan-x4plus",)
+SPEED_JOBS = {"balanced": "1:1:1", "fast": "1:2:2", "max": "2:2:2"}
+
+
+def speed_jobs(mode: str) -> str:
+    if mode not in SPEED_JOBS:
+        raise ValueError("Неизвестный режим скорости AI Detail Restore.")
+    return SPEED_JOBS[mode]
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
@@ -114,7 +121,7 @@ def _strength(value: float) -> float:
 def restore_preview_frame(
     preview: Path, ffmpeg: str, width: int, height: int,
     *, model: str = "realesrgan-x4plus", tile: int = 64,
-    strength: float = 100,
+    strength: float = 100, speed: str = "balanced",
 ) -> None:
     """Explicit one-frame neural preview, without modifying the video.
 
@@ -124,6 +131,7 @@ def restore_preview_frame(
     import tempfile
 
     alpha = _strength(strength)
+    jobs = speed_jobs(speed)
     if model not in MODELS or tile not in (32, 64, 96, 128):
         raise ValueError("Неверная модель или размер GPU-блока для AI-превью.")
     if alpha <= 0:
@@ -147,7 +155,7 @@ def restore_preview_frame(
         result = subprocess.run([
             str(exe), "-i", str(source_png), "-o", str(neural_png),
             "-m", str(models), "-n", model,
-            "-s", "4", "-t", str(tile), "-g", "0", "-j", "1:1:1",
+            "-s", "4", "-t", str(tile), "-g", "0", "-j", jobs,
             "-f", "png",
         ], cwd=str(exe.parent), capture_output=True,
            timeout=150, creationflags=FLAGS)
@@ -178,7 +186,7 @@ def restore_clip(
     *, crop_width: int = 1280, crop_height: int = 720,
     target_width: int = 1920, target_height: int = 1080,
     tile: int = 64, model: str = "realesrgan-x4plus",
-    strength: float = 100,
+    strength: float = 100, speed: str = "balanced",
 ) -> Path:
     if not 0.1 <= duration <= 30.0:
         raise ValueError(
@@ -186,6 +194,7 @@ def restore_clip(
             "Раздели длинный эпизод на клипы."
         )
     alpha = _strength(strength)
+    jobs = speed_jobs(speed)
     if model not in MODELS:
         raise ValueError("Неизвестная модель AI Detail Restore.")
     if tile not in (32, 64, 96, 128):
@@ -225,7 +234,7 @@ def restore_clip(
             "-i", str(frames), "-o", str(enhanced),
             "-m", str(models), "-n", model,
             "-s", "4", "-t", str(tile), "-g", "0",
-            "-j", "1:1:1", "-f", "png",
+            "-j", jobs, "-f", "png",
         ]
         started = time.monotonic()
         last_made = started
