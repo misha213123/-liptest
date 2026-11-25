@@ -1005,9 +1005,6 @@ $('cancelHighlightsBtn').onclick=async()=>{
 };
 $('renderBtn').onclick=async()=>{
   if(busy)return;
-  if($('captions').checked&&['openai','openai_max'].includes($('speechEngine').value)&&!openaiConfigured){
-    return status('renderStatus','OpenAI API-ключ не настроен. Укажи OPENAI_API_KEY на компьютере и перезапусти сервер, либо выбери локальный Whisper.');
-  }
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
   const start=timestamp($('start').value),end=timestamp($('end').value);
   if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>300)return status('renderStatus','Неверные таймкоды: продолжительность от 1 секунды до 5 минут.');
