@@ -377,18 +377,27 @@ class FilmNeuralDetailTests(unittest.TestCase):
                  patch("film_ai_detail.run_cmd",side_effect=fake_ffmpeg), \
                  patch("film_ai_detail.subprocess.run",side_effect=fake_ncnn):
                 restore_preview_frame(source,"ffmpeg",360,640,
-                                      model="realesrgan-x4plus",tile=32)
+                                      model="realesrgan-x4plus",tile=32,speed="fast")
             self.assertTrue(source.is_file())
             self.assertNotIn(b"original",source.read_bytes())
             ai_cmd=next(cmd for cmd in calls if "-n" in cmd)
             self.assertEqual(ai_cmd[ai_cmd.index("-n")+1],"realesrgan-x4plus")
             self.assertEqual(ai_cmd[ai_cmd.index("-t")+1],"32")
+            self.assertEqual(ai_cmd[ai_cmd.index("-j")+1],"1:2:2")
             self.assertTrue(any("-filter_complex" in row for row in calls))
             self.assertTrue(any("A*(1-1.0000)+B*1.0000" in str(row)
                                 for row in calls))
             with self.assertRaises(ValueError):
                 restore_preview_frame(source,"ffmpeg",360,640,
                                       model="unknown")
+
+    def test_ai_speed_profiles_are_allowlisted(self):
+        from film_ai_detail import speed_jobs
+        self.assertEqual(speed_jobs("balanced"), "1:1:1")
+        self.assertEqual(speed_jobs("fast"), "1:2:2")
+        self.assertEqual(speed_jobs("max"), "2:2:2")
+        with self.assertRaises(ValueError):
+            speed_jobs("9:9:9")
 
     def test_ai_strength_is_bounded_and_converted_to_blend_alpha(self):
         from film_ai_detail import _strength
@@ -473,13 +482,14 @@ class FilmNeuralDetailTests(unittest.TestCase):
                  patch("film_ai_detail.run_cmd",side_effect=fake_run), \
                  patch("film_ai_detail.subprocess.Popen",side_effect=fake_popen):
                 got=film_ai_detail.restore_clip(
-                    source,root,"ffmpeg",3.0,60.0,lambda *_:None
+                    source,root,"ffmpeg",3.0,60.0,lambda *_:None, speed="max"
                 )
             self.assertEqual(got,output)
             self.assertTrue(output.is_file())
             model_command=next(row for row in commands if "-n" in row)
             self.assertEqual(model_command[model_command.index("-t")+1],"64")
             self.assertEqual(model_command[model_command.index("-s")+1],"4")
+            self.assertEqual(model_command[model_command.index("-j")+1],"2:2:2")
             self.assertTrue(any("-map" in row and "1:a:0?" in row for row in commands))
             self.assertTrue(any(
                 "-filter_complex" in row and "scale=1920:1080:flags=lanczos" in str(row)
