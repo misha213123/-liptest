@@ -206,8 +206,6 @@
         <div class="fieldset" style="margin-top:18px">
           <label class="toggle"><input id="face" type="checkbox" checked> Автослежение по лицу</label>
           <label class="toggle"><input id="captions" type="checkbox" checked> Субтитры из голоса</label>
-          <label class="toggle"><input id="enhance" type="checkbox" checked> Цвет + чёткость HQ</label>
-          <label class="toggle"><input id="optical" type="checkbox"> Optical Flow (медленно)</label>
         </div>
         <div style="margin-top:13px">
           <label for="faceFocus">Кого удерживать в кадре, если людей несколько</label>
@@ -304,56 +302,6 @@
 
       <section class="card">
         <h2>4. Качество и экспорт</h2>
-        <div class="card" style="background:#142322;border:1px solid #456c61;margin-bottom:18px">
-          <h3 style="font-size:16px;margin:0 0 8px">Face Beauty + Smart Colors · как в редакторах Ultra HD</h3>
-          <p class="hint" style="margin:0 0 12px">Локальная ретушь кожи на найденных лицах и адаптивное усиление цвета. Настройки реально работают в MP4 и на миниатюре «До / После», до создания плавных 60 FPS.</p>
-          <div class="fieldset" style="margin:12px 0">
-            <label class="toggle" style="cursor:pointer">
-              <input id="faceBeauty" type="checkbox" checked>
-              Сглаживание кожи на лицах
-            </label>
-            <label class="toggle" style="cursor:pointer">
-              <input id="smartColors" type="checkbox" checked>
-              Smart Colors · живой цвет и контраст
-            </label>
-          </div>
-          <div class="grid2" style="margin-top:12px">
-            <div>
-              <label for="beautySkin">Гладкость кожи: <strong id="beautySkinVal">42%</strong></label>
-              <input id="beautySkin" type="range" min="0" max="100" step="1" value="42">
-            </div>
-            <div>
-              <label for="beautyTone">Выравнивание тона лица: <strong id="beautyToneVal">38%</strong></label>
-              <input id="beautyTone" type="range" min="0" max="100" step="1" value="38">
-            </div>
-            <div>
-              <label for="smartColorStrength">Smart Colors: <strong id="smartColorStrengthVal">55%</strong></label>
-              <input id="smartColorStrength" type="range" min="0" max="100" step="1" value="55">
-            </div>
-            <div>
-              <label for="smartClarity">AI-подобная чёткость краёв: <strong id="smartClarityVal">27%</strong></label>
-              <input id="smartClarity" type="range" min="0" max="100" step="1" value="27">
-            </div>
-          </div>
-          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:13px">
-            <button id="beautyNaturalBtn" type="button" class="secondary">Натурально</button>
-            <button id="beautyUltraBtn" type="button">Красивый Ultra HD</button>
-            <button id="beautyMaxBtn" type="button" class="secondary">Сильная ретушь · MAX</button>
-          </div>
-          <p class="hint">Сглаживание работает только внутри мягкой маски лица; область глаз, губ и контуров защищена. OpenCV обнаруживает лица локально, а не передаёт их в облако. Это не фирменный CapCut Beauty и не нейросетевое восстановление потерянных деталей. Слишком большая ретушь может сделать кожу неестественной.</p>
-        </div>
-        <label>Цветовые фильтры — работают в MP4 и на миниатюре</label>
-        <div class="color-gallery" id="colorGallery">
-          <button class="color-option active" data-look="natural" type="button"><span class="swatch"></span>Натуральный</button>
-          <button class="color-option" data-look="vibrant" type="button"><span class="swatch"></span>Насыщенный</button>
-          <button class="color-option" data-look="ultra" type="button"><span class="swatch"></span>Ultra · сочный</button>
-          <button class="color-option" data-look="smooth_vivid" type="button"><span class="swatch"></span>Кино · суперплавно</button>
-          <button class="color-option" data-look="reference" type="button"><span class="swatch"></span>Кино · как в примере</button>
-          <button class="color-option" data-look="bright" type="button"><span class="swatch"></span>Яркий</button>
-          <button class="color-option" data-look="cinema" type="button"><span class="swatch"></span>Кино</button>
-          <button class="color-option" data-look="warm" type="button"><span class="swatch"></span>Тёплый</button>
-          <button class="color-option" data-look="cool" type="button"><span class="swatch"></span>Холодный</button>
-        </div>
         <div class="grid3">
           <div><label for="ratio">Соотношение</label><select id="ratio">
             <option value="9:16">9:16 · Reels / Shorts</option><option value="4:5">4:5 · Instagram</option>
@@ -373,150 +321,20 @@
             <option value="source">Как у источника</option><option value="30">30 FPS</option><option value="60">60 FPS</option>
           </select></div>
         </div>
-        <div class="grid2" style="margin-top:15px">
-          <div><label for="gamma">Гамма изображения: <span id="gammaVal">1.05</span></label><input type="range" id="gamma" min=".60" max="1.60" step=".01" value="1.05"></div>
-          <div><label for="saturation">Насыщенность: <span id="satVal">1.10</span></label><input type="range" id="saturation" min=".50" max="2.50" step=".01" value="1.10"></div>
-        </div>
-        <div class="grid2" style="margin-top:15px">
-          <div><label for="brightness">Яркость: <span id="brightVal">0.02</span></label><input type="range" id="brightness" min="-.20" max=".25" step=".005" value=".02"></div>
-          <div><label for="contrast">Контраст: <span id="contrastVal">1.06</span></label><input type="range" id="contrast" min=".50" max="1.80" step=".01" value="1.06"></div>
-        </div>
-        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:13px">
-          <button id="maxFiltersBtn" type="button">Выкрутить фильтры на MAX</button>
-          <button id="resetFiltersBtn" type="button" class="secondary">Вернуть плавный пресет</button>
-        </div>
-        <p class="hint">Профессиональные диапазоны: насыщенность до 2.50×, контраст до 1.80×, гамма до 1.60. Максимум может испортить оттенки кожи и пересветить кадр — сравни «До / После» справа.</p>
-        <div class="card" style="margin:18px 0 0;background:#111d20;border-color:#3e5d5a">
-          <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
-            <div>
-              <strong style="font-size:16px">Улучшение изображения · ручная настройка</strong>
-              <p class="hint">По принципу панели Topaz: шум, артефакты, микродетали, резкость и зерно.</p>
-            </div>
-            <div style="min-width:160px;max-width:260px;flex:1">
-              <label for="restorePreset">Профиль обработки</label>
-              <select id="restorePreset">
-                <option value="balanced" selected>Сбалансированный</option>
-                <option value="clean">Убрать шум и сжатие</option>
-                <option value="detail">Чёткие детали</option>
-                <option value="film">Кино · немного зерна</option>
-                <option value="manual">Ручная настройка</option>
-              </select>
-            </div>
-          </div>
-          <div class="grid2" style="margin-top:14px">
-            <div style="grid-column:1/-1;padding:12px;border:1px solid #577b76;border-radius:10px">
-              <strong>Очистка изображения без AI</strong>
-              <div><label for="removeGrain">Удаление зернистости <strong id="removeGrainVal">0%</strong></label>
-                <input id="removeGrain" type="range" min="0" max="100" step="1" value="0" style="width:100%"></div>
-              <div><label for="removeBlur">Удаление мыла <strong id="removeBlurVal">0%</strong></label>
-                <input id="removeBlur" type="range" min="0" max="100" step="1" value="0" style="width:100%"></div>
-              <button id="maxCleanupBtn" class="secondary" type="button">Максимальная очистка без AI</button>
-              <p class="hint">Работает независимо от AI и цветокоррекции. При высоких значениях возможны потеря текстур и ореолы.</p>
-            </div>
-            <div><label for="artifactReduction">Убрать артефакты сжатия <strong id="artifactReductionVal">8</strong></label>
-              <input id="artifactReduction" type="range" min="0" max="100" step="1" value="8"></div>
-            <div><label for="denoise">Шумоподавление <strong id="denoiseVal">12</strong></label>
-              <input id="denoise" type="range" min="0" max="100" step="1" value="12"></div>
-            <div><label for="microdetail">Микродетали (локальный контраст) <strong id="microdetailVal">12</strong></label>
-              <input id="microdetail" type="range" min="0" max="100" step="1" value="12"></div>
-            <div><label for="sharpen">Резкость <strong id="sharpenVal">36</strong></label>
-              <input id="sharpen" type="range" min="0" max="100" step="1" value="36"></div>
-            <div><label for="filmGrain">Зернистость плёнки <strong id="filmGrainVal">0</strong></label>
-              <input id="filmGrain" type="range" min="0" max="100" step="1" value="0"></div>
-          </div>
-          <p class="hint">Настройки применяются через FFmpeg и отображаются в миниатюре «До / После». Это не фирменные модели Proteus, Iris или Starlight от Topaz. Избыточная резкость может создать ореолы вокруг лиц.</p>
-        </div>
         <div class="card" style="margin:18px 0 0;background:#162524;border-color:#3d645a">
-          <div style="display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap">
-            <div>
-              <strong style="font-size:15px">Плавность и максимальное качество</strong>
-              <p class="hint">Быстрый пресет без зависающего AI: компенсация движения между кадрами, живые насыщенные цвета, сглаживание шума и мягкая резкость. Video2X / RIFE — отдельно, если захочешь.</p>
-            </div>
-            <div class="row" style="gap:8px;flex-wrap:wrap">
-              <button id="smoothPresetBtn" type="button">Максимальная плавность + сочные цвета · 60 FPS</button>
-              <button id="referencePresetBtn" type="button" class="secondary">Как в примере · 60 FPS</button>
-              <button id="ultraPresetBtn" class="secondary" type="button">Ultra AI · тяжёлый режим</button>
-              <button id="pureUltraBtn" type="button">Ultra HD · только AI-восстановление</button>
-            </div>
-          </div>
-          <div class="card" style="margin:15px 0;background:#102326;border:1px solid #577b76">
-            <label class="toggle" style="cursor:pointer">
-              <input type="checkbox" id="aiDetailRestore">
-              <span><strong>AI Detail Restore · реальная нейросеть</strong>
-                <small style="display:block;color:#abc4be">Восстановление деталей через Real-ESRGAN NCNN Vulkan, отдельно от Video2X</small></span>
-            </label>
-            <div class="grid2" style="margin-top:12px">
-              <div>
-                <label for="aiDetailModel">Бесплатная модель улучшения качества</label>
-                <select id="aiDetailModel">
-                  <option value="realesrgan-x4plus" selected>Real-ESRGAN x4plus · восстановление деталей</option>
-                </select>
-              </div>
-              <div>
-                <label for="aiDetailTile">Блоки GPU · для GTX 1650 4 ГБ</label>
-                <select id="aiDetailTile">
-                  <option value="32">32 px · меньше видеопамяти</option>
-                  <option value="64">64 px · сбалансировано</option>
-                  <option value="96" selected>96 px · быстрее, если памяти хватит</option>
-                  <option value="128">128 px · максимум, больше VRAM</option>
-                </select>
-              </div>
-            </div>
-            <div style="margin-top:12px">
-              <label for="aiDetailSpeed">Скорость AI-обработки</label>
-              <select id="aiDetailSpeed" style="width:100%">
-                <option value="balanced">Стабильный · 1:1:1</option>
-                <option value="fast" selected>Быстрый · 1:2:2</option>
-                <option value="max">Максимальная нагрузка GPU · 2:2:2</option>
-              </select>
-              <p class="hint">При ошибке памяти выбери стабильный режим и блок 32–64 px. На одном кадре параллельные потоки почти не помогают; увеличение блока может ускорить обработку.</p>
-            </div>
-            <div style="margin-top:14px;padding:12px;border:1px solid #38544e;border-radius:10px;background:#0d1919">
-              <div class="row" style="align-items:center;justify-content:space-between;gap:10px">
-                <label for="aiDetailStrength"><strong>Удаление мыла · сила AI-восстановления</strong></label>
-                <strong id="aiDetailStrengthVal" class="pill">100%</strong>
-              </div>
-              <input id="aiDetailStrength" type="range" min="0" max="100" step="1" value="100" style="width:100%;accent-color:#83b3a4">
-              <div class="row" style="justify-content:space-between;color:#abc4be;font-size:12px">
-                <span>0% · оригинал</span><span>100% · максимум AI</span>
-              </div>
-              <p class="hint" style="margin:7px 0 0">Ползунок смешивает исходный кадр с настоящим результатом Real-ESRGAN. 100% — полная сила нейросети; 50% — более естественный результат с меньшим риском искусственных текстур.</p>
-            </div>
-            <div class="row" style="align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px">
-              <button id="installDetailRestoreBtn" type="button" class="secondary">Установить нейросеть на компьютер</button>
-              <button id="testDetailFrameBtn" type="button" class="secondary">Проверить AI на 1 кадре</button>
-              <span id="detailRestoreStatus" class="hint" role="status">Проверяю нейросетевой движок…</span>
-            </div>
-            <p class="hint">Бесплатный Real-ESRGAN с лицензией MIT; без подписки, без загрузки видео в облако. Для GTX 1650: сначала 5 секунд, 1080p, блоки 32–64 px. Нейросеть обрабатывает исходные 30 FPS, затем создаются плавные 60 FPS и накладываются чёткие субтитры. Максимум 30 секунд. Может создавать искусственные детали; это не модели Topaz. Установка начинается только по кнопке.</p>
-          </div>
+          <button id="smoothPresetBtn" type="button" style="width:100%;padding:14px">Максимальная плавность + сочные цвета · 60 FPS</button>
+          <p class="hint">Без нейросетей: очистка исходника, компенсация движения, яркая картинка и качественный Lanczos-апскейл. 4K увеличивает размер файла и время рендера.</p>
           <div class="grid2" style="margin-top:14px">
-            <div>
-              <label for="video2xUpscale">AI-улучшение изображения</label>
-              <select id="video2xUpscale">
-                <option value="off" selected>Обычный FFmpeg · без Video2X</option>
-                <option value="realesrgan-plus">Real-ESRGAN Plus · живое кино, 4×</option>
-                <option value="realesr-animevideov3">Real-ESRGAN AnimeVideo v3 · 2×</option>
-                <option value="anime4k-v4-a+a">Anime4K v4 A+A · целевой размер</option>
-              </select>
-            </div>
-            <div>
-              <label for="video2xRife">AI-плавность RIFE</label>
-              <select id="video2xRife">
-                <option value="1" selected>Выключена · FPS как задано выше</option>
-                <option value="2">RIFE ×2 · например 30→60 FPS</option>
-                <option value="4">RIFE ×4 · например 30→120 FPS (очень медленно)</option>
-              </select>
-            </div>
+            <div><label for="saturation">Насыщенность <strong id="satVal">1.29</strong></label><input type="range" id="saturation" min=".50" max="2.50" step=".01" value="1.29"></div>
+            <div><label for="contrast">Контрастность <strong id="contrastVal">1.19</strong></label><input type="range" id="contrast" min=".50" max="1.80" step=".01" value="1.19"></div>
+            <div><label for="removeGrain">Удаление зернистости <strong id="removeGrainVal">75%</strong></label><input id="removeGrain" type="range" min="0" max="100" step="1" value="75"></div>
+            <div><label for="removeBlur">Удаление мыла <strong id="removeBlurVal">65%</strong></label><input id="removeBlur" type="range" min="0" max="100" step="1" value="65"></div>
           </div>
-          <p class="hint" id="video2xInfo">
-            Video2X 6.x устанавливается отдельно: <a href="https://github.com/k4yt3x/video2x/releases" target="_blank" rel="noopener noreferrer" style="color:#a6dfcf;text-decoration:underline">скачать с GitHub</a>.
-            При выключенных AI-функциях Film Studio работает через обычный FFmpeg. Для GTX 1650 лучше использовать «Как в примере · 60 FPS»: цвет и движение без тяжёлого Video2X.
-          </p>
+          <p class="hint" id="outputHint">Яркость и гамма настроены автоматически пресетом; 0% отключает соответствующий фильтр.</p>
         </div>
-        <p class="hint" id="outputHint">Цвет и гамма: FFmpeg. Video2X улучшает изображение и/или увеличивает FPS, но не заменяет качественный оригинал.</p>
         <button id="renderBtn" style="width:100%;margin-top:18px;padding:15px;font-size:15px" type="button">Начать рендер клипа</button>
-        <button id="cancelFilmBtn" type="button" class="secondary" disabled style="width:100%;margin-top:8px">Остановить рендер и Video2X</button>
-        <p class="hint">Остановка завершает дочерние процессы Video2X и FFmpeg. Исходное видео сохраняется.</p>
+        <button id="cancelFilmBtn" type="button" class="secondary" disabled style="width:100%;margin-top:8px">Остановить рендер</button>
+        <p class="hint">Остановка завершает дочерние процессы FFmpeg. Исходное видео сохраняется.</p>
         <div id="renderStatus" class="status muted" role="status"></div>
         <progress id="renderProgress" max="100" value="0" hidden></progress>
         <pre id="renderLog" hidden></pre>
@@ -594,8 +412,6 @@ function rememberFilmInput(id){
   try {localStorage.setItem(lastFilmInputKey,id)} catch {}
 }
 let captionStyle='bold',previewTimer=null,previewWorking=false,previewQueued=false,previewLoaded=false,preparedPreviewShown=false;
-let colorTone='neutral',activeColorLook='natural';
-let requestNeuralPreview=false;
 let previewOriginal='',previewGraded='',showProcessed=true;
 let knownDownloadIds=new Set(),downloadsReady=false,scanningDownloads=false,importingDownload=false,autoWatchArmed=false;
 const numberMB=bytes=>(Number(bytes)/1048576).toFixed(1)+' МБ';
@@ -756,265 +572,45 @@ function updateSize(){
 ['size','ratio','fps'].forEach(id=>{
   $(id).onchange=()=>{updateSize();if(id==='ratio')scheduleFilmPreview()}
 });
-function updateVideo2X(){
-  const model=$('video2xUpscale').value;
-  const mult=Number($('video2xRife').value);
-  const active=model!=='off'||mult>1;
-  if(active)$('aiDetailRestore').checked=false;
-  $('optical').disabled=mult>1;
-  if(mult>1)$('optical').checked=false;
-  $('video2xInfo').textContent=active
-    ? 'Включён внешний Video2X 6.x (Vulkan GPU). Установи CLI video2x.exe; если она не найдена, рендер покажет точную ошибку. '+(mult>1?'RIFE ×'+mult+' увеличит исходную частоту кадров.':'')+' Нейросетевой рендер может идти существенно дольше.'
-    : 'Обычный FFmpeg: работает без установленного Video2X. Для AI-улучшения скачай Video2X 6.x с официального GitHub.';
-  updateSize();
-}
-$('video2xUpscale').onchange=updateVideo2X;
-
-const beautyInputs=['beautySkin','beautyTone','smartColorStrength','smartClarity'];
-function refreshBeautyControls(){
-  for(const id of beautyInputs)$(id+'Val').textContent=$(id).value+'%';
-  $('beautySkin').disabled=!$('faceBeauty').checked;
-  $('beautyTone').disabled=!$('faceBeauty').checked;
-  $('smartColorStrength').disabled=!$('smartColors').checked;
-  $('smartClarity').disabled=!$('smartColors').checked;
-}
-function applyBeautyPreset(skin,tone,color,clarity){
-  $('faceBeauty').checked=true;
-  $('smartColors').checked=true;
-  for(const [id,value] of Object.entries({
-    beautySkin:skin,beautyTone:tone,smartColorStrength:color,smartClarity:clarity,
-  }))$(id).value=value;
-  refreshBeautyControls();
-  scheduleFilmPreview();
-}
-$('beautyNaturalBtn').onclick=()=>applyBeautyPreset(25,18,30,12);
-$('beautyUltraBtn').onclick=()=>applyBeautyPreset(42,38,55,27);
-$('beautyMaxBtn').onclick=()=>applyBeautyPreset(88,78,95,78);
-for(const id of beautyInputs){
-  $(id).addEventListener('input',()=>{
-    refreshBeautyControls();
-    scheduleFilmPreview();
-  });
-}
-for(const id of ['faceBeauty','smartColors']){
-  $(id).addEventListener('change',()=>{
-    refreshBeautyControls();
-    scheduleFilmPreview();
-  });
-}
-refreshBeautyControls();
-
-let detailRestoreInstalled=false;
-async function checkDetailRestore(){
-  try{
-    const r=await fetch('/api/film/detail/status',{cache:'no-store'});
-    const info=await r.json();
-    if(!r.ok)throw new Error(info.error||'Ошибка проверки');
-    detailRestoreInstalled=!!info.installed;
-    $('detailRestoreStatus').textContent=detailRestoreInstalled
-      ?'Нейросеть доступна. Выбери короткий клип.'
-      :'Нейросеть не установлена. Нажми кнопку установки.';
-    $('installDetailRestoreBtn').hidden=detailRestoreInstalled;
-  }catch(e){
-    detailRestoreInstalled=false;
-    $('detailRestoreStatus').textContent='Ошибка проверки: '+e.message;
-  }
-}
-$('installDetailRestoreBtn').onclick=async()=>{
-  const b=$('installDetailRestoreBtn');
-  b.disabled=true;
-  $('detailRestoreStatus').textContent='Скачиваю официальный Real-ESRGAN NCNN Vulkan с GitHub…';
-  try{
-    const r=await fetch('/api/film/detail/install',{method:'POST'});
-    const j=await r.json();
-    if(!r.ok||!j.ok)throw new Error(j.error||'Ошибка установки');
-    await checkDetailRestore();
-  }catch(e){
-    $('detailRestoreStatus').textContent='Не удалось установить: '+e.message;
-  }finally{b.disabled=false;}
-};
-$('aiDetailSpeed').onchange=()=>{
-  $('aiDetailTile').value={balanced:'64',fast:'96',max:'128'}[$('aiDetailSpeed').value];
-};
-$('aiDetailStrength').oninput=()=>{
-  $('aiDetailStrengthVal').textContent=$('aiDetailStrength').value+'%';
-};
-$('aiDetailRestore').onchange=()=>{
-  if(!$('aiDetailRestore').checked)return;
-  $('size').value='1080';
-  $('fps').value='60';
-  $('video2xUpscale').value='off';
-  $('video2xRife').value='1';
-  $('optical').disabled=false;
-  $('optical').checked=true;
-  updateVideo2X();
-  status('renderStatus','AI Detail Restore включён: нейросеть для коротких сцен, плавность 60 FPS сохраняется.');
-};
-checkDetailRestore();
-
-const restorationPresets={
-  balanced:{artifactReduction:8,denoise:12,microdetail:12,sharpen:36,filmGrain:0},
-  clean:{artifactReduction:48,denoise:54,microdetail:8,sharpen:18,filmGrain:0},
-  detail:{artifactReduction:12,denoise:18,microdetail:58,sharpen:62,filmGrain:0},
-  film:{artifactReduction:16,denoise:18,microdetail:26,sharpen:36,filmGrain:24}
-};
-const restorationFields=['artifactReduction','denoise','microdetail','sharpen','filmGrain'];
-function refreshRestorationLabels(){
-  for(const id of restorationFields)$(id+'Val').textContent=$(id).value;
-}
-function applyRestorationPreset(mode){
-  const settings=restorationPresets[mode];
-  if(settings){
-    for(const id of restorationFields)$(id).value=settings[id];
-    $('enhance').checked=true;
-  }
-  refreshRestorationLabels();
-  scheduleFilmPreview();
-}
-$('restorePreset').onchange=()=>applyRestorationPreset($('restorePreset').value);
-for(const id of restorationFields){
-  $(id).oninput=()=>{
-    $('restorePreset').value='manual';
-    refreshRestorationLabels();
-    scheduleFilmPreview();
+function imageSettings(){
+  return {
+    clean_hd:true, enhance:true, gamma:1.12, brightness:.04,
+    saturation:Number($('saturation').value),
+    contrast:Number($('contrast').value),
+    remove_grain:Number($('removeGrain').value),
+    remove_blur:Number($('removeBlur').value),
+    color_tone:'warm',
+    face_beauty:false,smart_colors:false,
+    ai_detail_restore:false,ai_detail_preview:false,
+    video2x_upscale:'off',video2x_rife:1
   };
 }
-for(const id of ['removeGrain','removeBlur']){
-  $(id).oninput=()=>{$(id+'Val').textContent=$(id).value+'%';};
+function refreshImageLabels(){
+  $('satVal').textContent=Number($('saturation').value).toFixed(2);
+  $('contrastVal').textContent=Number($('contrast').value).toFixed(2);
+  for(const id of ['removeGrain','removeBlur'])$(id+'Val').textContent=$(id).value+'%';
+}
+function applySmoothVividPreset(showMessage=true){
+  $('size').value='2160';
+  $('fps').value='60';
+  $('saturation').value=1.29;
+  $('contrast').value=1.19;
+  $('removeGrain').value=75;
+  $('removeBlur').value=65;
+  refreshImageLabels();
+  updateSize();
+  scheduleFilmPreview();
+  if(showMessage)status('renderStatus','Пресет включён: 4K-апскейл, плавные 60 FPS, яркий цвет и очистка без AI. Для ускорения можно выбрать 1080p.');
+}
+$('smoothPresetBtn').onclick=()=>applySmoothVividPreset();
+for(const id of ['saturation','contrast','removeGrain','removeBlur']){
+  $(id).oninput=refreshImageLabels;
   $(id).onchange=scheduleFilmPreview;
 }
-$('maxCleanupBtn').onclick=()=>{
-  for(const id of ['removeGrain','removeBlur']){
-    $(id).value=100;
-    $(id+'Val').textContent='100%';
-  }
-  $('aiDetailRestore').checked=false;
-  $('video2xUpscale').value='off';
-  $('video2xRife').value='1';
-  $('faceBeauty').checked=false;
-  $('filmGrain').value=0;
-  refreshRestorationLabels();
-  updateVideo2X();
-  scheduleFilmPreview();
-};
-applyRestorationPreset('balanced');
-
-$('video2xRife').onchange=updateVideo2X;
-$('maxFiltersBtn').onclick=()=>{
-  $('enhance').checked=true;
-  colorTone='warm';activeColorLook='custom';refreshColorOptions();
-  const amounts={gamma:1.60,saturation:2.50,brightness:.25,contrast:1.80};
-  for(const [id,value] of Object.entries(amounts))$(id).value=value;
-  $('gammaVal').textContent=Number($('gamma').value).toFixed(2);
-  $('satVal').textContent=Number($('saturation').value).toFixed(2);
-  $('brightVal').textContent=Number($('brightness').value).toFixed(3);
-  $('contrastVal').textContent=Number($('contrast').value).toFixed(2);
-  $('restorePreset').value='manual';
-  for(const id of ['artifactReduction','denoise','microdetail','sharpen'])$(id).value=100;
-  $('filmGrain').value=0;
-  refreshRestorationLabels();
-  scheduleFilmPreview();
-  status('renderStatus','MAX-фильтры применены. Сравни цвет и резкость на миниатюре: чрезмерные значения могут сделать видео неестественным.');
-};
-$('resetFiltersBtn').onclick=()=>applySmoothVividPreset(true);
-
-function applySmoothVividPreset(showMessage=true){
-  // Designed for GTX 1650 4GB: actual FFmpeg frame interpolation on CPU,
-  // filmic warm/high-saturation grade, light temporal smoothing and
-  // controlled sharpening. Keep the user's 9:16 / 5:4 / 1:1 crop choice.
-  $('size').value='1080';
-  $('fps').value='60';
-  $('video2xUpscale').value='off';
-  $('video2xRife').value='1';
-  $('aiDetailRestore').checked=false;
-  $('optical').disabled=false;
-  $('optical').checked=true;
-  $('enhance').checked=true;
-  $('restorePreset').value='manual';
-  const restoration={
-    artifactReduction:22,
-    denoise:34,
-    microdetail:28,
-    sharpen:38,
-    filmGrain:0
-  };
-  for(const [name,value] of Object.entries(restoration))$(name).value=value;
-  refreshRestorationLabels();
-  selectColorLook('smooth_vivid');
-  updateVideo2X();
-  $('outputHint').textContent='Плавность: FFmpeg Motion-Compensated Optical Flow до 60 FPS, без дублирования кадров. Цвет: контраст 1.19, насыщенность 1.29, гамма 1.075, тёплый тон. 1080p H.264 CRF 16. Video2X выключен — не будет зависания на 72%.';
-  if(showMessage)status('renderStatus',
-    'Пресет включён: плавные 60 FPS на всём клипе + яркая насыщенная картинка, с подавлением шума. Формат кадра сохранён. Video2X выключен.');
-}
-$('smoothPresetBtn').onclick=()=>applySmoothVividPreset(true);
-$('referencePresetBtn').onclick=()=>{
-  $('ratio').value='1:1';
-  $('size').value='1080';
-  $('fps').value='60';
-  $('video2xUpscale').value='off';
-  $('video2xRife').value='1';
-  $('aiDetailRestore').checked=false;
-  $('optical').disabled=false;
-  $('optical').checked=true;
-  $('enhance').checked=true;
-  selectColorLook('reference');
-  updateVideo2X();
-  scheduleFilmPreview();
-  status('renderStatus','Пресет как в примере: квадрат 1:1, тёплая цветокоррекция, реальная optical-flow интерполяция до 60 FPS, без зависающего Video2X.');
-};
-$('pureUltraBtn').onclick=()=>{
-  $('aiDetailRestore').checked=true;
-  $('aiDetailRestore').onchange();
-  $('aiDetailModel').value='realesrgan-x4plus';
-  $('aiDetailSpeed').value='max';
-  $('aiDetailSpeed').onchange();
-  $('aiDetailStrength').value=100;
-  $('aiDetailStrength').oninput();
-  $('enhance').checked=false;
-  $('faceBeauty').checked=false;
-  $('smartColors').checked=false;
-  $('restorePreset').value='manual';
-  for(const id of restorationFields)$(id).value=0;
-  refreshRestorationLabels();
-  for(const id of ['removeGrain','removeBlur']){
-    $(id).value=0;
-    $(id).oninput();
-  }
-  refreshBeautyControls();
-  refreshColorOptions();
-  status('renderStatus','Ultra HD: только Real-ESRGAN x4plus, без цветовых и дополнительных фильтров. 1080p / 60 FPS. Проверь AI на 1 кадре.');
-  if(uploadedId && detailRestoreInstalled){
-    if(previewTimer)clearTimeout(previewTimer);
-    requestNeuralPreview=true;
-    loadFilmPreview();
-  }else{
-    scheduleFilmPreview();
-  }
-};
-$('ultraPresetBtn').onclick=()=>{
-  $('video2xUpscale').value='realesrgan-plus';
-  $('video2xRife').value='2';
-  $('size').value='2160';
-  $('fps').value='source';
-  $('enhance').checked=true;
-  selectColorLook('ultra');
-  $('optical').checked=false;
-  updateVideo2X();
-};
-updateVideo2X();
-['gamma','saturation','brightness','contrast'].forEach(id=>$(id).oninput=()=>{
-  activeColorLook='custom';refreshColorOptions();
-  scheduleFilmPreview();
-  $('gammaVal').textContent=Number($('gamma').value).toFixed(2);
-  $('satVal').textContent=Number($('saturation').value).toFixed(2);
-  $('brightVal').textContent=Number($('brightness').value).toFixed(3);
-  $('contrastVal').textContent=Number($('contrast').value).toFixed(2);
-});
-updateSize();
 $('cancelFilmBtn').onclick=async()=>{
   if(!busy)return;
   $('cancelFilmBtn').disabled=true;
-  status('renderStatus','Останавливаю рендер и Video2X...');
+  status('renderStatus','Останавливаю рендер...');
   try{
     const response=await fetch('/api/film/render/cancel',{
       method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
@@ -1027,38 +623,6 @@ $('cancelFilmBtn').onclick=async()=>{
     $('cancelFilmBtn').disabled=false;
   }
 };
-const colorLooks={
-  natural:{gamma:1.02,brightness:0,contrast:1.04,saturation:1.06,tone:'neutral'},
-  vibrant:{gamma:1.07,brightness:.025,contrast:1.11,saturation:1.23,tone:'neutral'},
-  ultra:{gamma:1.10,brightness:.040,contrast:1.17,saturation:1.28,tone:'neutral'},
-  smooth_vivid:{gamma:1.075,brightness:.025,contrast:1.19,saturation:1.29,tone:'warm'},
-  reference:{gamma:1.055,brightness:.015,contrast:1.18,saturation:1.24,tone:'warm'},
-  bright:{gamma:1.12,brightness:.052,contrast:1.06,saturation:1.10,tone:'neutral'},
-  cinema:{gamma:1.04,brightness:.003,contrast:1.15,saturation:1.09,tone:'warm'},
-  warm:{gamma:1.05,brightness:.018,contrast:1.08,saturation:1.15,tone:'warm'},
-  cool:{gamma:1.03,brightness:.015,contrast:1.10,saturation:1.13,tone:'cool'}
-};
-function refreshColorOptions(){
-  document.querySelectorAll('.color-option').forEach(button=>{
-    button.classList.toggle('active',button.dataset.look===activeColorLook);
-  });
-}
-function selectColorLook(name){
-  const look=colorLooks[name];if(!look)return;
-  activeColorLook=name;colorTone=look.tone;
-  for(const key of ['gamma','brightness','contrast','saturation'])$(key).value=look[key];
-  $('gammaVal').textContent=look.gamma.toFixed(2);
-  $('brightVal').textContent=look.brightness.toFixed(3);
-  $('contrastVal').textContent=look.contrast.toFixed(2);
-  $('satVal').textContent=look.saturation.toFixed(2);
-  $('enhance').checked=true;refreshColorOptions();scheduleFilmPreview();
-}
-document.querySelectorAll('.color-option').forEach(button=>{
-  button.onclick=()=>selectColorLook(button.dataset.look);
-});
-refreshColorOptions();
-// Make the requested smooth & vivid look the Film Studio default.
-// The ratio remains under the user's control.
 applySmoothVividPreset(false);
 function refreshCaptionDemo(){
   const demo=$('captionSample');
@@ -1156,40 +720,15 @@ async function loadFilmPreview(){
     status('previewStatus','Проверь таймкоды начала и конца.');
     return;
   }
-  const requestedAIPreview=requestNeuralPreview;
-  requestNeuralPreview=false;
   const payload={
     input_id:uploadedId,start,end,ratio:$('ratio').value,
     preview_position:Number($('previewPosition').value),
-    ai_detail_preview:requestedAIPreview,
-    ai_detail_model:$('aiDetailModel').value,
-    ai_detail_tile:Number($('aiDetailTile').value),
-    ai_detail_speed:$('aiDetailSpeed').value,
-    ai_detail_strength:Number($('aiDetailStrength').value),
     face_tracking:$('face').checked,face_focus:$('faceFocus').value,
-    enhance:$('enhance').checked,
-    gamma:Number($('gamma').value),saturation:Number($('saturation').value),
-    brightness:Number($('brightness').value),contrast:Number($('contrast').value),
-    artifact_reduction:Number($('artifactReduction').value),
-    denoise:Number($('denoise').value),
-    remove_grain:Number($('removeGrain').value),
-    remove_blur:Number($('removeBlur').value),
-    microdetail:Number($('microdetail').value),
-    sharpen:Number($('sharpen').value),
-    film_grain:Number($('filmGrain').value),
-    color_tone:colorTone,
-    face_beauty:$('faceBeauty').checked,
-    beauty_skin:Number($('beautySkin').value),
-    beauty_tone:Number($('beautyTone').value),
-    smart_colors:$('smartColors').checked,
-    smart_color_strength:Number($('smartColorStrength').value),
-    smart_clarity:Number($('smartClarity').value)
+    ...imageSettings()
   };
   previewWorking=true;
   $('previewBtn').disabled=true;
-  status('previewStatus',requestedAIPreview
-    ? 'Real-ESRGAN обрабатывает один кадр на GPU. После завершения покажу «До / После»...'
-    : 'Извлекаю кадр с кадрированием и цветокоррекцией...');
+  status('previewStatus','Очищаю кадр и применяю цветокоррекцию...');
   try{
     const response=await fetch('/api/film/preview',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -1227,9 +766,7 @@ async function loadFilmPreview(){
           ? 'Лицо обнаружено. '
           : 'Лицо на этом кадре не обнаружено — обрезка по центру. ')
         : 'Обрезка по центру. ')+
-      (result.ai_preview
-        ? 'AI восстановление деталей действительно обработало этот кадр. '
-        : 'Кадр и цвет реальные (AI-проход не применён). ')+
+      'Фильтры FFmpeg применены. '+
       'Субтитры на JPG — пример оформления.');
   }catch(err){
     status('previewStatus','Ошибка миниатюры: '+err.message);
@@ -1256,14 +793,6 @@ function showColorVersion(processed){
 $('beforeColorBtn').onclick=()=>showColorVersion(false);
 $('afterColorBtn').onclick=()=>showColorVersion(true);
 $('previewBtn').onclick=loadFilmPreview;
-$('testDetailFrameBtn').onclick=()=>{
-  if(!detailRestoreInstalled)return status('previewStatus',
-    'Сначала установи бесплатную нейросеть Real-ESRGAN.');
-  if(!uploadedId)return status('previewStatus',
-    'Сначала импортируй видео, чтобы проверить AI на кадре.');
-  requestNeuralPreview=true;
-  loadFilmPreview();
-};
 const previewSlider=$('previewPosition');
 previewSlider.oninput=()=>{
   $('previewPositionLabel').textContent=previewSlider.value+'%';
@@ -1277,7 +806,7 @@ function movePreview(delta){
 $('prevFrameBtn').onclick=()=>movePreview(-5);
 $('nextFrameBtn').onclick=()=>movePreview(5);
 ['start','end'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
-['face','enhance','faceFocus'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
+['face','faceFocus'].forEach(id=>$(id).addEventListener('change',scheduleFilmPreview));
 $('captions').addEventListener('change',()=>{
   $('captionSample').hidden=!$('captions').checked||!previewLoaded;
 });
@@ -1482,10 +1011,6 @@ $('renderBtn').onclick=async()=>{
   if(!uploadedId&&!catalog)return status('renderStatus','Сначала загрузи исходник или получи каталог HDrezka.');
   const start=timestamp($('start').value),end=timestamp($('end').value);
   if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>300)return status('renderStatus','Неверные таймкоды: продолжительность от 1 секунды до 5 минут.');
-  if($('aiDetailRestore').checked&&(end-start>30||Number($('size').value)!==1080))
-    return status('renderStatus','AI Detail Restore: выбери отрывок до 30 секунд и 1080p.');
-  if($('aiDetailRestore').checked&&!detailRestoreInstalled)
-    return status('renderStatus','Сначала установи нейросеть кнопкой «Установить нейросеть на компьютер».');
   const payload={
     input_id:uploadedId,url:uploadedId?'':$('sourceUrl').value.trim(),
     season:uploadedId?'':$('season').value,episode:uploadedId?'':$('episode').value,
@@ -1493,30 +1018,8 @@ $('renderBtn').onclick=async()=>{
     ratio:$('ratio').value,size:Number($('size').value),fps:$('fps').value,
     face_tracking:$('face').checked,face_focus:$('faceFocus').value,
     captions:$('captions').checked,
-    optical_flow:$('optical').checked,enhance:$('enhance').checked,
-    gamma:Number($('gamma').value),saturation:Number($('saturation').value),
-    brightness:Number($('brightness').value),contrast:Number($('contrast').value),
-    artifact_reduction:Number($('artifactReduction').value),
-    denoise:Number($('denoise').value),
-    remove_grain:Number($('removeGrain').value),
-    remove_blur:Number($('removeBlur').value),
-    microdetail:Number($('microdetail').value),
-    sharpen:Number($('sharpen').value),
-    film_grain:Number($('filmGrain').value),
-    color_tone:colorTone,
-    face_beauty:$('faceBeauty').checked,
-    beauty_skin:Number($('beautySkin').value),
-    beauty_tone:Number($('beautyTone').value),
-    smart_colors:$('smartColors').checked,
-    smart_color_strength:Number($('smartColorStrength').value),
-    smart_clarity:Number($('smartClarity').value),
-    video2x_upscale:$('video2xUpscale').value,
-    video2x_rife:Number($('video2xRife').value),
-    ai_detail_restore:$('aiDetailRestore').checked,
-    ai_detail_model:$('aiDetailModel').value,
-    ai_detail_tile:Number($('aiDetailTile').value),
-    ai_detail_speed:$('aiDetailSpeed').value,
-    ai_detail_strength:Number($('aiDetailStrength').value),
+    optical_flow:$('fps').value==='60',
+    ...imageSettings(),
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
     speech_engine:$('speechEngine').value,
     whisper_model:$('whisperModel').value,speech_language:$('speechLanguage').value,
@@ -1546,7 +1049,7 @@ $('renderBtn').onclick=async()=>{
           $('previewImage').hidden=true;
           $('captionSample').hidden=true;
           $('emptyPreview').hidden=true;
-          status('previewStatus','Показывается подготовленный MP4 с настоящими субтитрами и цветом. AI-улучшение ещё выполняется.');
+          status('previewStatus','Показывается подготовленный MP4.');
         }
         if(s.running){status('renderStatus','Рендер... '+Math.round(s.progress||5)+'%');return}
         clearInterval(timer);busy=false;$('renderBtn').disabled=false;$('cancelFilmBtn').disabled=true;
@@ -1554,8 +1057,6 @@ $('renderBtn').onclick=async()=>{
         status('renderStatus','Готово! '+s.result.width+'×'+s.result.height+' · '+Number(s.result.fps).toFixed(2)+' FPS · '+s.result.captions+' субтитров'+
           (s.result.video2x&&s.result.video2x.enabled?' · Video2X AI ✓':'')+
           (s.result.detail_restore&&s.result.detail_restore.enabled?' · Neural AI Detail '+s.result.detail_restore.strength+'% ✓':''));
-        if(s.result.detail_restore&&s.result.detail_restore.warning)
-          status('detailRestoreStatus',s.result.detail_restore.warning);
         $('resultVideo').src=s.result.video_url+'?v='+Date.now();$('resultVideo').hidden=false;
         $('captionSample').hidden=true;$('previewImage').hidden=true;
         if(s.result.video2x&&s.result.video2x.warning){
