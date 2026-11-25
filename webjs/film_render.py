@@ -79,6 +79,7 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
         text=True, encoding="utf-8", errors="replace", bufsize=1,
         creationflags=FLAGS,
     )
+    print("[ffmpeg] Command: " + subprocess.list2cmdline(command), flush=True)
     started = time.monotonic()
     lines = []
     diagnostic_lines = []
@@ -90,7 +91,7 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
                 lines.append(line)
                 if len(lines) > 80:
                     lines.pop(0)
-                if re.search(r"error|failed|invalid|cannot|unable|memory|no space|fatal|denied|conversion failed", line, re.I):
+                if "UDTA parsing failed retrying raw" not in line and re.search(r"error|failed|invalid|cannot|unable|memory|no space|fatal|denied|conversion failed", line, re.I):
                     diagnostic_lines.append(line)
                     diagnostic_lines = diagnostic_lines[-30:]
                 # Preserve actual FFmpeg output in the job log, excluding the
@@ -651,12 +652,53 @@ def render(job: dict) -> dict:
         "-c:a", "aac", "-b:a", "256k",
         "-movflags", "+faststart", str(prepared),
     ]
+    motion_temp = out / "motion_native.mkv"
     try:
-        encode_with_progress(
-            cmd, duration, timeout=10800, progress_start=62,
-            progress_span=9 if (ai_enabled or detail_requested) else 36,
-        )
+        if clean_hd and optical and not ai_enabled and not detail_requested and not beauty_enabled:
+            # Isolate the previously working motion filter from cleanup,
+            # scaling, color, subtitle rendering and x264. Lossless native
+            # intermediate avoids double compression and preserves true 60 FPS.
+            motion_filter = optical_motion_filter(metadata["fps"], fps, True)
+            first_filters = vf[:2] + ["format=yuv420p", motion_filter]
+            first_cmd = [
+                FFMPEG, "-hide_banner", "-y", "-nostdin", "-filter_threads", "1",
+                "-ss", str(start), "-i", str(source), "-t", str(duration),
+                "-map", "0:v:0", "-an", "-vf", ",".join(first_filters),
+                "-c:v", "ffv1", "-threads:v", "4", str(motion_temp),
+            ]
+            progress("Этап 1/2: плавность 60 FPS на исходном разрешении", 62)
+            try:
+                encode_with_progress(first_cmd, duration, progress_start=62, progress_span=17)
+            except RuntimeError as exc:
+                if "0xC0000005" not in str(exc):
+                    raise
+                print("[motion] Native crash; retrying with simpler motion compensation (still real interpolation).", flush=True)
+                first_filters[-1] = (
+                    f"minterpolate=fps={int(fps)}:mi_mode=mci:mc_mode=obmc:"
+                    "me_mode=bilat:vsbmc=0:scd=fdiff:scd_threshold=10"
+                )
+                first_cmd[first_cmd.index("-vf") + 1] = ",".join(first_filters)
+                encode_with_progress(first_cmd, duration, progress_start=62, progress_span=17)
+            progress("Этап 2/2: очистка, апскейл, цвет и субтитры", 79)
+            final_filters = [f for f in vf[2:] if f != motion_filter]
+            cmd = [
+                FFMPEG, "-hide_banner", "-y", "-nostdin", "-filter_threads", "1",
+                "-i", str(motion_temp), "-ss", str(start), "-i", str(source),
+                "-t", str(duration), "-map", "0:v:0", "-map", "1:a:0?",
+                "-vf", ",".join(final_filters),
+                "-c:v", "libx264", "-preset", "medium", "-threads:v", "6",
+                "-x264-params", "rc-lookahead=20", "-crf", "15",
+                "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart",
+                str(prepared),
+            ]
+            encode_with_progress(cmd, duration, progress_start=79, progress_span=19)
+        else:
+            encode_with_progress(
+                cmd, duration, timeout=10800, progress_start=62,
+                progress_span=9 if (ai_enabled or detail_requested) else 36,
+            )
     finally:
+        motion_temp.unlink(missing_ok=True)
         if beauty_enabled:
             beauty_source.unlink(missing_ok=True)
     video2x_warning = ""
