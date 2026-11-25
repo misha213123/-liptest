@@ -114,8 +114,7 @@ def clean_hd_filters(job: dict) -> tuple[list[str], list[str]]:
     blur = _percent(job, "remove_blur") / 100
     pre, post = [], []
     if grain:
-        # Mild deblocking followed by fast spatial/temporal noise suppression.
-        pre.append(f"deblock=filter=strong:block=8:alpha={.065*grain:.3f}:beta={.035*grain:.3f}:gamma={.030*grain:.3f}:delta={.025*grain:.3f}")
+        # Avoid the extra deblock pass in clean HD; hqdn3d still suppresses noise.
         pre.append(f"hqdn3d={10*grain:.2f}:{8*grain:.2f}:{14*grain:.2f}:{11*grain:.2f}")
     # Disable legacy sharpness and grain defaults: only four visible controls.
     post.extend(color_filters({**job, "clean_hd": False, "remove_grain": 0,
