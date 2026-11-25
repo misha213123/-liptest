@@ -28,7 +28,7 @@ from film_openai import find_api_key, normalise_words
 OUT = ROOT / "output" / "film_highlights"
 AUDIO_CHUNK_SECONDS = 420  # 16kHz 16-bit mono WAV < 14 MiB, under 25 MB API limit
 MAX_DURATION = 7200
-RANKING_MODEL = "gpt-4.1"
+RANKING_MODEL = "gpt-4.1-mini"
 ALLOWED_CATEGORIES = {"plot_twist", "tension", "humor", "emotion", "dialogue", "action"}
 
 
@@ -63,6 +63,21 @@ def media_cache_directory(source: Path, language: str) -> Path:
     return OUT / key
 
 
+def read_json_cache(path: Path, kind):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, kind) else None
+    except (OSError, ValueError):
+        return None
+
+
+def write_json_cache(path: Path, data) -> None:
+    # Preserve completed paid work across interruption; atomic replacement.
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _safe_ai_error(exc: Exception, step: str) -> RuntimeError:
     code = getattr(exc, "status_code", None)
     if code in (401, 403):
@@ -84,11 +99,10 @@ def transcribe_episode(
 ) -> list[dict]:
     cache.mkdir(parents=True, exist_ok=True)
     transcript_path = cache / "transcript.json"
-    if transcript_path.is_file():
-        data = json.loads(transcript_path.read_text(encoding="utf-8"))
-        if isinstance(data, list) and data:
-            report("♻ Использую сохранённую расшифровку серии — без повторной оплаты", 55)
-            return data
+    data = read_json_cache(transcript_path, list)
+    if data is not None:
+        report("♻ Использую сохранённую расшифровку серии — без повторной оплаты", 55)
+        return data
 
     all_words: list[dict] = []
     chunks = math.ceil(duration / AUDIO_CHUNK_SECONDS)
@@ -96,14 +110,13 @@ def transcribe_episode(
         part = cache / f"chunk_{i:03d}.json"
         offset = i * AUDIO_CHUNK_SECONDS
         segment_duration = min(AUDIO_CHUNK_SECONDS, duration - offset)
-        if part.is_file():
-            stored = json.loads(part.read_text(encoding="utf-8"))
-            if not isinstance(stored, list):
-                raise ValueError("Повреждён кэш слов серии.")
+        stored = read_json_cache(part, list)
+        if stored is not None:
             all_words.extend(stored)
             report(f"♻ Фрагмент {i + 1}/{chunks} найден в кэше", 7 + int(48 * (i + 1) / chunks))
             continue
 
+        active_client = client() if callable(client) else client
         wav = cache / f"chunk_{i:03d}.wav"
         try:
             report(f"Извлекаю звук серии: часть {i+1}/{chunks}", 7 + int(20 * i / chunks))
@@ -125,7 +138,7 @@ def transcribe_episode(
                 params["language"] = language
             try:
                 with wav.open("rb") as voice:
-                    response = client.audio.transcriptions.create(file=voice, **params)
+                    response = active_client.audio.transcriptions.create(file=voice, **params)
             except Exception as exc:
                 raise _safe_ai_error(exc, "Распознавание речи") from None
             words = [
@@ -139,12 +152,12 @@ def transcribe_episode(
                 if str(w.word).strip()
             ] if getattr(response, "words", None) else []
             # Purely silent chunks are valid; continue without hallucinating dialogue.
-            part.write_text(json.dumps(words, ensure_ascii=False), encoding="utf-8")
+            write_json_cache(part, words)
             all_words.extend(words)
             report(f"Диалоги: {i+1}/{chunks} частей готовы", 7 + int(48 * (i + 1) / chunks))
         finally:
             wav.unlink(missing_ok=True)
-    transcript_path.write_text(json.dumps(all_words, ensure_ascii=False), encoding="utf-8")
+    write_json_cache(transcript_path, all_words)
     return all_words
 
 
@@ -235,7 +248,7 @@ def _model_response(client, rows: list[dict], settings: dict) -> list:
     prompt = {
         "min_seconds": settings["min_duration"],
         "max_seconds": settings["max_duration"],
-        "max_candidates": 8,
+        "max_candidates": 12,
         "transcript": rows,
     }
     instruction = (
@@ -264,6 +277,7 @@ def _model_response(client, rows: list[dict], settings: dict) -> list:
             ],
             response_format={"type": "json_object"},
             temperature=0.2,
+            max_completion_tokens=2500,
             timeout=180,
         )
         value = json.loads(str(response.choices[0].message.content or "{}"))
@@ -276,9 +290,6 @@ def _model_response(client, rows: list[dict], settings: dict) -> list:
 
 def analyse(job: dict, *, client_factory=None, report=progress) -> dict:
     settings = validate_settings(job)
-    key, _ = find_api_key()
-    if not key:
-        raise RuntimeError("Нужен OpenAI API-ключ: настрой его в Film Studio перед анализом.")
     source = authorized_input(job)
     details = probe(source)
     duration = float(details.get("duration") or 0)
@@ -291,23 +302,49 @@ def analyse(job: dict, *, client_factory=None, report=progress) -> dict:
         f"best_{settings['count']}_{settings['min_duration']}_"
         f"{settings['max_duration']}_v1.json"
     )
-    if result_path.is_file():
-        data = json.loads(result_path.read_text(encoding="utf-8"))
-        if data.get("ok"):
-            report("♻ Готовые лучшие моменты из кэша (без расходов API)", 100)
-            data["cached"] = True
-            return data
+    # Keep all existing v1 cache entries usable, even after a model change.
+    # A count change can reuse a larger previous result at the same durations.
+    matches = [result_path, *sorted(cachedir.glob(
+        f"best_*_{settings['min_duration']}_{settings['max_duration']}_v1.json"
+    ))]
+    for path in dict.fromkeys(matches):
+        data = read_json_cache(path, dict)
+        if not data or not data.get("ok") or not isinstance(data.get("highlights"), list):
+            continue
+        if path != result_path and len(data["highlights"]) < settings["count"]:
+            continue
+        data["highlights"] = data["highlights"][:settings["count"]]
+        data["input_id"] = str(job.get("input_id") or "")
+        data["cached"] = True
+        data["api_calls"] = 0
+        report("♻ Готовые лучшие моменты из кэша (без расходов API)", 100)
+        return data
 
-    if client_factory is None:
-        from openai import OpenAI
-        client_factory = OpenAI
-    client = client_factory(
-        api_key=key, base_url="https://api.openai.com/v1",
-        timeout=180, max_retries=1,
-    )
-    report("Проверяю исходную серию", 5)
+    client = None
+    api_calls = 0
+    model = os.environ.get("FILM_HIGHLIGHTS_MODEL", RANKING_MODEL)
+
+    def get_client():
+        nonlocal client, api_calls
+        if job.get("cache_only") is True:
+            raise RuntimeError("В кэше нет всех данных для этих настроек. "
+                               "Разреши платный анализ, только если он действительно нужен.")
+        if client is None:
+            key, _ = find_api_key()
+            if not key:
+                raise RuntimeError("Для новых результатов нужен OpenAI API-ключ.")
+            factory = client_factory
+            if factory is None:
+                from openai import OpenAI
+                factory = OpenAI
+            client = factory(api_key=key, base_url="https://api.openai.com/v1",
+                             timeout=180, max_retries=0)
+        api_calls += 1
+        return client
+
+    report("Проверяю локальный кэш исходной серии", 5)
     words = transcribe_episode(
-        source, duration, settings["language"], cachedir, client, report=report
+        source, duration, settings["language"], cachedir, get_client, report=report
     )
     if len(words) < 12:
         raise RuntimeError(
@@ -322,8 +359,23 @@ def analyse(job: dict, *, client_factory=None, report=progress) -> dict:
     candidates = []
     report(f"Расшифровано {len(words)} слов; анализирую смысл сцен", 58)
     for i, block in enumerate(sorted(blocks)):
-        report(f"OpenAI оценивает сцены: часть {i+1}/{len(blocks)}", 59 + int(26 * i / len(blocks)))
-        candidates.extend(_model_response(client, blocks[block], settings))
+        # The candidate pool is independent of requested count. Save each paid
+        # block immediately so restarting never repeats completed requests.
+        signature = hashlib.sha256(json.dumps({
+            "model": model, "min": settings["min_duration"],
+            "max": settings["max_duration"], "block": blocks[block],
+            "version": 2,
+        }, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+        block_path = cachedir / f"rank_{signature}.json"
+        saved = read_json_cache(block_path, list)
+        value = 59 + int(26 * i / len(blocks))
+        if saved is None:
+            report(f"OpenAI оценивает новые сцены: часть {i+1}/{len(blocks)}", value)
+            saved = _model_response(get_client(), blocks[block], settings)
+            write_json_cache(block_path, saved)
+        else:
+            report(f"♻ Оценки сцен из кэша: часть {i+1}/{len(blocks)}", value)
+        candidates.extend(saved)
     report("Сравниваю сцены и исключаю повторяющиеся моменты", 90)
     selected = choose_highlights(
         candidates, words, duration, settings["count"],
@@ -335,8 +387,9 @@ def analyse(job: dict, *, client_factory=None, report=progress) -> dict:
             "Попробуй уменьшить минимальную длительность."
         )
     result = {
-        "ok": True, "cached": False,
-        "model": RANKING_MODEL,
+        "ok": True, "cached": api_calls == 0,
+        "api_calls": api_calls,
+        "model": model,
         "source_seconds": round(duration, 1),
         "analyzed_seconds": round(duration, 1),
         "words": len(words),
@@ -345,7 +398,7 @@ def analyse(job: dict, *, client_factory=None, report=progress) -> dict:
         "title": "Лучшие моменты серии",
         "highlights": selected,
     }
-    result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_cache(result_path, result)
     report(f"Найдено {len(selected)} лучших моментов", 100)
     return result
 
