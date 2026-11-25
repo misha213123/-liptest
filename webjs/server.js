@@ -1770,6 +1770,7 @@ except Exception as e:
           episode: String(payload.episode || ''),
           voice: String(payload.voice || ''),
           count, min_duration: minDuration, max_duration: maxDuration,
+          cache_only: payload.cache_only !== false,
           language: ['ru','en','auto'].includes(payload.language) ? payload.language : 'ru',
         }), 'utf8');
         const log = fs.createWriteStream(logPath, { flags: 'a' });
