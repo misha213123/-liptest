@@ -187,7 +187,8 @@
           <button id="findHighlightsBtn" type="button">Найти интересные моменты автоматически</button>
           <button id="cancelHighlightsBtn" type="button" class="secondary" disabled>Остановить поиск</button>
         </div>
-        <p class="hint">Анализ запускается только по кнопке. Он отправляет аудио выбранной серии и расшифровку в OpenAI API, расходует оплачиваемые запросы. Повторное сканирование того же файла использует локальный кэш. Поиск основан на диалогах: немые экшен-сцены пока не оцениваются по изображению.</p>
+        <label class="toggle" style="margin-top:12px"><input id="allowPaidHighlights" type="checkbox"> Разрешить платный анализ, если нужных данных нет в кэше</label>
+        <p class="hint">По умолчанию поиск только по локальному кэшу — 0 API-вызовов. Для новой серии разреши платный анализ. Расшифровка, оценки блоков и найденные моменты сохраняются после перезапуска. Поиск основан на диалогах.</p>
         <div id="highlightsStatus" class="status muted" role="status"></div>
         <progress id="highlightsProgress" max="100" value="0" hidden></progress>
         <pre id="highlightsLog" hidden></pre>
@@ -271,9 +272,9 @@
         <div style="margin-top:16px">
           <label for="speechEngine">Распознавание голоса</label>
           <select id="speechEngine">
-            <option value="openai_max" selected>OpenAI МАКСИМУМ · GPT-Transcribe + таймкоды слов</option>
+            <option value="openai_max">OpenAI МАКСИМУМ · GPT-Transcribe + таймкоды слов</option>
             <option value="openai">OpenAI Whisper-1 · только таймкоды слов</option>
-            <option value="local">Локальный Faster-Whisper · бесплатно</option>
+            <option value="local" selected>Кэш серии / локальный Faster-Whisper · бесплатно</option>
           </select>
           <p id="openaiStatus" class="hint" role="status">Проверяю локальные настройки OpenAI-ключа...</p>
           <p id="openaiDisclosure" class="hint" hidden>В режиме «МАКСИМУМ» выполняются ДВА платных запроса: GPT-Transcribe распознаёт диалоги, Whisper-1 определяет временные метки. Текст сопоставляется с метками без выдумывания времени новых слов. Оба запроса отправляют выбранный аудиоотрывок OpenAI. Whisper-1 доступен до 26.02.2027. Ключ остаётся на сервере.</p>
@@ -919,7 +920,7 @@ function displayFilmHighlights(data) {
   status('highlightsStatus','Найдено '+data.highlights.length+
     ' моментов по диалогам ('+Math.round(data.analyzed_seconds/60)+
     ' мин анализа). '+(data.cached?'Из кэша, без повторных API-вызовов.':
-    'Оцени качество выбора, затем открой интересную сцену.'));
+    'Результат сохранён в кэше. Новых API-вызовов: '+(data.api_calls??'—')+'.'));
 }
 function finishFilmHighlightSearch(){
   highlightSearching=false;
@@ -936,7 +937,7 @@ async function pollFilmHighlights(){
     $('highlightsLog').textContent=data.log||'';
     if(data.progress!=null)$('highlightsProgress').value=data.progress;
     if(data.running){
-      status('highlightsStatus','OpenAI анализирует серию — '+Math.round(data.progress||0)+'%');
+      status('highlightsStatus','Поиск по кэшу / анализ серии — '+Math.round(data.progress||0)+'%');
       return;
     }
     finishFilmHighlightSearch();
@@ -956,16 +957,15 @@ $('findHighlightsBtn').onclick=async()=>{
   if(!source.input_id&&!source.url){
     return status('highlightsStatus','Сначала импортируй серию или выбери эпизод через каталог.');
   }
-  if(!openaiConfigured){
-    return status('highlightsStatus','Для смыслового поиска моментов нужен OpenAI API-ключ в локальных настройках.');
-  }
   const payload={
     ...source,
     count:Number($('highlightCount').value),
     min_duration:Number($('highlightMin').value),
     max_duration:Number($('highlightMax').value),
-    language:$('speechLanguage').value
+    language:$('speechLanguage').value,
+    cache_only:!$('allowPaidHighlights').checked
   };
+  $('allowPaidHighlights').checked=false;
   if(payload.max_duration<payload.min_duration){
     return status('highlightsStatus','Максимальная длительность должна быть больше минимальной.');
   }
