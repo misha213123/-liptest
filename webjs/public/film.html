@@ -456,10 +456,20 @@
                 <label for="aiDetailTile">Блоки GPU · для GTX 1650 4 ГБ</label>
                 <select id="aiDetailTile">
                   <option value="32">32 px · меньше видеопамяти</option>
-                  <option value="64" selected>64 px · сбалансировано</option>
-                  <option value="96">96 px · быстрее, если памяти хватит</option>
+                  <option value="64">64 px · сбалансировано</option>
+                  <option value="96" selected>96 px · быстрее, если памяти хватит</option>
+                  <option value="128">128 px · максимум, больше VRAM</option>
                 </select>
               </div>
+            </div>
+            <div style="margin-top:12px">
+              <label for="aiDetailSpeed">Скорость AI-обработки</label>
+              <select id="aiDetailSpeed" style="width:100%">
+                <option value="balanced">Стабильный · 1:1:1</option>
+                <option value="fast" selected>Быстрый · 1:2:2</option>
+                <option value="max">Максимальная нагрузка GPU · 2:2:2</option>
+              </select>
+              <p class="hint">При ошибке памяти выбери стабильный режим и блок 32–64 px. На одном кадре параллельные потоки почти не помогают; увеличение блока может ускорить обработку.</p>
             </div>
             <div style="margin-top:14px;padding:12px;border:1px solid #38544e;border-radius:10px;background:#0d1919">
               <div class="row" style="align-items:center;justify-content:space-between;gap:10px">
@@ -823,6 +833,9 @@ $('installDetailRestoreBtn').onclick=async()=>{
     $('detailRestoreStatus').textContent='Не удалось установить: '+e.message;
   }finally{b.disabled=false;}
 };
+$('aiDetailSpeed').onchange=()=>{
+  $('aiDetailTile').value={balanced:'64',fast:'96',max:'128'}[$('aiDetailSpeed').value];
+};
 $('aiDetailStrength').oninput=()=>{
   $('aiDetailStrengthVal').textContent=$('aiDetailStrength').value+'%';
 };
@@ -953,7 +966,8 @@ $('pureUltraBtn').onclick=()=>{
   $('aiDetailRestore').checked=true;
   $('aiDetailRestore').onchange();
   $('aiDetailModel').value='realesrgan-x4plus';
-  $('aiDetailTile').value='32';
+  $('aiDetailSpeed').value='max';
+  $('aiDetailSpeed').onchange();
   $('aiDetailStrength').value=100;
   $('aiDetailStrength').oninput();
   $('enhance').checked=false;
@@ -1150,6 +1164,7 @@ async function loadFilmPreview(){
     ai_detail_preview:requestedAIPreview,
     ai_detail_model:$('aiDetailModel').value,
     ai_detail_tile:Number($('aiDetailTile').value),
+    ai_detail_speed:$('aiDetailSpeed').value,
     ai_detail_strength:Number($('aiDetailStrength').value),
     face_tracking:$('face').checked,face_focus:$('faceFocus').value,
     enhance:$('enhance').checked,
@@ -1500,6 +1515,7 @@ $('renderBtn').onclick=async()=>{
     ai_detail_restore:$('aiDetailRestore').checked,
     ai_detail_model:$('aiDetailModel').value,
     ai_detail_tile:Number($('aiDetailTile').value),
+    ai_detail_speed:$('aiDetailSpeed').value,
     ai_detail_strength:Number($('aiDetailStrength').value),
     caption_style:captionStyle,caption_position:Number($('captionPosition').value),
     speech_engine:$('speechEngine').value,
