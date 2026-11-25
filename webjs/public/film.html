@@ -436,6 +436,7 @@
               <button id="smoothPresetBtn" type="button">Максимальная плавность + сочные цвета · 60 FPS</button>
               <button id="referencePresetBtn" type="button" class="secondary">Как в примере · 60 FPS</button>
               <button id="ultraPresetBtn" class="secondary" type="button">Ultra AI · тяжёлый режим</button>
+              <button id="pureUltraBtn" type="button">Ultra HD · только AI-восстановление</button>
             </div>
           </div>
           <div class="card" style="margin:15px 0;background:#102326;border:1px solid #577b76">
@@ -947,6 +948,34 @@ $('referencePresetBtn').onclick=()=>{
   updateVideo2X();
   scheduleFilmPreview();
   status('renderStatus','Пресет как в примере: квадрат 1:1, тёплая цветокоррекция, реальная optical-flow интерполяция до 60 FPS, без зависающего Video2X.');
+};
+$('pureUltraBtn').onclick=()=>{
+  $('aiDetailRestore').checked=true;
+  $('aiDetailRestore').onchange();
+  $('aiDetailModel').value='realesrgan-x4plus';
+  $('aiDetailTile').value='32';
+  $('aiDetailStrength').value=100;
+  $('aiDetailStrength').oninput();
+  $('enhance').checked=false;
+  $('faceBeauty').checked=false;
+  $('smartColors').checked=false;
+  $('restorePreset').value='manual';
+  for(const id of restorationFields)$(id).value=0;
+  refreshRestorationLabels();
+  for(const id of ['removeGrain','removeBlur']){
+    $(id).value=0;
+    $(id).oninput();
+  }
+  refreshBeautyControls();
+  refreshColorOptions();
+  status('renderStatus','Ultra HD: только Real-ESRGAN x4plus, без цветовых и дополнительных фильтров. 1080p / 60 FPS. Проверь AI на 1 кадре.');
+  if(uploadedId && detailRestoreInstalled){
+    if(previewTimer)clearTimeout(previewTimer);
+    requestNeuralPreview=true;
+    loadFilmPreview();
+  }else{
+    scheduleFilmPreview();
+  }
 };
 $('ultraPresetBtn').onclick=()=>{
   $('video2xUpscale').value='realesrgan-plus';
