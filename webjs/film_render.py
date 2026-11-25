@@ -39,7 +39,7 @@ from film_openai import transcribe_openai, availability as openai_availability
 from film_openai_max import transcribe_max
 from film_captions import save_ass, validate as validate_caption_style
 from film_transcript_cache import transcribe_cached
-from film_filters import color_filters
+from film_filters import color_filters, clean_hd_filters
 from film_beauty import (
     settings as beauty_settings, active as beauty_active,
     preflight as beauty_preflight, process_clip as beauty_process_clip,
@@ -570,6 +570,9 @@ def render(job: dict) -> dict:
         "setpts=PTS-STARTPTS",
         f"crop={cw}:{ch}:x='{x_expr}':y='{y_expr}'",
     ]
+    clean_hd = job.get("clean_hd") is True
+    clean_pre, clean_post = clean_hd_filters(job) if clean_hd else ([], [])
+    vf.extend(clean_pre)
     if optical and not detail_requested:
         vf.append(optical_motion_filter(metadata["fps"], fps, True))
         print(
@@ -582,7 +585,7 @@ def render(job: dict) -> dict:
         f"scale={render_w}:{render_h}:flags=lanczos",
         "setsar=1",
     ]
-    vf.extend(color_filters(job, ai_enabled=ai_enabled))
+    vf.extend(clean_post if clean_hd else color_filters(job, ai_enabled=ai_enabled))
     if fps_choice != "source" and rife_multiplier == 1 and not optical and not detail_requested:
         vf.append(f"fps={int(fps)}")
     caption_count = 0
@@ -629,7 +632,7 @@ def render(job: dict) -> dict:
     cmd = [
         FFMPEG, "-hide_banner", "-y", "-nostdin", *input_args,
         "-vf", ",".join(vf),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "12" if detail_requested else "16",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "12" if detail_requested else ("15" if clean_hd else "16"),
         "-c:a", "aac", "-b:a", "256k",
         "-movflags", "+faststart", str(prepared),
     ]
