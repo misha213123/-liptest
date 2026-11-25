@@ -81,6 +81,7 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
     )
     started = time.monotonic()
     lines = []
+    diagnostic_lines = []
     last_percent = progress_start - 1
     try:
         for line in process.stdout:
@@ -89,6 +90,13 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
                 lines.append(line)
                 if len(lines) > 80:
                     lines.pop(0)
+                if re.search(r"error|failed|invalid|cannot|unable|memory|no space|fatal|denied|conversion failed", line, re.I):
+                    diagnostic_lines.append(line)
+                    diagnostic_lines = diagnostic_lines[-30:]
+                # Preserve actual FFmpeg output in the job log, excluding the
+                # frequent machine-readable progress records.
+                if not re.match(r"^[a-zA-Z_0-9]+=.*$", line):
+                    print("[ffmpeg] " + line, flush=True)
             if line.startswith("out_time="):
                 raw = line[len("out_time="):]
                 try:
@@ -104,7 +112,10 @@ def encode_with_progress(command: list[str], duration: float, timeout: int = 108
                 raise TimeoutError("Рендер превысил установленный лимит времени.")
         code = process.wait(timeout=30)
         if code:
-            raise RuntimeError("FFmpeg не завершил рендер:\n" + "\n".join(lines[-20:])[-2500:])
+            details = "\n".join(diagnostic_lines or lines[-25:])[-5000:]
+            raise RuntimeError(
+                f"FFmpeg не завершил рендер (код {code}, 0x{code & 0xffffffff:08X}):\n" + details
+            )
     finally:
         if process.poll() is None:
             process.kill()
@@ -631,9 +642,12 @@ def render(job: dict) -> dict:
     else:
         input_args = ["-ss", str(start), "-i", str(source), "-t", str(duration)]
     cmd = [
-        FFMPEG, "-hide_banner", "-y", "-nostdin", *input_args,
+        FFMPEG, "-hide_banner", "-y", "-nostdin",
+        *(["-filter_threads", "2"] if clean_hd else []), *input_args,
         "-vf", ",".join(vf),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "12" if detail_requested else ("15" if clean_hd else "16"),
+        "-c:v", "libx264", "-preset", "medium" if clean_hd else "slow",
+        *(["-threads:v", "6", "-x264-params", "rc-lookahead=20"] if clean_hd else []),
+        "-crf", "12" if detail_requested else ("15" if clean_hd else "16"),
         "-c:a", "aac", "-b:a", "256k",
         "-movflags", "+faststart", str(prepared),
     ]
