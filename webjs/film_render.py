@@ -46,7 +46,7 @@ from film_beauty import (
 )
 from film_ai_detail import restore_clip as run_neural_detail_restore
 from film_ai_detail import require_binary as require_neural_detail_restore
-from film_ai_detail import MODELS as AI_DETAIL_MODELS
+from film_ai_detail import MODELS as AI_DETAIL_MODELS, ai_source_dimensions
 
 OUT = ROOT / "output"
 INPUT_DIR = OUT / "film_inputs"
@@ -523,6 +523,10 @@ def render(job: dict) -> dict:
     render_w, render_h = video2x_intermediate_dimensions(
         cw, ch, target_w, target_h, ai_model
     )
+    if detail_requested:
+        # Prepare the neural input directly at its intended source dimensions,
+        # rather than upscaling to the delivery resolution and shrinking again.
+        render_w, render_h = ai_source_dimensions(cw, ch)
     if scale > 1:
         print(
             f"[video2x] Source crop {cw}x{ch}; preparing {render_w}x{render_h} "
@@ -582,7 +586,9 @@ def render(job: dict) -> dict:
     caption_count = 0
     if bool(job.get("captions", True)):
         ass, caption_count = _make_subtitles(
-            source, start, end, out, render_w, render_h,
+            source, start, end, out,
+            target_w if detail_requested else render_w,
+            target_h if detail_requested else render_h,
             str(job.get("caption_style") or "bold"),
             int(job.get("caption_position", 78)),
             str(job.get("whisper_model") or "medium"),
@@ -621,7 +627,7 @@ def render(job: dict) -> dict:
     cmd = [
         FFMPEG, "-hide_banner", "-y", "-nostdin", *input_args,
         "-vf", ",".join(vf),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "16",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "12" if detail_requested else "16",
         "-c:a", "aac", "-b:a", "256k",
         "-movflags", "+faststart", str(prepared),
     ]
@@ -735,7 +741,10 @@ def render(job: dict) -> dict:
             optical,
             ass if caption_count else None,
         )
-        if finish_filters and finish_filters[0].startswith("minterpolate"):
+        if (processed_info["width"], processed_info["height"]) != (target_w, target_h):
+            # A neural failure must still export at the selected delivery size.
+            finish_filters.insert(0, f"scale={target_w}:{target_h}:flags=lanczos")
+        if any(f.startswith("minterpolate") for f in finish_filters):
             print(
                 f"[motion] Post-AI motion-compensated interpolation "
                 f"{processed_info['fps']:.2f} -> {fps} FPS.",
