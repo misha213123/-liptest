@@ -106,7 +106,32 @@ def manual_cleanup_filters(job: dict) -> tuple[list[str], list[str]]:
     return pre, post
 
 
+def clean_hd_filters(job: dict) -> tuple[list[str], list[str]]:
+    """Fast non-neural cleanup: native-resolution denoise, then output sharpening.
+    Keep color controls shared by thumbnail and export; never add film grain.
+    """
+    grain = _percent(job, "remove_grain") / 100
+    blur = _percent(job, "remove_blur") / 100
+    pre, post = [], []
+    if grain:
+        # Mild deblocking followed by fast spatial/temporal noise suppression.
+        pre.append(f"deblock=filter=strong:block=8:alpha={.065*grain:.3f}:beta={.035*grain:.3f}:gamma={.030*grain:.3f}:delta={.025*grain:.3f}")
+        pre.append(f"hqdn3d={10*grain:.2f}:{8*grain:.2f}:{14*grain:.2f}:{11*grain:.2f}")
+    # Disable legacy sharpness and grain defaults: only four visible controls.
+    post.extend(color_filters({**job, "clean_hd": False, "remove_grain": 0,
+                               "remove_blur": 0, "artifact_reduction": 0,
+                               "denoise": 0, "microdetail": 0,
+                               "sharpen": 0, "film_grain": 0}))
+    if blur:
+        post.append(f"unsharp=5:5:{1.35*blur:.3f}:5:5:0")
+        post.append(f"unsharp=3:3:{.35*blur:.3f}:3:3:0")
+    return pre, post
+
+
 def color_filters(job: dict, ai_enabled: bool = False, preview: bool = False) -> list[str]:
+    if job.get("clean_hd") is True:
+        pre, post = clean_hd_filters(job)
+        return pre + post
     cleanup_pre, cleanup_post = manual_cleanup_filters(job)
     if not bool(job.get("enhance", True)):
         return cleanup_pre + cleanup_post
