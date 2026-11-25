@@ -921,6 +921,38 @@ class FilmCaptionAndGradeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             restoration_filters({"sharpen":"inf"})
 
+    def test_clean_hd_controls_have_independent_zero_and_max(self):
+        from film_filters import clean_hd_filters
+        job = {"clean_hd": True, "enhance": True,
+               "gamma": 1.12, "brightness": .04,
+               "saturation": 1.29, "contrast": 1.19, "color_tone": "warm"}
+        pre, post = clean_hd_filters(job)
+        self.assertEqual(pre, [])
+        self.assertFalse(any(f.startswith(("unsharp=", "noise=")) for f in post))
+        pre, post = clean_hd_filters({**job, "remove_grain": 100})
+        self.assertTrue(any(f.startswith("hqdn3d=10.00") for f in pre))
+        self.assertFalse(any(f.startswith("unsharp=") for f in post))
+        pre, post = clean_hd_filters({**job, "remove_blur": 100})
+        self.assertEqual(pre, [])
+        self.assertEqual(sum(f.startswith("unsharp=") for f in post), 2)
+        pre, post = clean_hd_filters({**job, "remove_grain": 100, "remove_blur": 100})
+        self.assertFalse(any(f.startswith(("noise=", "nlmeans=")) for f in pre + post))
+
+    def test_clean_hd_filter_graph_when_installed(self):
+        import shutil
+        import subprocess
+        from film_filters import clean_hd_filters
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            self.skipTest("FFmpeg not installed")
+        pre, post = clean_hd_filters({"remove_grain": 100, "remove_blur": 100})
+        cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
+               "-f", "lavfi", "-i", "testsrc2=size=128x72:rate=5:duration=1",
+               "-vf", ",".join(pre + ["scale=256:144:flags=lanczos"] + post),
+               "-frames:v", "2", "-f", "null", "-"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr[:1100])
+
     def test_restoration_ffmpeg_filter_graph_when_installed(self):
         import shutil
         import subprocess
