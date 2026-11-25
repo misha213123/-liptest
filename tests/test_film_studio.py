@@ -479,7 +479,7 @@ class FilmNeuralDetailTests(unittest.TestCase):
             self.assertTrue(output.is_file())
             model_command=next(row for row in commands if "-n" in row)
             self.assertEqual(model_command[model_command.index("-t")+1],"64")
-            self.assertEqual(model_command[model_command.index("-s")+1],"2")
+            self.assertEqual(model_command[model_command.index("-s")+1],"4")
             self.assertTrue(any("-map" in row and "1:a:0?" in row for row in commands))
             self.assertTrue(any(
                 "-filter_complex" in row and "scale=1920:1080:flags=lanczos" in str(row)
