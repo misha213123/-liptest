@@ -16,7 +16,7 @@ from film_render import (
 from core.streamer_export import ASPECT_PRESETS
 from film_filters import color_filters
 from film_beauty import process_preview_image
-from film_ai_detail import restore_preview_frame
+from film_ai_detail import restore_preview_frame, ai_source_dimensions
 
 
 def render_preview(job: dict, output: Path) -> dict:
@@ -76,6 +76,10 @@ def render_preview(job: dict, output: Path) -> dict:
     # scales it for display, but never receives the old 360 px thumbnail.
     w = min(1080, max(2, crop_w - crop_w % 2))
     h = max(2, int(round(w * by / bx / 2) * 2))
+    detail_strength = float(job.get("ai_detail_strength", 100))
+    neural_preview = job.get("ai_detail_preview", False) is True and detail_strength > 0
+    if neural_preview:
+        w, h = ai_source_dimensions(crop_w, crop_h)
     base_filters = [f"crop={crop_w}:{crop_h}:{x}:{y}", f"scale={w}:{h}:flags=lanczos"]
     enhanced_filters = base_filters + color_filters(job, preview=True)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -90,9 +94,10 @@ def render_preview(job: dict, output: Path) -> dict:
             raise RuntimeError("FFmpeg не смог сформировать миниатюру.")
     # Reuse the real pixel processor on preview, never fake it with CSS.
     beauty = process_preview_image(output, job, ROOT / "output" / "film_models")
-    detail_strength = float(job.get("ai_detail_strength", 100))
-    neural_preview = job.get("ai_detail_preview", False) is True and detail_strength > 0
     if neural_preview:
+        # Show the AI result at the actual 1080p export dimensions instead
+        # of throwing away restored detail by shrinking to the source size.
+        w, h = bx + bx % 2, by + by % 2
         restore_preview_frame(
             output, FFMPEG, w, h,
             model=str(job.get("ai_detail_model") or "realesrgan-x4plus"),
