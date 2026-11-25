@@ -38,7 +38,7 @@ from film_runtime import face_detector, optional_profile_detector, transcribe_se
 from film_openai import transcribe_openai, availability as openai_availability
 from film_openai_max import transcribe_max
 from film_captions import save_ass, validate as validate_caption_style
-from film_transcript_cache import transcribe_cached
+from film_transcript_cache import transcribe_cached, cached_episode_excerpt
 from film_filters import color_filters, clean_hd_filters
 from film_beauty import (
     settings as beauty_settings, active as beauty_active,
@@ -372,6 +372,12 @@ def _make_subtitles(
         raise ValueError("Неизвестный движок распознавания речи.")
 
     def recognize():
+        if engine != "openai_max":
+            cached = cached_episode_excerpt(source, start, end, language,
+                                            root=OUT / "film_highlights")
+            if cached is not None:
+                print("[speech] Reusing episode transcript; no new API calls.", flush=True)
+                return cached
         audio = out / "speech.wav"
         progress("Извлекаю голос для субтитров", 24)
         run([FFMPEG, "-y", "-nostdin", "-loglevel", "error",
@@ -452,11 +458,6 @@ def render(job: dict) -> dict:
         engine = str(job.get("speech_engine") or "local").lower()
         if engine not in ("local", "openai", "openai_max"):
             raise ValueError("Неизвестный движок субтитров.")
-        if engine in ("openai", "openai_max") and not openai_availability()["configured"]:
-            raise RuntimeError(
-                "OpenAI не настроен. Добавь свой ключ через OPENAI_API_KEY "
-                "или настройки OpenAI и перезапусти Film Studio."
-            )
     ai_model, rife_multiplier = video2x_options(job)
     ai_enabled = ai_model != "off" or rife_multiplier > 1
     detail_requested = job.get("ai_detail_restore", False) is True
