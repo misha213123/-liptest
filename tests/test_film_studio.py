@@ -1327,6 +1327,55 @@ class FilmHighlightDiscoveryTests(unittest.TestCase):
                 self.assertEqual(trans.calls,2)
                 self.assertEqual(words_again,words)
 
+    def test_cache_only_never_creates_api_client_and_count_reuses_result(self):
+        import tempfile
+        import json
+        from unittest.mock import patch, Mock
+        from film_highlights import analyse
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            src = folder / "episode.mp4"
+            src.write_bytes(b"fake")
+            cache = folder / "cache"
+            cache.mkdir()
+            highlights = [{"rank": i, "title": str(i)} for i in range(1, 7)]
+            (cache / "best_6_18_55_v1.json").write_text(
+                json.dumps({"ok": True, "highlights": highlights}), encoding="utf-8")
+            client = Mock()
+            with patch("film_highlights.authorized_input", return_value=src), \
+                 patch("film_highlights.probe", return_value={"duration": 120}), \
+                 patch("film_highlights.media_cache_directory", return_value=cache):
+                got = analyse({"count": 3, "cache_only": True},
+                              client_factory=client, report=lambda *_: None)
+                self.assertTrue(got["cached"])
+                self.assertEqual(got["api_calls"], 0)
+                self.assertEqual(len(got["highlights"]), 3)
+                with self.assertRaisesRegex(RuntimeError, "В кэше нет"):
+                    analyse({"count": 6, "min_duration": 20, "cache_only": True},
+                            client_factory=client, report=lambda *_: None)
+            client.assert_not_called()
+
+    def test_episode_excerpt_reuses_words_with_relative_timestamps(self):
+        import tempfile
+        import json
+        from film_transcript_cache import episode_cache_directory, cached_episode_excerpt
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "episode.mp4"
+            src.write_bytes(b"fake")
+            cache = episode_cache_directory(src, "ru", root)
+            cache.mkdir()
+            (cache / "transcript.json").write_text(json.dumps([
+                {"word": "до", "start": 8, "end": 9},
+                {"word": "слово", "start": 10.5, "end": 11},
+                {"word": "после", "start": 20, "end": 21},
+            ]), encoding="utf-8")
+            segments = cached_episode_excerpt(src, 10, 15, "ru", root=root)
+            self.assertEqual(len(segments), 1)
+            self.assertEqual(segments[0].text, "слово")
+            self.assertEqual(segments[0].words[0].start, .5)
+            self.assertIsNone(cached_episode_excerpt(src, 10, 15, "en", root=root))
+
     def test_ai_response_is_parsed_as_ranked_candidates(self):
         from types import SimpleNamespace as NS
         from film_highlights import _model_response
@@ -1340,7 +1389,7 @@ class FilmHighlightDiscoveryTests(unittest.TestCase):
         got=_model_response(client,[{"start":0,"end":48,"text":"Серьёзный разговор"}],settings)
         self.assertEqual(len(got),1)
         self.assertEqual(got[0]["score"],85)
-        self.assertEqual(calls[0]["model"],"gpt-4.1")
+        self.assertEqual(calls[0]["model"],"gpt-4.1-mini")
         self.assertEqual(calls[0]["response_format"],{"type":"json_object"})
 
 
