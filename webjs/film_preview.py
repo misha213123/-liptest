@@ -14,7 +14,7 @@ from film_render import (
     INPUT_DIR, FFMPEG, ROOT, _track_centres, probe, run, sec,
 )
 from core.streamer_export import ASPECT_PRESETS
-from film_filters import color_filters
+from film_filters import color_filters, clean_hd_filters
 from film_beauty import process_preview_image
 from film_ai_detail import restore_preview_frame, ai_source_dimensions
 
@@ -81,7 +81,11 @@ def render_preview(job: dict, output: Path) -> dict:
     if neural_preview:
         w, h = ai_source_dimensions(crop_w, crop_h)
     base_filters = [f"crop={crop_w}:{crop_h}:{x}:{y}", f"scale={w}:{h}:flags=lanczos"]
-    enhanced_filters = base_filters + color_filters(job, preview=True)
+    if job.get("clean_hd") is True:
+        clean_pre, clean_post = clean_hd_filters(job)
+        enhanced_filters = [base_filters[0], *clean_pre, base_filters[1], *clean_post]
+    else:
+        enhanced_filters = base_filters + color_filters(job, preview=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     before = output.with_name(output.stem + "_before.jpg")
     for filename, filters in ((before, base_filters), (output, enhanced_filters)):
